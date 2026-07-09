@@ -1,10 +1,10 @@
-# TrimTube Geliştirme Günlüğü (Sorunlar ve Çözümler)
+# TrimTube Geliştirme Günlüğü (macOS Oturumu Sorunları ve Çözümleri)
 
-Bu dosya, TrimTube uygulamasının macOS (M-serisi) üzerinde kurulumu, çalıştırılması ve hata ayıklama süreçlerinde karşılaşılan problemleri ve uygulanan kalıcı çözümleri barındırır.
+Bu dosya, TrimTube uygulamasının evdeki macOS (M-serisi) ortamındaki kurulum, çalıştırma ve hata ayıklama süreçlerinde karşılaşılan problemleri ve uygulanan kalıcı çözümleri barındırır (ofisteki Windows ortamı ile karıştırılmaması için macOS oturumu olarak not alınmıştır).
 
 ---
 
-## 1. macOS "Uygulama Hasar Görmüş" Hatası (Gatekeeper Karantinası)
+## 1. macOS Oturumundaki "Uygulama Hasar Görmüş" Hatası (Gatekeeper Karantinası)
 
 ### Sorun:
 Uygulama internetten `.dmg` olarak indirilip kurulduktan sonra açılmak istendiğinde şu hata alınıyordu:
@@ -22,7 +22,7 @@ xattr -cr /Applications/TrimTube.app
 
 ---
 
-## 2. "İndirilen Dosya Bulunamadı" Hatası (Ses ve Video Birleştirme Sorunu)
+## 2. macOS Oturumundaki "İndirilen Dosya Bulunamadı" Hatası (Ses ve Video Birleştirme Sorunu)
 
 ### Sorun:
 Videolar indirilirken veya kesilirken işlem yarıda kalıyor ve `"İndirilen dosya bulunamadı"` uyarısı çıkıyordu. Önbellek (cache) klasöründe video (`.mp4`) ve ses (`.m4a`) dosyalarının birleştirilemeden ayrı ayrı durduğu gözlemlendi.
@@ -38,7 +38,7 @@ Videolar indirilirken veya kesilirken işlem yarıda kalıyor ve `"İndirilen do
 
 ---
 
-## 3. "spawn python ENOENT" Hatası (Kişi Takibinin Başlatılamaması)
+## 3. macOS Oturumundaki "spawn python ENOENT" Hatası (Kişi Takibinin Başlatılamaması)
 
 ### Sorun:
 Kişi takibi özelliği aktif edildiğinde işlem tamamlanırken şu hata oluşuyordu:
@@ -63,7 +63,7 @@ Kişi takibi özelliği aktif edildiğinde işlem tamamlanırken şu hata oluşu
 
 ---
 
-## 4. "ZIP file not provided" Hatası (macOS Otomatik Güncelleme Hatası)
+## 4. macOS Oturumundaki "ZIP file not provided" Hatası (Otomatik Güncelleme Hatası)
 
 ### Sorun:
 Uygulama içi otomatik güncelleme butonuna basıldığında şu hata fırlatılıyordu:
@@ -83,7 +83,7 @@ macOS üzerinde `electron-updater`'ın bağlı olduğu **Squirrel.Mac** servisi,
 
 ---
 
-## 5. "cv2 has no attribute legacy" Hatası (OpenCV Sürüm ve Paket Sorunu)
+## 5. macOS Oturumundaki "cv2 has no attribute legacy" Hatası (OpenCV Sürüm ve Paket Sorunu)
 
 ### Sorun:
 Kişi takibi başlatıldığında şu hata alınıyordu:
