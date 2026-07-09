@@ -1,7 +1,7 @@
 {
   "name": "trimtube",
   "productName": "TrimTube",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "YouTube video indirme ve kesme aracı (yt-dlp + ffmpeg)",
   "main": "main.js",
   "author": {
@@ -59,7 +59,7 @@
     },
     "mac": {
       "icon": "assets/icon.png",
-      "target": ["dmg"],
+      "target": ["dmg", "zip"],
       "category": "public.app-category.video",
       "extraResources": [
         { "from": "resources/bin/mac", "to": "bin" }
