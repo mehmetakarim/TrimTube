@@ -308,3 +308,66 @@ $('downloadBtn').addEventListener('click', async () => {
     setStatus('err', result.error || 'İndirme başarısız oldu.');
   }
 });
+
+// ---- otomatik güncelleme kartı ----
+// Hiçbir şey kullanıcı onayı olmadan indirilmez/kurulmaz: "available" durumunda
+// sadece bilgi kartı gösterilir, indirme "Güncelle" butonuna basılınca başlar.
+
+let updateState = 'idle'; // idle | available | downloading | ready | error
+
+function setUpdateCard(state, opts = {}) {
+  updateState = state;
+  const card = $('updateCard');
+  const btn = $('updateActionBtn');
+  const dismiss = $('updateDismissBtn');
+
+  if (state === 'idle') { card.classList.add('hidden'); return; }
+  card.classList.remove('hidden');
+  $('updateProgressWrap').classList.toggle('hidden', state !== 'downloading');
+  dismiss.classList.toggle('hidden', state === 'downloading');
+
+  if (state === 'available') {
+    $('updateTitle').textContent = 'Yeni sürüm mevcut';
+    $('updateSub').textContent = `TrimTube ${opts.version} indirilmeye hazır.`;
+    btn.textContent = 'Güncelle';
+    btn.disabled = false;
+  } else if (state === 'downloading') {
+    $('updateTitle').textContent = 'Güncelleme indiriliyor…';
+    $('updateSub').textContent = '';
+    btn.textContent = 'İndiriliyor…';
+    btn.disabled = true;
+  } else if (state === 'ready') {
+    $('updateTitle').textContent = 'Güncelleme hazır';
+    $('updateSub').textContent = 'Kurulum sihirbazı açılacak; yönergeleri takip edin.';
+    btn.textContent = 'Yeniden başlat ve kur';
+    btn.disabled = false;
+  } else if (state === 'error') {
+    $('updateTitle').textContent = 'Güncelleme başarısız';
+    $('updateSub').textContent = opts.message || 'Bilinmeyen hata';
+    btn.textContent = 'Tekrar dene';
+    btn.disabled = false;
+  }
+}
+
+window.api.onUpdateAvailable((version) => setUpdateCard('available', { version }));
+window.api.onUpdateProgress((percent) => {
+  $('updateProgressFill').style.width = percent + '%';
+});
+window.api.onUpdateReady(() => setUpdateCard('ready'));
+window.api.onUpdateError((message) => setUpdateCard('error', { message }));
+
+$('updateActionBtn').addEventListener('click', async () => {
+  if (updateState === 'available' || updateState === 'error') {
+    setUpdateCard('downloading');
+    $('updateProgressFill').style.width = '0%';
+    try {
+      await window.api.downloadUpdate();
+    } catch (err) {
+      setUpdateCard('error', { message: err.message });
+    }
+  } else if (updateState === 'ready') {
+    window.api.installUpdate();
+  }
+});
+
+$('updateDismissBtn').addEventListener('click', () => setUpdateCard('idle'));

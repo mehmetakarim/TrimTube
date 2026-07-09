@@ -9,6 +9,22 @@
 <body>
   <main class="app">
 
+    <!-- Otomatik güncelleme kartı: sağ üstte yüzer, kullanıcı onaylamadan hiçbir şey indirilmez/kurulmaz -->
+    <div id="updateCard" class="update-card hidden">
+      <div class="update-icon">⬆</div>
+      <div class="update-body">
+        <div id="updateTitle" class="update-title">Yeni sürüm mevcut</div>
+        <div id="updateSub" class="update-sub"></div>
+        <div id="updateProgressWrap" class="update-progress-wrap hidden">
+          <div class="progress-bar"><div id="updateProgressFill" class="update-progress-fill"></div></div>
+        </div>
+      </div>
+      <div class="update-actions">
+        <button id="updateActionBtn" class="btn-primary small">Güncelle</button>
+        <button id="updateDismissBtn" class="btn-ghost small">Daha sonra</button>
+      </div>
+    </div>
+
     <!-- Üst araç çubuğu: URL + Bilgi Al -->
     <div class="toolbar">
       <div class="url-pill">

@@ -56,17 +56,43 @@ function createWindow() {
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 }
 
-// GitHub Releases'teki en son (Draft/Prerelease olmayan) sürümü kontrol edip
-// indirir; kullanıcıya restart-to-install bildirimini electron-updater kendi
-// gösterir. macOS'ta uygulama kod imzasız olduğu için Squirrel.Mac akışı
-// başarısız olabilir — bu durumda sessizce loglanır, kullanıcı rahatsız edilmez.
-// Linux (.deb) hedefi electron-updater tarafından desteklenmediği için atlanır.
+// GitHub Releases'teki en son (Draft/Prerelease olmayan) sürümü kontrol eder.
+// İşletim sisteminin kendi (opak) bildirim/otomatik-kurulum akışı yerine
+// tamamen uygulama içi kart üzerinden, kullanıcının açıkça "Güncelle" ve
+// "Yeniden başlat" butonlarına basmasıyla ilerleyen bir akış kullanılır —
+// hem şeffaf hem de sessiz kurulum hatalarının fark edilmesini sağlar.
+// macOS'ta uygulama kod imzasız olduğu için indirme/kurulum başarısız
+// olabilir; bu durumda hata kart üzerinde gösterilir. Linux (.deb) hedefi
+// electron-updater tarafından desteklenmediği için atlanır.
+autoUpdater.autoDownload = false;
+autoUpdater.autoInstallOnAppQuit = false;
+
 function initAutoUpdate() {
   if (!app.isPackaged) return;
   if (process.platform !== 'win32' && process.platform !== 'darwin') return;
-  autoUpdater.on('error', (err) => console.error('[autoUpdater]', err.message));
-  autoUpdater.checkForUpdatesAndNotify().catch((err) => console.error('[autoUpdater]', err.message));
+
+  autoUpdater.on('update-available', (info) => {
+    win.webContents.send('update-available', info.version);
+  });
+  autoUpdater.on('download-progress', (p) => {
+    win.webContents.send('update-progress', Math.round(p.percent));
+  });
+  autoUpdater.on('update-downloaded', () => {
+    win.webContents.send('update-ready');
+  });
+  autoUpdater.on('error', (err) => {
+    console.error('[autoUpdater]', err.message);
+    win.webContents.send('update-error', err.message);
+  });
+
+  autoUpdater.checkForUpdates().catch((err) => console.error('[autoUpdater]', err.message));
 }
+
+ipcMain.handle('update-download', () => autoUpdater.downloadUpdate());
+// isSilent=false: kurulum sihirbazı görünür açılır (sessiz kurulumda oluşabilecek
+// hataların kullanıcı tarafından fark edilmeden uygulamanın silinmesini önler).
+// isForceRunAfter=true: kurulum bitince uygulama otomatik yeniden başlar.
+ipcMain.handle('update-install', () => autoUpdater.quitAndInstall(false, true));
 
 app.whenReady().then(() => {
   createWindow();

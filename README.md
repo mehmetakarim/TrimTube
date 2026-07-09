@@ -33,9 +33,12 @@ yt-dlp ve ffmpeg pakete gömülüdür, ayrıca bir şey kurmanıza gerek yoktur.
 
 ### Otomatik güncelleme
 
-- **Windows:** Uygulama açılışta GitHub Releases'teki en son sürümü kontrol eder, arka planda indirir ve hazır olduğunda "yeniden başlatıp kur" bildirimi gösterir.
-- **macOS:** Aynı mekanizma denenir; ancak uygulama kod imzalı olmadığı için (Apple Developer sertifikası gerektirir, ücretlidir) bu adım sessizce başarısız olabilir — bu durumda yeni sürümü Releases sayfasından elle indirmeniz gerekir.
-- **Linux (.deb):** Otomatik güncelleme desteklenmez; yeni sürümü Releases sayfasından elle indirip kurun.
+Uygulama açılışta GitHub Releases'teki en son sürümü sessizce kontrol eder. Yeni bir sürüm varsa **sağ üstte uygulama içi bir kart** belirir — hiçbir şey kullanıcı onayı olmadan indirilmez veya kurulmaz:
+
+1. **"Güncelle"** butonuna basınca indirme başlar, kart üzerinde ilerleme çubuğu gösterilir.
+2. İndirme bitince **"Yeniden başlat ve kur"** butonu belirir; basınca kurulum sihirbazı **görünür şekilde** açılır (sessiz kurulum değildir — bir sorun olursa fark edilebilsin diye bilinçli olarak görünür bırakıldı) ve bitince uygulama otomatik yeniden başlar.
+
+Bu akış yalnızca **Windows**'ta güvenilir çalışır. **macOS**'ta uygulama kod imzalı olmadığı için (Apple Developer sertifikası gerektirir, ücretlidir) indirme/kurulum adımı başarısız olabilir — kart bu durumda hata mesajını gösterir, yeni sürümü Releases sayfasından elle indirmeniz gerekir. **Linux (.deb)** için otomatik güncelleme desteklenmez.
 
 ## Özellikler
 

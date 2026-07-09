@@ -37,6 +37,53 @@ body {
   text-transform: uppercase;
 }
 
+/* ---- Otomatik güncelleme kartı ---- */
+.update-card {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 100;
+  width: 320px;
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 14px;
+  background: #fff;
+  border: 1px solid var(--hairline);
+  border-radius: 14px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.16);
+  animation: update-card-in 0.25s ease;
+}
+@keyframes update-card-in {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.update-icon {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: rgba(10, 132, 255, 0.12);
+  color: var(--accent);
+  display: grid;
+  place-items: center;
+  font-size: 15px;
+  font-weight: 700;
+}
+.update-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.update-title { font-size: 13px; font-weight: 600; }
+.update-sub { font-size: 11.5px; color: var(--muted); line-height: 1.4; }
+.update-progress-wrap { margin-top: 4px; }
+.update-progress-fill {
+  height: 100%;
+  width: 0%;
+  border-radius: 3px;
+  background: var(--accent);
+  transition: width 0.2s ease;
+}
+.update-actions { flex: none; display: flex; flex-direction: column; gap: 6px; }
+.btn-primary.small, .btn-ghost.small { height: 28px; padding: 0 12px; font-size: 11.5px; }
+
 /* ---- Üst araç çubuğu ---- */
 .toolbar {
   flex: none;
