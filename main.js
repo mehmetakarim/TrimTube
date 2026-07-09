@@ -12,6 +12,30 @@ let cancelRequested = false;
 // yt-dlp (PyInstaller/Python) çıktısının Windows'ta UTF-8 olması için
 const procEnv = { ...process.env, PYTHONIOENCODING: 'utf-8' };
 
+// Paketlenmiş uygulamada yt-dlp, resources/bin altına gömülür (bkz. scripts/fetch-ytdlp.js
+// ve package.json > build.win/mac.extraResources); geliştirme ortamında sistemdeki PATH kullanılır.
+function resolveYtdlp() {
+  if (app.isPackaged) {
+    const exe = process.platform === 'win32' ? 'yt-dlp.exe' : 'yt-dlp';
+    const bundled = path.join(process.resourcesPath, 'bin', exe);
+    if (fs.existsSync(bundled)) return bundled;
+  }
+  return 'yt-dlp';
+}
+
+// ffmpeg, ffmpeg-static paketiyle gömülür — hem geliştirme hem paketlenmiş sürümde
+// sistemde kurulu olmasına gerek kalmaz.
+function resolveFfmpeg() {
+  try {
+    return require('ffmpeg-static');
+  } catch {
+    return 'ffmpeg';
+  }
+}
+
+const YTDLP = resolveYtdlp();
+const FFMPEG = resolveFfmpeg();
+
 function createWindow() {
   win = new BrowserWindow({
     width: 1180,
@@ -77,7 +101,7 @@ ipcMain.handle('open-folder', (e, folder) => shell.openPath(folder));
 ipcMain.handle('get-info', (e, url) => {
   return new Promise((resolve, reject) => {
     execFile(
-      'yt-dlp',
+      YTDLP,
       ['-j', '--no-playlist', '--no-warnings', url],
       { maxBuffer: 100 * 1024 * 1024, env: procEnv },
       (err, stdout, stderr) => {
@@ -124,7 +148,7 @@ function qualityArgs(quality) {
 
 function runYtdlp(extraArgs) {
   const args = ['--no-playlist', '--newline', '--progress', '--no-warnings', '-N', '8', ...extraArgs];
-  return runProc('yt-dlp', args, (line) => {
+  return runProc(YTDLP, args, (line) => {
     const m = line.match(/\[download\]\s+(\d+(?:\.\d+)?)%/);
     if (m) win.webContents.send('progress', parseFloat(m[1]));
     else win.webContents.send('log', line.trim());
@@ -207,7 +231,7 @@ ipcMain.handle('download', async (e, opts) => {
         clipFile = path.join(tmpDir, 'clip.mp4');
         win.webContents.send('phase', 'convert');
         win.webContents.send('progress', 0);
-        const cut = await runProc('ffmpeg', [
+        const cut = await runProc(FFMPEG, [
           '-y', '-ss', trim.start, '-i', cacheFile, '-t', String(clipSec),
           '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-c:a', 'copy',
           '-progress', 'pipe:1', '-nostats', clipFile
@@ -235,7 +259,7 @@ ipcMain.handle('download', async (e, opts) => {
       // 3) Takip verisiyle dinamik kırpma (sendcmd yolu sorun çıkarmasın diye cwd=tmpDir)
       win.webContents.send('phase', 'convert');
       win.webContents.send('progress', 0);
-      const ff = await runProc('ffmpeg', [
+      const ff = await runProc(FFMPEG, [
         '-y', '-i', clipFile,
         '-vf', 'sendcmd=f=cmds.txt,crop=w=ih*9/16:h=ih:x=(iw-ow)/2:y=0,scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2',
         '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-c:a', 'aac', '-b:a', '192k',
@@ -269,7 +293,7 @@ ipcMain.handle('download', async (e, opts) => {
   win.webContents.send('phase', 'convert');
   win.webContents.send('progress', 0);
 
-  const ff = await runProc('ffmpeg', ffArgs, ffProgress);
+  const ff = await runProc(FFMPEG, ffArgs, ffProgress);
 
   if (cancelRequested) {
     try { fs.rmSync(target, { force: true }); } catch {}

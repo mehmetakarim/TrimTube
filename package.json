@@ -4,10 +4,60 @@
   "version": "1.0.0",
   "description": "YouTube video indirme ve kesme aracı (yt-dlp + ffmpeg)",
   "main": "main.js",
+  "author": "mehmetakarim",
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "fetch:win": "node scripts/fetch-ytdlp.js win32",
+    "fetch:mac": "node scripts/fetch-ytdlp.js darwin",
+    "build:win": "npm run fetch:win && electron-builder --win",
+    "build:mac": "npm run fetch:mac && electron-builder --mac"
+  },
+  "dependencies": {
+    "ffmpeg-static": "^5.2.0"
   },
   "devDependencies": {
-    "electron": "^37.0.0"
+    "electron": "^37.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.mehmetakarim.trimtube",
+    "productName": "TrimTube",
+    "asar": false,
+    "publish": {
+      "provider": "github",
+      "owner": "mehmetakarim",
+      "repo": "TrimTube"
+    },
+    "files": [
+      "**/*",
+      "!design/**",
+      "!scripts/**",
+      "!.github/**",
+      "!.claude/**",
+      "!resources/**",
+      "!dist/**"
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "icon": "assets/icon.ico",
+      "target": ["nsis"],
+      "extraResources": [
+        { "from": "resources/bin/win", "to": "bin" }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "mac": {
+      "icon": "assets/icon.png",
+      "target": ["dmg"],
+      "category": "public.app-category.video",
+      "extraResources": [
+        { "from": "resources/bin/mac", "to": "bin" }
+      ]
+    }
   }
 }
