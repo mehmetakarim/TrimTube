@@ -4,7 +4,10 @@
   "version": "1.0.1",
   "description": "YouTube video indirme ve kesme aracı (yt-dlp + ffmpeg)",
   "main": "main.js",
-  "author": "mehmetakarim",
+  "author": {
+    "name": "mehmetakarim",
+    "email": "mehmetakarim@gmail.com"
+  },
   "scripts": {
     "start": "electron .",
     "fetch:win": "node scripts/fetch-ytdlp.js win32",
