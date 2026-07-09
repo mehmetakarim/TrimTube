@@ -1,17 +1,25 @@
 // Paketleme öncesi platforma özel yt-dlp ikili dosyasını indirir.
-// Kullanım: node scripts/fetch-ytdlp.js [win32|darwin]
+// Kullanım: node scripts/fetch-ytdlp.js [win32|darwin|linux]
 const https = require('https');
 const fs = require('fs');
 const path = require('path');
 
 const platform = process.argv[2] || process.platform;
-const isWin = platform === 'win32';
-const url = isWin
-  ? 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe'
-  : 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos';
 
-const outDir = path.join(__dirname, '..', 'resources', 'bin', isWin ? 'win' : 'mac');
-const outFile = path.join(outDir, isWin ? 'yt-dlp.exe' : 'yt-dlp');
+const TARGETS = {
+  win32: { url: 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe', dir: 'win', file: 'yt-dlp.exe' },
+  darwin: { url: 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos', dir: 'mac', file: 'yt-dlp' },
+  linux: { url: 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux', dir: 'linux', file: 'yt-dlp' }
+};
+
+const target = TARGETS[platform];
+if (!target) {
+  console.error('Bilinmeyen platform:', platform);
+  process.exit(1);
+}
+
+const outDir = path.join(__dirname, '..', 'resources', 'bin', target.dir);
+const outFile = path.join(outDir, target.file);
 
 fs.mkdirSync(outDir, { recursive: true });
 
@@ -33,7 +41,7 @@ function download(u, dest, redirects = 0) {
     res.pipe(file);
     file.on('finish', () => {
       file.close(() => {
-        if (!isWin) fs.chmodSync(dest, 0o755);
+        if (platform !== 'win32') fs.chmodSync(dest, 0o755);
         console.log('yt-dlp indirildi:', dest);
       });
     });
@@ -43,4 +51,4 @@ function download(u, dest, redirects = 0) {
   });
 }
 
-download(url, outFile);
+download(target.url, outFile);

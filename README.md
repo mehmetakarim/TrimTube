@@ -13,13 +13,28 @@
 
 ## İndirme
 
-En son sürümü [Releases](../../releases) sayfasından indirin — **Windows (.exe)** ve **macOS (.dmg)** olarak yayınlanır. yt-dlp ve ffmpeg pakete gömülüdür, ayrıca bir şey kurmanıza gerek yoktur.
+En son sürümü [Releases](../../releases) sayfasından indirin:
+
+| Platform | Dosya |
+|---|---|
+| Windows | `TrimTube-Setup-x.y.z.exe` |
+| macOS (Apple Silicon — M1/M2/M3/M4) | `TrimTube-x.y.z-arm64.dmg` |
+| macOS (Intel) | `TrimTube-x.y.z-x64.dmg` (veya arch eki yoksa varsayılan) |
+| Linux (Debian/Ubuntu) | `trimtube_x.y.z_amd64.deb` |
+
+yt-dlp ve ffmpeg pakete gömülüdür, ayrıca bir şey kurmanıza gerek yoktur.
 
 > Uygulama henüz kod imzalı değil, bu yüzden ilk açılışta işletim sistemi bir uyarı gösterebilir:
 > - **Windows:** "Windows bilgisayarınızı korudu" uyarısında **Diğer bilgiler → Yine de çalıştır**'a tıklayın.
 > - **macOS:** Uygulamayı Finder'da sağ tıklayıp **Aç**'ı seçin (Gatekeeper'ın "bilinmeyen geliştirici" uyarısını atlamak için).
 
 🎯 Kişiyi takip eden akıllı kadraj özelliği, pakete dahil olmayan Python 3 + `opencv-contrib-python` gerektirir (bkz. [Kaynaktan çalıştırma](#kaynaktan-çalıştırma-geliştirici)); diğer tüm özellikler kutudan çıktığı gibi çalışır.
+
+### Otomatik güncelleme
+
+- **Windows:** Uygulama açılışta GitHub Releases'teki en son sürümü kontrol eder, arka planda indirir ve hazır olduğunda "yeniden başlatıp kur" bildirimi gösterir.
+- **macOS:** Aynı mekanizma denenir; ancak uygulama kod imzalı olmadığı için (Apple Developer sertifikası gerektirir, ücretlidir) bu adım sessizce başarısız olabilir — bu durumda yeni sürümü Releases sayfasından elle indirmeniz gerekir.
+- **Linux (.deb):** Otomatik güncelleme desteklenmez; yeni sürümü Releases sayfasından elle indirip kurun.
 
 ## Özellikler
 
@@ -60,11 +75,12 @@ npm start
 ### Kurulum paketi üretmek
 
 ```bash
-npm run build:win   # Windows .exe (Windows'ta çalıştırılmalı)
-npm run build:mac   # macOS .dmg (macOS'ta çalıştırılmalı)
+npm run build:win     # Windows .exe (Windows'ta çalıştırılmalı)
+npm run build:mac     # macOS .dmg (macOS'ta çalıştırılmalı)
+npm run build:linux   # Linux .deb (Linux'ta çalıştırılmalı)
 ```
 
-Bu komutlar önce ilgili platform için `yt-dlp` ikilisini indirir, sonra `electron-builder` ile paketler. `main` dalına `v*` deseninde bir etiket (ör. `v1.0.1`) push edildiğinde [GitHub Actions](.github/workflows/release.yml) her iki platformu da otomatik derleyip bir Release'e ekler.
+Bu komutlar önce ilgili platform için `yt-dlp` ikilisini indirir, sonra `electron-builder` ile paketler. `v*` deseninde bir etiket (ör. `v1.0.1`) push edildiğinde [GitHub Actions](.github/workflows/release.yml) dört ayrı runner'da (Windows, Apple Silicon, Intel Mac, Linux) paralel derleme yapıp hepsini aynı GitHub Release'e (taslak olarak) ekler.
 
 ## Teknik notlar
 
@@ -75,4 +91,4 @@ Bu komutlar önce ilgili platform için `yt-dlp` ikilisini indirir, sonra `elect
 
 ## Kullanılan araçlar
 
-[Electron](https://www.electronjs.org/) · [yt-dlp](https://github.com/yt-dlp/yt-dlp) · [ffmpeg](https://ffmpeg.org) · [OpenCV](https://opencv.org/) (CSRT, YuNet, SFace)
+[Electron](https://www.electronjs.org/) · [electron-builder](https://www.electron.build/) · [electron-updater](https://www.electron.build/auto-update) · [yt-dlp](https://github.com/yt-dlp/yt-dlp) · [ffmpeg](https://ffmpeg.org) · [OpenCV](https://opencv.org/) (CSRT, YuNet, SFace)

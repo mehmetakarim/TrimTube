@@ -1,7 +1,7 @@
 {
   "name": "trimtube",
   "productName": "TrimTube",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "YouTube video indirme ve kesme aracı (yt-dlp + ffmpeg)",
   "main": "main.js",
   "author": "mehmetakarim",
@@ -9,10 +9,13 @@
     "start": "electron .",
     "fetch:win": "node scripts/fetch-ytdlp.js win32",
     "fetch:mac": "node scripts/fetch-ytdlp.js darwin",
+    "fetch:linux": "node scripts/fetch-ytdlp.js linux",
     "build:win": "npm run fetch:win && electron-builder --win",
-    "build:mac": "npm run fetch:mac && electron-builder --mac"
+    "build:mac": "npm run fetch:mac && electron-builder --mac",
+    "build:linux": "npm run fetch:linux && electron-builder --linux"
   },
   "dependencies": {
+    "electron-updater": "^6.3.9",
     "ffmpeg-static": "^5.2.0"
   },
   "devDependencies": {
@@ -57,6 +60,14 @@
       "category": "public.app-category.video",
       "extraResources": [
         { "from": "resources/bin/mac", "to": "bin" }
+      ]
+    },
+    "linux": {
+      "icon": "assets/icon.png",
+      "target": ["deb"],
+      "category": "AudioVideo",
+      "extraResources": [
+        { "from": "resources/bin/linux", "to": "bin" }
       ]
     }
   }

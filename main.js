@@ -1,4 +1,5 @@
 const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
+const { autoUpdater } = require('electron-updater');
 const { spawn, execFile } = require('child_process');
 const { StringDecoder } = require('string_decoder');
 const path = require('path');
@@ -55,7 +56,22 @@ function createWindow() {
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 }
 
-app.whenReady().then(createWindow);
+// GitHub Releases'teki en son (Draft/Prerelease olmayan) sürümü kontrol edip
+// indirir; kullanıcıya restart-to-install bildirimini electron-updater kendi
+// gösterir. macOS'ta uygulama kod imzasız olduğu için Squirrel.Mac akışı
+// başarısız olabilir — bu durumda sessizce loglanır, kullanıcı rahatsız edilmez.
+// Linux (.deb) hedefi electron-updater tarafından desteklenmediği için atlanır.
+function initAutoUpdate() {
+  if (!app.isPackaged) return;
+  if (process.platform !== 'win32' && process.platform !== 'darwin') return;
+  autoUpdater.on('error', (err) => console.error('[autoUpdater]', err.message));
+  autoUpdater.checkForUpdatesAndNotify().catch((err) => console.error('[autoUpdater]', err.message));
+}
+
+app.whenReady().then(() => {
+  createWindow();
+  initAutoUpdate();
+});
 app.on('window-all-closed', () => app.quit());
 
 // yt-dlp'nin stderr çıktısından kullanıcıya gösterilebilir hata mesajı ayıklar

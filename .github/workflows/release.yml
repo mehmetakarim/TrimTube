@@ -11,14 +11,21 @@ permissions:
 jobs:
   build:
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: windows-latest
             fetch: fetch:win
-            build: build:win
-          - os: macos-latest
+            args: --win
+          - os: macos-14 # Apple Silicon (arm64)
             fetch: fetch:mac
-            build: build:mac
+            args: --mac --arm64
+          - os: macos-13 # Intel (x64)
+            fetch: fetch:mac
+            args: --mac --x64
+          - os: ubuntu-latest
+            fetch: fetch:linux
+            args: --linux
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -32,6 +39,6 @@ jobs:
 
       - run: npm run ${{ matrix.fetch }}
 
-      - run: npx electron-builder --${{ matrix.os == 'windows-latest' && 'win' || 'mac' }} --publish always
+      - run: npx electron-builder ${{ matrix.args }} --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
