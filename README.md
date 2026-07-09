@@ -19,8 +19,9 @@ En son sürümü [Releases](../../releases) sayfasından indirin:
 |---|---|
 | Windows | `TrimTube-Setup-x.y.z.exe` |
 | macOS (Apple Silicon — M1/M2/M3/M4) | `TrimTube-x.y.z-arm64.dmg` |
-| macOS (Intel) | `TrimTube-x.y.z-x64.dmg` (veya arch eki yoksa varsayılan) |
 | Linux (Debian/Ubuntu) | `trimtube_x.y.z_amd64.deb` |
+
+> Intel Mac (x64) derlemesi şu an otomatik release sürecinde yok — GitHub'ın Intel Mac build runner'ları kısıtlı kapasiteli olduğu için güvenilir şekilde çalıştırılamıyor. Apple 2020'den beri yalnızca Apple Silicon Mac satıyor, bu yüzden mevcut Mac kullanıcılarının büyük çoğunluğu zaten desteklenen sürümü kullanabilir.
 
 yt-dlp ve ffmpeg pakete gömülüdür, ayrıca bir şey kurmanıza gerek yoktur.
 
@@ -80,7 +81,7 @@ npm run build:mac     # macOS .dmg (macOS'ta çalıştırılmalı)
 npm run build:linux   # Linux .deb (Linux'ta çalıştırılmalı)
 ```
 
-Bu komutlar önce ilgili platform için `yt-dlp` ikilisini indirir, sonra `electron-builder` ile paketler. `v*` deseninde bir etiket (ör. `v1.0.1`) push edildiğinde [GitHub Actions](.github/workflows/release.yml) dört ayrı runner'da (Windows, Apple Silicon, Intel Mac, Linux) paralel derleme yapıp hepsini aynı GitHub Release'e (taslak olarak) ekler.
+Bu komutlar önce ilgili platform için `yt-dlp` ikilisini indirir, sonra `electron-builder` ile paketler. `v*` deseninde bir etiket (ör. `v1.0.1`) push edildiğinde [GitHub Actions](.github/workflows/release.yml) üç ayrı runner'da (Windows, Apple Silicon, Linux) paralel derleme yapıp hepsini aynı GitHub Release'e (taslak olarak) ekler.
 
 ## Teknik notlar
 

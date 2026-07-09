@@ -17,12 +17,9 @@ jobs:
           - os: windows-latest
             fetch: fetch:win
             args: --win
-          - os: macos-14 # Apple Silicon (arm64)
-            fetch: fetch:mac
-            args: --mac --arm64
-          - os: macos-13 # Intel (x64)
-            fetch: fetch:mac
-            args: --mac --x64
+          - os: macos-14 # Apple Silicon (arm64) — macos-13 (Intel) çıkarıldı: bu hesapta
+            fetch: fetch:mac # runner kuyrukta saatlerce takılı kalıyor, GitHub'ın Intel Mac
+            args: --mac --arm64 # runner'larını kademeli kaldırmasının bir sonucu.
           - os: ubuntu-latest
             fetch: fetch:linux
             args: --linux
