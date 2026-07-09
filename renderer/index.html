@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src https: data:; style-src 'self'; script-src 'self'; media-src https:">
+  <title>TrimTube</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="app">
+
+    <!-- Üst araç çubuğu: URL + Bilgi Al -->
+    <div class="toolbar">
+      <div class="url-pill">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#86868b" stroke-width="2.2" stroke-linecap="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>
+        <input type="text" id="url" placeholder="YouTube video bağlantısını yapıştırın…" spellcheck="false">
+      </div>
+      <button id="fetchBtn" class="btn-primary">Bilgi Al</button>
+    </div>
+    <div id="urlError" class="error-banner hidden"></div>
+
+    <div class="body">
+
+      <!-- Sol: oynatıcı ve kesim -->
+      <section class="stage">
+        <div class="player-box" id="playerWrap">
+          <div id="playerEmpty" class="player-empty">Video önizlemesi</div>
+          <video id="preview" controls preload="metadata" class="hidden"></video>
+          <div id="trackMarker" class="track-marker hidden"></div>
+        </div>
+
+        <div id="trimControls" class="trim-area disabled">
+          <div class="slider-wrap">
+            <div class="slider-track"></div>
+            <div class="slider-range" id="sliderRange"></div>
+            <input type="range" id="rangeStart" min="0" value="0" step="1">
+            <input type="range" id="rangeEnd" min="0" value="0" step="1">
+          </div>
+
+          <div class="times-row">
+            <div class="time-group">
+              <div class="time-block">
+                <span class="label">Başlangıç</span>
+                <input type="text" id="startTime" value="00:00:00" spellcheck="false">
+              </div>
+              <button id="setStartBtn" class="btn-ghost">Bu anı başlangıç yap</button>
+            </div>
+            <div class="clip-chip">
+              <span class="label">Kesit</span>
+              <span id="clipLen" class="clip-value">00:00:00</span>
+            </div>
+            <div class="time-group right">
+              <button id="setEndBtn" class="btn-ghost">Bu anı bitiş yap</button>
+              <div class="time-block right">
+                <span class="label">Bitiş</span>
+                <input type="text" id="endTime" value="00:00:00" spellcheck="false">
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Sağ panel -->
+      <aside class="panel">
+        <div id="videoInfo" class="video-info hidden">
+          <span id="title" class="video-title"></span>
+          <span id="meta" class="video-meta"></span>
+        </div>
+
+        <div class="card-toggle">
+          <div class="card-text">
+            <span class="card-title">Belirli aralığı kes</span>
+            <span class="card-sub">Sadece seçilen kısım kaydedilir</span>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="trimEnable">
+            <span class="knob"></span>
+          </label>
+        </div>
+
+        <div class="field">
+          <span class="label">Kalite</span>
+          <div class="select-wrap">
+            <select id="quality">
+              <option value="best">En iyi (MP4)</option>
+              <option value="1080">1080p</option>
+              <option value="720">720p</option>
+              <option value="audio">Sadece ses (MP3)</option>
+            </select>
+            <svg width="10" height="14" viewBox="0 0 10 14" fill="none" stroke="#86868b" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 5 5 2l3 3M2 9l3 3 3-3"/></svg>
+          </div>
+        </div>
+
+        <div class="field">
+          <span class="label">Format</span>
+          <div class="segmented">
+            <button id="btnOriginal" class="seg active">Orijinal 16:9</button>
+            <button id="btnVertical" class="seg">Dikey 9:16</button>
+          </div>
+        </div>
+
+        <div id="trackCard" class="hidden">
+          <div class="card-toggle">
+            <div class="card-text">
+              <span class="card-title">🎯 Kişiyi takip et</span>
+              <span class="card-sub">Akıllı kadraj kişiyi izler</span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="trackEnable">
+              <span class="knob"></span>
+            </label>
+          </div>
+          <div id="trackHint" class="track-hint hidden">
+            Önizlemede, <b>kesitin başlangıç anındaki</b> konumunda kişiye tıklayın. İşaretlemezseniz en büyük yüz otomatik seçilir.
+          </div>
+        </div>
+
+        <div class="field">
+          <span class="label">Kayıt klasörü</span>
+          <div class="folder-row">
+            <div class="folder-pill"><span id="folder"></span></div>
+            <button id="folderBtn" class="btn-ghost">Değiştir</button>
+          </div>
+        </div>
+
+        <div class="spacer"></div>
+
+        <div id="progressWrap" class="progress-block hidden">
+          <div class="progress-head">
+            <span id="phaseLabel" class="pulse">İndiriliyor…</span>
+            <span id="progressText">%0</span>
+          </div>
+          <div class="progress-bar"><div id="progressFill"></div></div>
+          <div id="logLine" class="log-line"></div>
+        </div>
+
+        <div id="statusMsg" class="hidden"></div>
+
+        <button id="downloadBtn" class="btn-download" disabled>İndir</button>
+      </aside>
+    </div>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>

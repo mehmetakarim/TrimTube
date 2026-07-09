@@ -1,0 +1,445 @@
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #ffffff;
+  --panel: #fafafa;
+  --fill: #f2f2f7;
+  --fill-hover: #e9e9ee;
+  --border: rgba(0, 0, 0, 0.12);
+  --hairline: rgba(0, 0, 0, 0.07);
+  --text: #1d1d1f;
+  --muted: #86868b;
+  --accent: #0A84FF;
+  --accent-hover: #0974df;
+  --green: #34C759;
+  --red: #FF3B30;
+}
+
+html, body { height: 100%; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+.app { height: 100vh; display: flex; flex-direction: column; }
+.hidden { display: none !important; }
+
+.label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+
+/* ---- Üst araç çubuğu ---- */
+.toolbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 24px;
+  border-bottom: 1px solid var(--hairline);
+}
+.url-pill {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 36px;
+  padding: 0 14px;
+  background: var(--fill);
+  border-radius: 10px;
+}
+.url-pill svg { flex: none; }
+.url-pill input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  font: inherit;
+  color: var(--text);
+  outline: none;
+}
+.url-pill:focus-within { box-shadow: 0 0 0 2px rgba(10, 132, 255, 0.35); }
+
+.error-banner {
+  margin: 10px 24px 0;
+  padding: 10px 14px;
+  background: rgba(255, 59, 48, 0.08);
+  border-radius: 10px;
+  color: #d70015;
+  font-size: 12.5px;
+  white-space: pre-wrap;
+}
+
+/* ---- Butonlar ---- */
+button { font-family: inherit; cursor: pointer; }
+button:disabled { opacity: 0.45; cursor: default; }
+
+.btn-primary {
+  height: 36px;
+  padding: 0 18px;
+  border: none;
+  border-radius: 10px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  flex: none;
+}
+.btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
+
+.btn-ghost {
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  flex: none;
+}
+.btn-ghost:hover:not(:disabled) { background: var(--fill); }
+
+/* ---- Gövde: sol sahne + sağ panel ---- */
+.body { flex: 1; display: flex; min-height: 0; }
+
+.stage {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 20px 24px 22px;
+  min-width: 0;
+}
+
+/* ---- Oynatıcı ---- */
+.player-box {
+  flex: 1;
+  position: relative;
+  border-radius: 14px;
+  overflow: hidden;
+  background: #111113;
+  min-height: 0;
+}
+.player-empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: #6b7185;
+  font-size: 14px;
+}
+#preview {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  background: #000;
+}
+.track-marker {
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  margin: -11px 0 0 -11px;
+  border: 3px solid var(--accent);
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px rgba(255,255,255,0.85);
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* ---- Kesim alanı ---- */
+.trim-area { flex: none; display: flex; flex-direction: column; gap: 12px; transition: opacity 0.2s; }
+.trim-area.disabled { opacity: 0.35; pointer-events: none; }
+
+.slider-wrap { position: relative; height: 28px; margin: 0 6px; }
+.slider-track {
+  position: absolute;
+  top: 11px; left: 0; right: 0;
+  height: 6px;
+  border-radius: 3px;
+  background: #e5e5ea;
+}
+.slider-range {
+  position: absolute;
+  top: 11px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--accent);
+}
+.slider-wrap input[type="range"] {
+  position: absolute;
+  top: 4px; left: 0;
+  width: 100%;
+  height: 20px;
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  pointer-events: none;
+}
+.slider-wrap input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  pointer-events: auto;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  border: 1px solid var(--border);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
+  cursor: grab;
+}
+
+.times-row {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 16px;
+}
+.time-group { display: flex; align-items: center; gap: 10px; }
+.time-group.right { justify-content: flex-end; }
+.time-block { display: flex; flex-direction: column; gap: 3px; }
+.time-block.right { align-items: flex-end; }
+.time-block input {
+  width: 104px;
+  border: none;
+  background: transparent;
+  font: inherit;
+  font-size: 17px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  outline: none;
+  border-bottom: 1px solid transparent;
+}
+.time-block.right input { text-align: right; }
+.time-block input:focus { border-bottom-color: var(--accent); }
+
+.clip-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 6px 18px;
+  background: var(--fill);
+  border-radius: 10px;
+}
+.clip-value {
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+}
+
+/* ---- Sağ panel ---- */
+.panel {
+  width: 320px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px 22px 22px;
+  border-left: 1px solid var(--hairline);
+  background: var(--panel);
+  overflow-y: auto;
+}
+.spacer { flex: 1; }
+
+.video-info { display: flex; flex-direction: column; gap: 4px; }
+.video-title { font-size: 15px; font-weight: 600; line-height: 1.3; }
+.video-meta { font-size: 12px; color: var(--muted); }
+
+.card-toggle {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: #fff;
+  border: 1px solid var(--hairline);
+  border-radius: 12px;
+}
+.card-text { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.card-title { font-size: 13px; font-weight: 500; }
+.card-sub { font-size: 11.5px; color: var(--muted); }
+
+/* iOS tarzı anahtar */
+.switch { position: relative; flex: none; width: 40px; height: 24px; cursor: pointer; }
+.switch input { position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
+.switch .knob {
+  position: absolute;
+  inset: 0;
+  border-radius: 12px;
+  background: #e5e5ea;
+  transition: background 0.2s;
+  pointer-events: none;
+}
+.switch .knob::after {
+  content: "";
+  position: absolute;
+  top: 2px; left: 2px;
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  transition: transform 0.2s;
+}
+.switch input:checked + .knob { background: var(--green); }
+.switch input:checked + .knob::after { transform: translateX(16px); }
+
+.track-hint {
+  margin-top: 8px;
+  font-size: 11.5px;
+  color: var(--muted);
+  line-height: 1.5;
+  padding: 0 4px;
+}
+.track-hint b { color: var(--text); }
+
+.field { display: flex; flex-direction: column; gap: 7px; }
+
+.select-wrap { position: relative; }
+.select-wrap select {
+  width: 100%;
+  height: 36px;
+  padding: 0 32px 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+  font: inherit;
+  color: var(--text);
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+  outline: none;
+}
+.select-wrap select:hover { background: #f7f7f9; }
+.select-wrap svg {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.segmented {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  background: var(--fill-hover);
+  border-radius: 10px;
+}
+.seg {
+  flex: 1;
+  height: 30px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: #636366;
+  font-size: 12.5px;
+  font-weight: 500;
+  transition: all 0.15s ease;
+}
+.seg.active {
+  background: #fff;
+  color: var(--text);
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+.seg:disabled { opacity: 0.4; }
+
+.folder-row { display: flex; align-items: center; gap: 8px; }
+.folder-pill {
+  flex: 1;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  min-width: 0;
+}
+.folder-pill span {
+  font-size: 12px;
+  color: #48484a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.folder-row .btn-ghost { height: 36px; border-radius: 10px; }
+
+/* ---- İlerleme ---- */
+.progress-block { display: flex; flex-direction: column; gap: 8px; }
+.progress-head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--muted);
+}
+.progress-head .pulse { animation: dl-pulse 1.4s ease-in-out infinite; }
+@keyframes dl-pulse { 0% { opacity: 0.5; } 50% { opacity: 1; } 100% { opacity: 0.5; } }
+#progressText { font-variant-numeric: tabular-nums; }
+.progress-bar {
+  height: 5px;
+  border-radius: 3px;
+  background: #e5e5ea;
+  overflow: hidden;
+}
+#progressFill {
+  height: 100%;
+  width: 0%;
+  border-radius: 3px;
+  background: var(--accent);
+  transition: width 0.15s linear;
+}
+.log-line {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 10.5px;
+  color: #aeaeb2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-height: 14px;
+}
+
+/* ---- Durum kartları ---- */
+#statusMsg {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 14px;
+  border-radius: 12px;
+  font-size: 12.5px;
+}
+#statusMsg.ok { background: rgba(52, 199, 89, 0.1); }
+#statusMsg.ok a { color: var(--accent); font-weight: 500; cursor: pointer; text-decoration: none; margin-left: auto; white-space: nowrap; }
+#statusMsg.ok a:hover { text-decoration: underline; }
+#statusMsg.err {
+  background: rgba(255, 59, 48, 0.08);
+  color: #d70015;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ---- İndir butonu ---- */
+.btn-download {
+  flex: none;
+  height: 44px;
+  border: none;
+  border-radius: 12px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 600;
+  transition: background 0.15s ease;
+}
+.btn-download:hover:not(:disabled) { background: var(--accent-hover); }
+.btn-download.cancel { background: var(--fill); color: var(--text); }
+.btn-download.cancel:hover { background: var(--fill-hover); }
