@@ -6,6 +6,11 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 
+// macOS'ta GUI/Finder üzerinden başlatıldığında Homebrew ve yerel bin yollarını PATH'e ekle
+if (process.platform === 'darwin') {
+  process.env.PATH = `/opt/homebrew/bin:/usr/local/bin:${process.env.PATH}`;
+}
+
 let win = null;
 let currentProc = null;
 let cancelRequested = false;
@@ -189,7 +194,9 @@ function qualityArgs(quality) {
 }
 
 function runYtdlp(extraArgs) {
-  const args = ['--no-playlist', '--newline', '--progress', '--no-warnings', '-N', '8', ...extraArgs];
+  // YouTube indirmelerinde bağlantının kopmasını engellemek için eşzamanlı parça sayısını 1'e düşürdük (-N 1)
+  // Ayrıca yt-dlp'nin ffmpeg'i bulup ses/videoyu birleştirebilmesi için --ffmpeg-location ekledik
+  const args = ['--no-playlist', '--newline', '--progress', '--no-warnings', '-N', '1', '--ffmpeg-location', FFMPEG, ...extraArgs];
   return runProc(YTDLP, args, (line) => {
     const m = line.match(/\[download\]\s+(\d+(?:\.\d+)?)%/);
     if (m) win.webContents.send('progress', parseFloat(m[1]));
@@ -287,7 +294,10 @@ ipcMain.handle('download', async (e, opts) => {
       win.webContents.send('progress', 0);
       const trackArgs = [path.join(__dirname, 'tracker.py'), clipFile, '--out', path.join(tmpDir, 'cmds.txt')];
       if (trackPoint) trackArgs.push('--point', `${trackPoint.x.toFixed(4)},${trackPoint.y.toFixed(4)}`);
-      const tr = await runProc('python', trackArgs, (line) => {
+      
+      // macOS/Linux'ta python3, Windows'ta python çalıştır
+      const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
+      const tr = await runProc(pythonCmd, trackArgs, (line) => {
         const m = line.match(/^PROGRESS (\d+)/);
         if (m) win.webContents.send('progress', Math.min(99.9, +m[1]));
         else if (line.startsWith('WARN')) win.webContents.send('log', line);
