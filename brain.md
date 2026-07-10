@@ -272,3 +272,5 @@ Kullanıcının üç maddelik geri bildirimi üzerine:
 4. **CSP ihlali düzeltildi:** başarı mesajındaki SVG'nin inline `style="flex:none"` özniteliği `style-src 'self'` tarafından engelleniyordu (konsola uyarı düşüyordu); `#statusMsg svg { flex:none }` CSS kuralına taşındı.
 
 **"GPU'ya geçince dalga formu bozuldu" algısı hakkında:** GPU kod yolu (probe/encode) dalga formu üretimine mekanik olarak dokunmuyor — ayrı süreç, ayrı komut. Korelasyonun gerçek nedeni: GPU sürümleriyle eş zamanlı yapılan saha testlerinde dalga formunun bağımsız iki hatası (tüm-video isteği + uzak akış yavaşlığı) art arda ortaya çıktı.
+
+**Saha doğrulaması (v1.2.4):** Kullanıcı test etti — dalga formu, kesim akışı ve konsol temizliği sorunsuz onaylandı. v1.2.0 sonrası açılan saha sorunu zinciri (donma, dalga formu, CSP) bu sürümle kapandı.
