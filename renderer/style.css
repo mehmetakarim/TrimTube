@@ -191,6 +191,65 @@ button:disabled { opacity: 0.45; cursor: default; }
   height: 100%;
   background: #000;
 }
+/* ---- Özel oynatıcı kontrol şeridi ---- */
+.player-chrome {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 18px 14px 10px;
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.6));
+  z-index: 3;
+}
+.chrome-btn {
+  display: grid;
+  place-items: center;
+  width: 28px; height: 28px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  padding: 0;
+  flex: none;
+}
+.chrome-btn:hover { background: rgba(255, 255, 255, 0.15); }
+.chrome-time {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: rgba(255, 255, 255, 0.92);
+}
+.chrome-spacer { flex: 1; }
+#volume {
+  width: 70px;
+  height: 4px;
+  appearance: none;
+  -webkit-appearance: none;
+  background: rgba(255, 255, 255, 0.35);
+  border-radius: 2px;
+  outline: none;
+  flex: none;
+}
+#volume::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 11px; height: 11px;
+  border-radius: 50%;
+  background: #fff;
+  cursor: pointer;
+}
+
+/* ---- Oynatma kafası (playhead) ---- */
+.playhead {
+  position: absolute;
+  top: 0; bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--text);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.75);
+  pointer-events: none;
+  z-index: 2;
+}
+.slider-wrap:not(.zoom) .playhead { top: 6px; bottom: 6px; }
+
 .track-marker {
   position: absolute;
   width: 22px;
@@ -259,7 +318,7 @@ button:disabled { opacity: 0.45; cursor: default; }
   font-variant-numeric: tabular-nums;
 }
 .slider-wrap.zoom {
-  height: 56px;
+  height: 104px;
   background: var(--fill);
   border-radius: 10px;
   margin: 0;

@@ -150,7 +150,9 @@ ipcMain.handle('waveform', async (e, { url, start, duration }) => {
   const out = path.join(os.tmpdir(), `trimtube-wave-${Date.now()}.png`);
   const args = [
     '-y', '-ss', String(start), '-i', url, '-t', String(duration),
-    '-filter_complex', 'aformat=channel_layouts=mono,showwavespic=s=900x48:colors=0A84FF',
+    // scale=sqrt: kısık sesli konuşmayı görünür kılar, gerçek sessizlik düz kalır —
+    // kesim noktasını diyalog/sessizlik sınırına koymayı kolaylaştırır
+    '-filter_complex', 'aformat=channel_layouts=mono,showwavespic=s=900x92:colors=0A84FF:scale=sqrt',
     '-frames:v', '1', out, '-loglevel', 'error'
   ];
 

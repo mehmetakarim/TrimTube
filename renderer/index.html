@@ -41,14 +41,29 @@
       <section class="stage">
         <div class="player-box" id="playerWrap">
           <div id="playerEmpty" class="player-empty">Video önizlemesi</div>
-          <video id="preview" controls preload="metadata" class="hidden"></video>
+          <video id="preview" preload="metadata" class="hidden"></video>
           <div id="trackMarker" class="track-marker hidden"></div>
+          <!-- Native kontrol çubuğu yerine ince özel şerit: sarma işi ana/ince çubuklarda -->
+          <div id="playerChrome" class="player-chrome hidden">
+            <button id="playBtn" class="chrome-btn" title="Oynat/Duraklat (Boşluk)">
+              <svg id="playIcon" width="16" height="16" viewBox="0 0 24 24" fill="#fff"><path d="M8 5v14l11-7z"/></svg>
+              <svg id="pauseIcon" width="16" height="16" viewBox="0 0 24 24" fill="#fff" class="hidden"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg>
+            </button>
+            <span id="timeLabel" class="chrome-time">0:00 / 0:00</span>
+            <div class="chrome-spacer"></div>
+            <button id="muteBtn" class="chrome-btn" title="Sesi aç/kapat">
+              <svg id="volOnIcon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round"><path d="M11 5 6 9H2v6h4l5 4V5z" fill="#fff" stroke="none"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/></svg>
+              <svg id="volOffIcon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" class="hidden"><path d="M11 5 6 9H2v6h4l5 4V5z" fill="#fff" stroke="none"/><path d="m16 9 5 5M21 9l-5 5"/></svg>
+            </button>
+            <input type="range" id="volume" min="0" max="1" step="0.05" value="1">
+          </div>
         </div>
 
         <div id="trimControls" class="trim-area disabled">
           <div class="slider-wrap">
             <div class="slider-track"></div>
             <div class="slider-range" id="sliderRange"></div>
+            <div class="playhead hidden" id="playheadMain"></div>
             <input type="range" id="rangeStart" min="0" value="0" step="1">
             <input type="range" id="rangeEnd" min="0" value="0" step="1">
           </div>
@@ -63,6 +78,7 @@
               <img id="waveform" class="waveform hidden" alt="">
               <div class="slider-track"></div>
               <div class="slider-range" id="sliderRangeFine"></div>
+              <div class="playhead hidden" id="playheadFine"></div>
               <input type="range" id="rangeStartFine" min="0" value="0" step="1">
               <input type="range" id="rangeEndFine" min="0" value="0" step="1">
             </div>

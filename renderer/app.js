@@ -41,12 +41,14 @@ function loadPlayer() {
   const v = $('preview');
   if (!previewUrl) {
     v.classList.add('hidden');
+    $('playerChrome').classList.add('hidden');
     $('playerEmpty').textContent = 'Bu video için önizleme akışı yok — zaman kutularını kullanabilirsiniz';
     $('playerEmpty').classList.remove('hidden');
     return;
   }
   $('playerEmpty').classList.add('hidden');
   v.classList.remove('hidden');
+  $('playerChrome').classList.remove('hidden');
   if (v.dataset.url !== previewUrl) {
     v.dataset.url = previewUrl;
     v.src = previewUrl;
@@ -60,8 +62,68 @@ function seekPreview(sec) {
 
 $('preview').addEventListener('error', () => {
   $('preview').classList.add('hidden');
+  $('playerChrome').classList.add('hidden');
   $('playerEmpty').textContent = 'Önizleme akışı oynatılamadı — zaman kutularını kullanabilirsiniz';
   $('playerEmpty').classList.remove('hidden');
+});
+
+// ---- özel oynatıcı kontrolleri ----
+
+function togglePlay() {
+  const v = $('preview');
+  if (v.paused) v.play(); else v.pause();
+}
+
+$('playBtn').addEventListener('click', togglePlay);
+$('preview').addEventListener('play', () => {
+  $('playIcon').classList.add('hidden');
+  $('pauseIcon').classList.remove('hidden');
+});
+$('preview').addEventListener('pause', () => {
+  $('playIcon').classList.remove('hidden');
+  $('pauseIcon').classList.add('hidden');
+});
+
+$('muteBtn').addEventListener('click', () => {
+  const v = $('preview');
+  v.muted = !v.muted;
+  $('volOnIcon').classList.toggle('hidden', v.muted);
+  $('volOffIcon').classList.toggle('hidden', !v.muted);
+});
+$('volume').addEventListener('input', () => {
+  const v = $('preview');
+  v.volume = +$('volume').value;
+  if (v.muted && v.volume > 0) $('muteBtn').click();
+});
+
+// Kısa süre formatı: 1 saatten kısa videolarda saat hanesi gösterme
+function fmtClock(sec) {
+  sec = Math.max(0, Math.floor(sec));
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+  return h > 0
+    ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+    : `${m}:${String(s).padStart(2, '0')}`;
+}
+
+// Oynatma kafası: ana slider'da her zaman, ince şeritte pencere içindeyse
+$('preview').addEventListener('timeupdate', () => {
+  const v = $('preview');
+  const t = v.currentTime;
+  $('timeLabel').textContent = `${fmtClock(t)} / ${fmtClock(videoDuration)}`;
+
+  if (videoDuration > 0) {
+    $('playheadMain').style.left = (t / videoDuration * 100) + '%';
+    $('playheadMain').classList.remove('hidden');
+  }
+  const winLen = zoomWin.end - zoomWin.start;
+  if (winLen > 0 && t >= zoomWin.start && t <= zoomWin.end) {
+    $('playheadFine').style.left = ((t - zoomWin.start) / winLen * 100) + '%';
+    $('playheadFine').classList.remove('hidden');
+  } else {
+    $('playheadFine').classList.add('hidden');
+  }
 });
 
 // ---- slider / zaman girişleri senkronizasyonu ----
@@ -280,7 +342,8 @@ $('trackEnable').addEventListener('change', () => {
 });
 
 $('preview').addEventListener('click', (e) => {
-  if (!$('trackEnable').checked) return;
+  // Kişi takibi işaretleme modu kapalıyken tıklama = oynat/duraklat
+  if (!$('trackEnable').checked) { togglePlay(); return; }
   const v = $('preview');
   const rect = v.getBoundingClientRect();
   const x = (e.clientX - rect.left) / rect.width;
