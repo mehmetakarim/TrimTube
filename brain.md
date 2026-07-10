@@ -216,3 +216,25 @@ GPU kodlama şu an geri alınmadı (probe+fallback güvenlik ağı zaten var); k
 **Geçici çözüm (o an):** `gh api jobs/{id}/rerun` ile sadece Windows işini yeniden tetikledim — release artık var olduğu için ikinci denemede sorunsuz yükledi.
 
 **Kalıcı çözüm:** `.github/workflows/release.yml`'e `create-release` adında ayrı bir iş eklendi; `gh release create --draft` ile etiket için release'i **matris başlamadan önce** oluşturuyor. 3 platform işi artık `needs: create-release` ile bu işten sonra başlıyor, hepsi zaten var olan release'e yükleme yapıyor — yarış durumu ortadan kalktı.
+
+---
+
+# Windows Oturumu — v1.2.2 (ikinci saha raporu)
+
+v1.2.1 sonrası: dalga formu hâlâ görünmüyor (aynı, daha önce CLI'da defalarca doğrulanmış video: nM5CrkX4lzc), ve indirme/kişi takibi bitince "başlangıç işaretle" gibi bazı özellikler çalışmıyor bildirimi geldi.
+
+## Teori: kaynak çakışması + sessiz hata
+
+`main.js`'teki `waveform` IPC handler'ı hataları **hiç loglamadan** `null` döndürüyordu; renderer da `catch {}` ile sessizce yutuyordu — teşhis imkânsızdı. Muhtemel gerçek neden: kişi takibi (Python/CSRT/YuNet/SFace, frame-frame analiz) CPU'yu dakikalarca doyuruyor; bu sırada tetiklenen dalga formu isteği (ffmpeg spawn) kaynak açlığından 30 sn zaman aşımına takılıp `null` dönüyor, iş bitince de kimse yeniden denemiyor.
+
+CPU'yu yapay olarak doyurup bunu doğrulamaya çalıştım ama Windows'ta `python -c` ile `multiprocessing` spawn semantiği (`__main__.burn` pickle edilemiyor) testi geçersiz kıldı — **kesin kanıtlanamadı**, ama en makul teori bu.
+
+## Uygulanan düzeltmeler (v1.2.2)
+
+1. `main.js > waveform`: her başarısızlık durumunda (timeout, code≠0, spawn hatası, dosya okuma hatası) artık hem `console.error` hem `win.webContents.send('main-error', ...)` ile render sürecine loglanıyor — F12 konsolunda görülebilir.
+2. `renderer/app.js`: `getWaveform()` catch bloğu artık `console.error` ile hatayı yazıyor (önceden tamamen sessizdi).
+3. `setBusy(false)` (ağır iş bittiğinde) çağrıldığında, dalga formu görseli hâlâ gizliyse **otomatik olarak yeniden deneniyor** — kullanıcının slider'ı elle oynatmasına gerek kalmadan kaynak-çakışması kaynaklı başarısızlıklar kendi kendine düzeliyor.
+
+## Çözülemeyen: "işlem bittikten sonra başlangıç işaretleme çalışmıyor"
+
+Statik kod incelemesiyle kök neden bulunamadı (`setStartBtn`/`setEndBtn` handler'ları, `setBusy`, event listener'lar gözden geçirildi — belirgin bir bug yok). En olası teori: aynı kaynak-çakışması durumu önizleme video akışının kendisini de etkileyip `$('preview').currentTime`'ın donmuş/beklenmeyen bir değer okumasına yol açıyor olabilir — ama bu da kanıtlanamadı. **Kullanıcıdan F12 konsol çıktısı ve tam tekrar adımları bekleniyor.**

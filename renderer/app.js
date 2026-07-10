@@ -253,8 +253,10 @@ function requestWaveform() {
     let data = null;
     try {
       data = await window.api.getWaveform({ url: previewUrl, start: zoomWin.start, duration });
-    } catch {
-      // dalga formu isteğe bağlı bir görsel — başarısız olursa sessizce gizlenir
+    } catch (err) {
+      // dalga formu isteğe bağlı bir görsel — başarısız olursa gizlenir ama
+      // sessiz kalmasın (F12 konsolunda teşhis edilebilsin)
+      console.error('[waveform]', err.message || err);
     }
     if (token !== waveToken) return; // bu arada pencere değişti, sonuç bayat
     if (data) {
@@ -463,6 +465,10 @@ function setBusy(on) {
     $('progressText').textContent = '%0';
     $('phaseLabel').textContent = 'Başlatılıyor…';
     $('logLine').textContent = '';
+  } else if ($('waveform').classList.contains('hidden')) {
+    // Ağır bir iş (indirme/takip/kodlama) CPU'yu meşgul edip dalga formu
+    // isteğini zaman aşımına uğratmış olabilir — iş bitince sessizce yeniden dene
+    requestWaveform();
   }
 }
 

@@ -264,20 +264,32 @@ ipcMain.handle('waveform', async (e, { url, start, duration }) => {
   return new Promise((resolve) => {
     const proc = spawn(FFMPEG, args, { windowsHide: true, env: procEnv });
     waveformProc = proc;
-    const timer = setTimeout(() => { try { proc.kill(); } catch {} }, 30000);
+    let errBuf = '';
+    proc.stderr.on('data', (d) => { errBuf += d.toString('utf8'); });
+    let timedOut = false;
+    const timer = setTimeout(() => { timedOut = true; try { proc.kill(); } catch {} }, 30000);
+    const report = (msg) => {
+      console.error(msg);
+      try { win && !win.isDestroyed() && win.webContents.send('main-error', msg); } catch {}
+    };
     proc.on('close', (code) => {
       clearTimeout(timer);
       if (waveformProc === proc) waveformProc = null;
-      if (code !== 0 || !fs.existsSync(out)) return resolve(null);
+      if (timedOut) report('[waveform] zaman aşımına uğradı (30s) — muhtemelen eşzamanlı ağır bir işlem CPU\'yu meşgul ediyor');
+      if (code !== 0 || !fs.existsSync(out)) {
+        if (!timedOut) report(`[waveform] başarısız, code: ${code} ${errBuf.trim()}`);
+        return resolve(null);
+      }
       try {
         const b64 = fs.readFileSync(out).toString('base64');
         fs.rmSync(out, { force: true });
         resolve('data:image/png;base64,' + b64);
-      } catch {
+      } catch (err) {
+        report('[waveform] dosya okunamadı: ' + err.message);
         resolve(null);
       }
     });
-    proc.on('error', () => { clearTimeout(timer); resolve(null); });
+    proc.on('error', (err) => { clearTimeout(timer); report('[waveform] spawn hatası: ' + err.message); resolve(null); });
   });
 });
 
