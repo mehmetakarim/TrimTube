@@ -130,3 +130,17 @@ Windows: `-N 8` (hızlı, sorun görülmedi) · macOS/Linux: `-N 1` (bağlantı 
 ## 3. Sürüm eşitlemesi
 
 macOS oturumunda v1.0.5 ve v1.0.6 release'leri alınmış; Windows tarafındaki yerel repo `git fetch --tags` ile eşitlendi. Güncel yayın: **v1.0.6**.
+
+---
+
+# Windows Oturumu — Faz 1 Release (v1.1.0)
+
+Özellik yol haritasının (bkz. artifact: TrimTube Özellik Yol Haritası) ilk fazı tamamlanıp **v1.1.0** olarak yayınlandı:
+
+- **İnce ayar şeridi:** ana slider'ın altında, seçili aralığın ±%25'ine (en az 15 sn) yakınlaşan ikinci çift kollu şerit. Uzun videolarda saniye hassasiyetinde kesim.
+- **Ses dalga formu:** ince şeridin arka planında, önizleme akışından HTTP range ile üretilir (`ffmpeg showwavespic`, 900x92, `scale=sqrt` — kısık diyalog görünür, sessizlik düz). Debounce 600 ms + bayat istek iptali; `waveformProc` ayrı tutulur, İptal butonunun `currentProc` mantığına karışmaz.
+- **Klavye kısayolları:** Boşluk/K, I/O (Türkçe ı/İ dahil), J/L (∓5 sn), ←/→ (∓1 sn).
+- **ETA:** indirmede yt-dlp `ETA` alanı, ffmpeg aşamalarında `speed=` alanından hesap.
+- **Oynatıcı sadeleştirme:** native `controls` kaldırıldı; özel şerit (oynat/duraklat, süre `fmtClock`, ses) + her iki zaman çizelgesinde canlı playhead. Videoya tıklama = oynat/duraklat (kişi işaretleme modu hariç).
+
+Sıradaki fazlar: Faz 2 (GPU kodlama + hata mesajları), Faz 3 (altyazı), Faz 4 (çoklu üretim), Faz 5 (ayarlar + karanlık mod).
