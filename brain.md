@@ -259,3 +259,16 @@ Kullanıcının paylaştığı F12 konsol çıktısı sayesinde **kesin teşhis*
 ## "Başlangıç işaretleme çalışmıyor" sorunu
 
 Muhtemelen ayrı bir sorun değil — kullanıcı muhtemelen bu dalga formu hatasını (ve/veya ilişkili UI davranışını) "özellik çalışmıyor" olarak yorumlamıştı. v1.2.3 sonrası tekrar test edilecek.
+
+---
+
+# Windows Oturumu — v1.2.4 (dalga formu akış revizyonu, kullanıcı geri bildirimi)
+
+Kullanıcının üç maddelik geri bildirimi üzerine:
+
+1. **Dalga formu artık önce yerel önbellekten üretiliyor** (`findCachedMedia`): video indirilmişse (`%APPDATA%/trimtube/cache/<id>_*.mp4|mp3`) ffmpeg uzak YouTube akışı yerine yerel dosyayı okuyor — ~4 sn (uzakta 10-45+ sn ve YouTube hız kısıtına açıktı). v1.2.3'te "işlem bittikten sonra zaman aşımı" logunun nedeni buydu: iş bitince otomatik yeniden deneme uzak akıştan yapılıyordu, oysa dosya zaten yereldeydi.
+2. **Dalga formu yalnızca "Belirli aralığı kes" açıkken tetikleniyor** (kullanıcının akış önerisi): kesme kapalıyken ince ayar şeridi kullanılmadığı için üretim anlamsızdı. Anahtar açılınca `computeZoomWindow()` çağrılıp uygun aralıkta dalga formu geliyor.
+3. **Zaman aşımı ayrıştırıldı:** yerel dosya 15 sn, uzak akış 45 sn.
+4. **CSP ihlali düzeltildi:** başarı mesajındaki SVG'nin inline `style="flex:none"` özniteliği `style-src 'self'` tarafından engelleniyordu (konsola uyarı düşüyordu); `#statusMsg svg { flex:none }` CSS kuralına taşındı.
+
+**"GPU'ya geçince dalga formu bozuldu" algısı hakkında:** GPU kod yolu (probe/encode) dalga formu üretimine mekanik olarak dokunmuyor — ayrı süreç, ayrı komut. Korelasyonun gerçek nedeni: GPU sürümleriyle eş zamanlı yapılan saha testlerinde dalga formunun bağımsız iki hatası (tüm-video isteği + uzak akış yavaşlığı) art arda ortaya çıktı.

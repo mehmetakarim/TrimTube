@@ -250,7 +250,10 @@ const WAVEFORM_MAX_WINDOW = 180;
 
 function requestWaveform() {
   const img = $('waveform');
-  if (!previewUrl) { img.classList.add('hidden'); return; }
+  // Kesme kapalıyken ince ayar şeridi kullanılmıyor — dalga formu üretmenin
+  // anlamı yok, kullanıcı "Belirli aralığı kes"i açınca tetiklenir
+  if (!$('trimEnable').checked) { img.classList.add('hidden'); return; }
+  if (!previewUrl && !currentVideoId) { img.classList.add('hidden'); return; }
   clearTimeout(waveTimer);
   waveTimer = setTimeout(async () => {
     const token = ++waveToken;
@@ -258,7 +261,7 @@ function requestWaveform() {
     if (duration <= 0 || duration > WAVEFORM_MAX_WINDOW) { img.classList.add('hidden'); return; }
     let data = null;
     try {
-      data = await window.api.getWaveform({ url: previewUrl, start: zoomWin.start, duration });
+      data = await window.api.getWaveform({ url: previewUrl, start: zoomWin.start, duration, videoId: currentVideoId });
     } catch (err) {
       // dalga formu isteğe bağlı bir görsel — başarısız olursa gizlenir ama
       // sessiz kalmasın (F12 konsolunda teşhis edilebilsin)
@@ -327,7 +330,11 @@ document.addEventListener('keydown', (e) => {
 // ---- aralık kesme anahtarı ----
 
 $('trimEnable').addEventListener('change', () => {
-  $('trimControls').classList.toggle('disabled', !$('trimEnable').checked);
+  const on = $('trimEnable').checked;
+  $('trimControls').classList.toggle('disabled', !on);
+  // Kesme açılınca ince ayar penceresi (ve aralık uygunsa dalga formu) hazırlanır;
+  // kapanınca requestWaveform kendi içinde görseli gizler
+  computeZoomWindow();
 });
 
 // ---- format segment seçici ----
@@ -526,8 +533,10 @@ $('downloadBtn').addEventListener('click', async () => {
   setBusy(false);
 
   if (result.ok) {
+    // Not: inline style özniteliği CSP (style-src 'self') tarafından engelleniyor —
+    // svg genişliği #statusMsg svg CSS kuralıyla sabitlenir
     setStatus('ok',
-      '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#34C759" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M20 6 9 17l-5-5"/></svg>' +
+      '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#34C759" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>' +
       '<span>İndirme tamamlandı</span><a id="openFolderLink">Klasörü aç</a>');
     document.getElementById('openFolderLink').addEventListener('click', () => {
       window.api.openFolder($('folder').textContent);

@@ -248,8 +248,27 @@ function runProc(cmd, args, onLine, cwd) {
 // önceki isteği iptal eder (kullanıcı slider'ı hızlı oynattığında birikme olmasın).
 let waveformProc = null;
 
-ipcMain.handle('waveform', async (e, { url, start, duration }) => {
-  if (!url) return null;
+// Video zaten önbelleğe indirilmişse dalga formunu uzak YouTube akışı yerine
+// yerel dosyadan üret: <1 sn sürer, ağ hızından/YouTube kısıtlamasından
+// bağımsızdır. Kalite ne seçilmiş olursa olsun ses içeriği aynıdır, bu yüzden
+// bu id ile başlayan herhangi bir önbellek dosyası iş görür.
+function findCachedMedia(videoId) {
+  if (!videoId) return null;
+  try {
+    const cacheDir = path.join(app.getPath('userData'), 'cache');
+    const hit = fs.readdirSync(cacheDir).find(f =>
+      f.startsWith(`${videoId}_`) && (f.endsWith('.mp4') || f.endsWith('.mp3'))
+    );
+    return hit ? path.join(cacheDir, hit) : null;
+  } catch {
+    return null;
+  }
+}
+
+ipcMain.handle('waveform', async (e, { url, start, duration, videoId }) => {
+  const localFile = findCachedMedia(videoId);
+  const input = localFile || url;
+  if (!input) return null;
   // Yeni bir istek eskisinin yerini alıyor — bu normal/beklenen bir iptal,
   // hata değil. supersededByNewer bayrağı aşağıda "hata" olarak loglanmasını
   // engeller (aksi halde her slider hareketinde konsola sahte hata düşerdi).
@@ -257,7 +276,7 @@ ipcMain.handle('waveform', async (e, { url, start, duration }) => {
 
   const out = path.join(os.tmpdir(), `trimtube-wave-${Date.now()}.png`);
   const args = [
-    '-y', '-ss', String(start), '-i', url, '-t', String(duration),
+    '-y', '-ss', String(start), '-i', input, '-t', String(duration),
     // scale=sqrt: kısık sesli konuşmayı görünür kılar, gerçek sessizlik düz kalır —
     // kesim noktasını diyalog/sessizlik sınırına koymayı kolaylaştırır
     '-filter_complex', 'aformat=channel_layouts=mono,showwavespic=s=900x92:colors=0A84FF:scale=sqrt',
@@ -269,8 +288,10 @@ ipcMain.handle('waveform', async (e, { url, start, duration }) => {
     waveformProc = proc;
     let errBuf = '';
     proc.stderr.on('data', (d) => { errBuf += d.toString('utf8'); });
+    // Yerel dosyadan üretim saniyeler sürer; uzak akışta YouTube'un hız
+    // kısıtlaması devreye girebildiği için daha geniş pay bırakılır.
     let timedOut = false;
-    const timer = setTimeout(() => { timedOut = true; try { proc.kill(); } catch {} }, 30000);
+    const timer = setTimeout(() => { timedOut = true; try { proc.kill(); } catch {} }, localFile ? 15000 : 45000);
     const report = (msg) => {
       console.error(msg);
       try { win && !win.isDestroyed() && win.webContents.send('main-error', msg); } catch {}

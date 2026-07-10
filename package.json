@@ -1,7 +1,7 @@
 {
   "name": "trimtube",
   "productName": "TrimTube",
-  "version": "1.2.3",
+  "version": "1.2.4",
   "description": "YouTube video indirme ve kesme aracı (yt-dlp + ffmpeg)",
   "main": "main.js",
   "author": {
