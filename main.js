@@ -250,7 +250,10 @@ let waveformProc = null;
 
 ipcMain.handle('waveform', async (e, { url, start, duration }) => {
   if (!url) return null;
-  if (waveformProc) { try { waveformProc.kill(); } catch {} waveformProc = null; }
+  // Yeni bir istek eskisinin yerini alıyor — bu normal/beklenen bir iptal,
+  // hata değil. supersededByNewer bayrağı aşağıda "hata" olarak loglanmasını
+  // engeller (aksi halde her slider hareketinde konsola sahte hata düşerdi).
+  if (waveformProc) { waveformProc.supersededByNewer = true; try { waveformProc.kill(); } catch {} waveformProc = null; }
 
   const out = path.join(os.tmpdir(), `trimtube-wave-${Date.now()}.png`);
   const args = [
@@ -275,6 +278,7 @@ ipcMain.handle('waveform', async (e, { url, start, duration }) => {
     proc.on('close', (code) => {
       clearTimeout(timer);
       if (waveformProc === proc) waveformProc = null;
+      if (proc.supersededByNewer) return resolve(null); // beklenen iptal, sessizce geç
       if (timedOut) report('[waveform] zaman aşımına uğradı (30s) — muhtemelen eşzamanlı ağır bir işlem CPU\'yu meşgul ediyor');
       if (code !== 0 || !fs.existsSync(out)) {
         if (!timedOut) report(`[waveform] başarısız, code: ${code} ${errBuf.trim()}`);

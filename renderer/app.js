@@ -242,6 +242,12 @@ $('rangeEndFine').addEventListener('change', () => { seekPreview(Math.max(0, +$(
 let waveToken = 0;
 let waveTimer = null;
 
+// İnce ayar penceresi bu süreyi (sn) aşarsa dalga formu istenmez: ffmpeg tüm
+// aralığı taramak zorunda kalır (uzun videonun tamamı seçiliyken — ör. henüz
+// hiçbir kesim işaretlenmemişken — saatler sürebilir, pratik bir kullanımı da
+// yoktur; bu şerit zaten kısa bir kesimi ince ayarlamak içindir).
+const WAVEFORM_MAX_WINDOW = 180;
+
 function requestWaveform() {
   const img = $('waveform');
   if (!previewUrl) { img.classList.add('hidden'); return; }
@@ -249,7 +255,7 @@ function requestWaveform() {
   waveTimer = setTimeout(async () => {
     const token = ++waveToken;
     const duration = zoomWin.end - zoomWin.start;
-    if (duration <= 0) return;
+    if (duration <= 0 || duration > WAVEFORM_MAX_WINDOW) { img.classList.add('hidden'); return; }
     let data = null;
     try {
       data = await window.api.getWaveform({ url: previewUrl, start: zoomWin.start, duration });

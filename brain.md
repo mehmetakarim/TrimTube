@@ -238,3 +238,24 @@ CPU'yu yapay olarak doyurup bunu doğrulamaya çalıştım ama Windows'ta `pytho
 ## Çözülemeyen: "işlem bittikten sonra başlangıç işaretleme çalışmıyor"
 
 Statik kod incelemesiyle kök neden bulunamadı (`setStartBtn`/`setEndBtn` handler'ları, `setBusy`, event listener'lar gözden geçirildi — belirgin bir bug yok). En olası teori: aynı kaynak-çakışması durumu önizleme video akışının kendisini de etkileyip `$('preview').currentTime`'ın donmuş/beklenmeyen bir değer okumasına yol açıyor olabilir — ama bu da kanıtlanamadı. **Kullanıcıdan F12 konsol çıktısı ve tam tekrar adımları bekleniyor.**
+
+---
+
+# Windows Oturumu — v1.2.3 (kök neden bulundu)
+
+Kullanıcının paylaştığı F12 konsol çıktısı sayesinde **kesin teşhis** kondu: `[waveform] başarısız, code: null`.
+
+## Gerçek kök neden
+
+"Bilgi Al" sonrası, henüz hiçbir kesim aralığı işaretlenmemişken `rangeStart`/`rangeEnd` **tüm video** süresine eşit oluyor (ekran görüntüsünde: 00:00:00 – 02:15:37). `computeZoomWindow()` bu tam aralığı baz alıp "ince ayar" penceresini de aynı şekilde tüm videoyu kapsayacak şekilde hesaplıyor, ve `requestWaveform()` bu **2+ saatlik** aralık için ffmpeg'e dalga formu üretimi emri veriyor — bu, pratikte imkânsız (ffmpeg'in saatlerce ses akışını taraması gerekir), 30 saniyelik zaman aşımına kesin takılıyor.
+
+`code: null` ipucu önemliydi: Node'da bir alt süreç `.kill()` ile öldürüldüğünde `close` olayı `code: null` ile tetiklenir (doğal çıkış kodu değil). Bu, sürecin zaman aşımıyla/yeni bir istekle öldürüldüğünü gösteriyordu.
+
+## Uygulanan düzeltmeler (v1.2.3)
+
+1. **`WAVEFORM_MAX_WINDOW = 180` sn sınırı** (`renderer/app.js`): ince ayar penceresi 3 dakikayı aşarsa dalga formu hiç istenmiyor, görsel sessizce gizleniyor. Zaten bu şeridin amacı kısa bir kesimi ince ayarlamak — çok geniş bir aralıkta 900px'e sıkıştırılmış bir dalga formunun görsel değeri de yok.
+2. **Yanlış pozitif hata loglaması düzeltildi**: yeni bir dalga formu isteği eskisini `.kill()` ile öldürdüğünde (normal/beklenen debounce iptali), bu artık "hata" olarak raporlanmıyor. `proc.supersededByNewer` bayrağıyla ayırt ediliyor. (v1.2.2'de eklediğim loglama, bu son derece normal durumu da hataymış gibi gösteriyordu — kullanıcının paylaştığı log aslında bu yanlış pozitifti, ama gerçek kök nedene işaret etmesi bakımından faydalı oldu.)
+
+## "Başlangıç işaretleme çalışmıyor" sorunu
+
+Muhtemelen ayrı bir sorun değil — kullanıcı muhtemelen bu dalga formu hatasını (ve/veya ilişkili UI davranışını) "özellik çalışmıyor" olarak yorumlamıştı. v1.2.3 sonrası tekrar test edilecek.
