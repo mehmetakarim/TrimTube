@@ -42,6 +42,88 @@ function resolveFfmpeg() {
 const YTDLP = resolveYtdlp();
 const FFMPEG = resolveFfmpeg();
 
+// --- GPU hızlandırmalı kodlama ---
+// Gömülü ffmpeg-static ikilisi NVENC/QuickSync/AMF (Win/Linux) ve VideoToolbox
+// (macOS) ile derlenmiş, ancak gerçek kullanılabilirlik kullanıcının donanım/
+// sürücüsüne bağlı — bu yüzden varsayımla değil, küçük bir test kodlamasıyla
+// çalışma zamanında tespit edilir. Bulunamazsa veya render sırasında hata
+// verirse CPU'ya (libx264) sessizce düşülür.
+const ENCODER_CANDIDATES = {
+  win32: ['h264_nvenc', 'h264_qsv', 'h264_amf'],
+  linux: ['h264_nvenc', 'h264_qsv', 'h264_amf'],
+  darwin: ['h264_videotoolbox']
+};
+
+function probeEncoder(codec) {
+  return new Promise((resolve) => {
+    const args = ['-f', 'lavfi', '-i', 'color=c=black:s=160x90:d=0.5', '-frames:v', '5', '-c:v', codec, '-f', 'null', '-'];
+    const proc = spawn(FFMPEG, args, { windowsHide: true, env: procEnv });
+    let done = false;
+    const finish = (ok) => { if (!done) { done = true; resolve(ok); } };
+    const timer = setTimeout(() => { try { proc.kill(); } catch {} finish(false); }, 8000);
+    proc.on('close', (code) => { clearTimeout(timer); finish(code === 0); });
+    proc.on('error', () => { clearTimeout(timer); finish(false); });
+  });
+}
+
+let encoderPromise = null;
+function getEncoder() {
+  if (!encoderPromise) {
+    encoderPromise = (async () => {
+      for (const codec of ENCODER_CANDIDATES[process.platform] || []) {
+        if (await probeEncoder(codec)) return codec;
+      }
+      return 'libx264';
+    })();
+  }
+  return encoderPromise;
+}
+
+// Donanım kodlayıcıyla eşleşen donanım çözücü (decode) bayrağı. Ölçüldü:
+// GPU'da yalnızca kodlama %10-15 kazandırıyor; asıl kazanç (2-2.5x) 4K/AV1
+// gibi ağır kaynakların çözme adımı da GPU'ya taşındığında ortaya çıkıyor.
+// Gerçek dosyada çözme başarısız olursa runEncodeWithFallback zaten CPU'ya
+// düşer, bu yüzden ayrı bir çözme probu gerekmiyor.
+const HWACCEL_FOR_ENCODER = {
+  h264_nvenc: ['-hwaccel', 'cuda'],
+  h264_qsv: ['-hwaccel', 'qsv'],
+  h264_amf: process.platform === 'win32' ? ['-hwaccel', 'd3d11va'] : [],
+  h264_videotoolbox: ['-hwaccel', 'videotoolbox']
+};
+function hwaccelArgs(codec) {
+  return HWACCEL_FOR_ENCODER[codec] || [];
+}
+
+// crf: 0-51 arası kalite hedefi (libx264 ölçeği); diğer kodlayıcılar için
+// en yakın karşılığa çevrilir.
+function videoEncodeArgs(codec, crf) {
+  switch (codec) {
+    case 'h264_nvenc':
+      return ['-c:v', 'h264_nvenc', '-preset', 'p4', '-rc', 'vbr', '-cq', String(crf), '-b:v', '0'];
+    case 'h264_qsv':
+      return ['-c:v', 'h264_qsv', '-preset', 'veryfast', '-global_quality', String(crf)];
+    case 'h264_amf':
+      return ['-c:v', 'h264_amf', '-quality', 'speed', '-rc', 'cqp', '-qp_i', String(crf), '-qp_p', String(crf + 2)];
+    case 'h264_videotoolbox':
+      // -q:v 1-100 (yüksek=iyi kalite), crf'in tersi yönde; kabaca karşılık
+      return ['-c:v', 'h264_videotoolbox', '-q:v', String(Math.max(1, 100 - crf * 3))];
+    default:
+      return ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', String(crf)];
+  }
+}
+
+// buildArgs(hwaccel, videoArgs) → tam ffmpeg argüman listesi (hwaccel bayrağı
+// -i'den önceki uygun konuma, videoArgs -c:v olarak yerleştirilir). Donanım
+// çözme/kodlama gerçek render sırasında (probe'u geçmesine rağmen) hata
+// verirse tek seferlik tam CPU'ya düşüşle otomatik tekrar dener.
+async function runEncodeWithFallback(buildArgs, crf, onLine, cwd) {
+  const encoder = await getEncoder();
+  const r1 = await runProc(FFMPEG, buildArgs(hwaccelArgs(encoder), videoEncodeArgs(encoder, crf)), onLine, cwd);
+  if (r1.code === 0 || encoder === 'libx264' || cancelRequested) return r1;
+  win.webContents.send('log', `GPU kodlama (${encoder}) başarısız oldu, CPU ile devam ediliyor…`);
+  return runProc(FFMPEG, buildArgs([], videoEncodeArgs('libx264', crf)), onLine, cwd);
+}
+
 function createWindow() {
   win = new BrowserWindow({
     width: 1180,
@@ -102,6 +184,7 @@ ipcMain.handle('update-install', () => autoUpdater.quitAndInstall(false, true));
 app.whenReady().then(() => {
   createWindow();
   initAutoUpdate();
+  getEncoder().then((e) => console.log('[encoder]', e)); // ilk render'dan önce arka planda tespit edilsin
 });
 app.on('window-all-closed', () => app.quit());
 
@@ -338,11 +421,11 @@ ipcMain.handle('download', async (e, opts) => {
         clipFile = path.join(tmpDir, 'clip.mp4');
         win.webContents.send('phase', 'convert');
         win.webContents.send('progress', 0);
-        const cut = await runProc(FFMPEG, [
-          '-y', '-ss', trim.start, '-i', cacheFile, '-t', String(clipSec),
-          '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-c:a', 'copy',
+        const cut = await runEncodeWithFallback((hwaccel, venc) => [
+          '-y', ...hwaccel, '-ss', trim.start, '-i', cacheFile, '-t', String(clipSec),
+          ...venc, '-c:a', 'copy',
           '-progress', 'pipe:1', '-nostats', clipFile
-        ], ffProgress);
+        ], 18, ffProgress);
         if (cancelRequested) { cleanupTmp(); return { ok: false, cancelled: true }; }
         if (cut.code !== 0) { cleanupTmp(); return { ok: false, error: 'Kesme başarısız:\n' + cut.stderr.split(/\r?\n/).filter(Boolean).slice(-3).join('\n') }; }
       }
@@ -369,12 +452,12 @@ ipcMain.handle('download', async (e, opts) => {
       // 3) Takip verisiyle dinamik kırpma (sendcmd yolu sorun çıkarmasın diye cwd=tmpDir)
       win.webContents.send('phase', 'convert');
       win.webContents.send('progress', 0);
-      const ff = await runProc(FFMPEG, [
-        '-y', '-i', clipFile,
+      const ff = await runEncodeWithFallback((hwaccel, venc) => [
+        '-y', ...hwaccel, '-i', clipFile,
         '-vf', 'sendcmd=f=cmds.txt,crop=w=ih*9/16:h=ih:x=(iw-ow)/2:y=0,scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2',
-        '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-c:a', 'aac', '-b:a', '192k',
+        ...venc, '-c:a', 'aac', '-b:a', '192k',
         '-progress', 'pipe:1', '-nostats', target
-      ], ffProgress, tmpDir);
+      ], 20, ffProgress, tmpDir);
       if (cancelRequested) { try { fs.rmSync(target, { force: true }); } catch {} cleanupTmp(); return { ok: false, cancelled: true }; }
       if (ff.code !== 0) { cleanupTmp(); return { ok: false, error: 'Dinamik kırpma başarısız:\n' + ff.stderr.split(/\r?\n/).filter(Boolean).slice(-3).join('\n') }; }
       cleanupTmp();
@@ -384,26 +467,29 @@ ipcMain.handle('download', async (e, opts) => {
       return { ok: false, error: err.message };
     }
   }
-  const ffArgs = ['-y'];
   // -ss'in -i'den önce olması hızlı sarma sağlar; yeniden kodlamayla kare hassasiyetindedir
-  if (trim) ffArgs.push('-ss', trim.start);
-  ffArgs.push('-i', cacheFile);
-  if (trim) ffArgs.push('-t', String(clipSec));
-  if (isAudio) {
-    ffArgs.push('-c', 'copy'); // mp3 kesmede yeniden kodlamaya gerek yok
-  } else {
-    if (wantVertical) {
-      // Ortadan 9:16 kırp; kaynak zaten darsa kırpma, 1080x1920 tuvale sığdır
-      ffArgs.push('-vf', 'crop=min(iw\\,ih*9/16):ih,scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2');
-    }
-    ffArgs.push('-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-c:a', 'aac', '-b:a', '192k');
-  }
-  ffArgs.push('-progress', 'pipe:1', '-nostats', target);
+  const inputArgs = [];
+  if (trim) inputArgs.push('-ss', trim.start);
+  inputArgs.push('-i', cacheFile);
+  if (trim) inputArgs.push('-t', String(clipSec));
 
   win.webContents.send('phase', 'convert');
   win.webContents.send('progress', 0);
 
-  const ff = await runProc(FFMPEG, ffArgs, ffProgress);
+  let ff;
+  if (isAudio) {
+    // mp3 kesmede yeniden kodlamaya (dolayısıyla GPU kodlamaya) gerek yok
+    ff = await runProc(FFMPEG, ['-y', ...inputArgs, '-c', 'copy', '-progress', 'pipe:1', '-nostats', target], ffProgress);
+  } else {
+    // Ortadan 9:16 kırp; kaynak zaten darsa kırpma, 1080x1920 tuvale sığdır
+    const vf = wantVertical
+      ? ['-vf', 'crop=min(iw\\,ih*9/16):ih,scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2']
+      : [];
+    ff = await runEncodeWithFallback((hwaccel, venc) => [
+      '-y', ...hwaccel, ...inputArgs, ...vf, ...venc, '-c:a', 'aac', '-b:a', '192k',
+      '-progress', 'pipe:1', '-nostats', target
+    ], 20, ffProgress);
+  }
 
   if (cancelRequested) {
     try { fs.rmSync(target, { force: true }); } catch {}

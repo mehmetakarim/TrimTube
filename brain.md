@@ -144,3 +144,43 @@ macOS oturumunda v1.0.5 ve v1.0.6 release'leri alınmış; Windows tarafındaki 
 - **Oynatıcı sadeleştirme:** native `controls` kaldırıldı; özel şerit (oynat/duraklat, süre `fmtClock`, ses) + her iki zaman çizelgesinde canlı playhead. Videoya tıklama = oynat/duraklat (kişi işaretleme modu hariç).
 
 Sıradaki fazlar: Faz 2 (GPU kodlama + hata mesajları), Faz 3 (altyazı), Faz 4 (çoklu üretim), Faz 5 (ayarlar + karanlık mod).
+
+---
+
+# Windows Oturumu — Faz 2: GPU Hızlandırmalı Kodlama (v1.2.0)
+
+Özellik yol haritasının "Performans" bölümünden GPU kodlama uygulandı. Gerçek RTX 5060 donanımında ölçülen sonuçlar, ilk varsayımı düzeltti:
+
+## Ölçüm bulguları (3 dakikalık 4K AV1 kaynak, 9:16 dönüştürme)
+
+| Yöntem | Süre | Not |
+|---|---|---|
+| CPU çözme + CPU kodlama (eski) | 99.7 sn | — |
+| CPU çözme + GPU kodlama (yalnızca `-c:v h264_nvenc`) | 88.3 sn | ~%11 kazanç — **beklenenin çok altında** |
+| **GPU çözme + GPU kodlama** (`-hwaccel cuda` + `h264_nvenc`) | **39.4 sn** | **~2.5x kazanç** |
+
+**Kritik bulgu:** Darboğaz kodlama değil, kaynağın (YouTube "best" kalite genelde 4K AV1) **yazılımla çözülmesiydi**. Sadece kodlayıcıyı GPU'ya taşımak neredeyse fark yaratmıyor; asıl kazanç `-hwaccel` ile çözmeyi de GPU'ya vermekten geliyor. Bu yüzden ilk planlanan "sadece `-c:v` değiştir" yaklaşımı genişletildi.
+
+## Mimari
+
+`main.js`:
+- `ENCODER_CANDIDATES` (platforma göre): win32/linux → `h264_nvenc, h264_qsv, h264_amf`; darwin → `h264_videotoolbox`.
+- `probeEncoder(codec)`: `color=black` sentetik kaynakla küçük bir test kodlaması (`-frames:v 5 -f null -`), 8 sn zaman aşımı. Gerçek donanımda doğrulandı: nvenc exit 0, qsv exit 171 (bu makinede aktif Intel GPU yok) — doğru ayrım yapıyor.
+- `getEncoder()`: adayları sırayla probe'lar, ilk başarılıyı **memoize** eder (`encoderPromise`). `app.whenReady()` içinde erkenden tetiklenir, ilk render'ı beklemez.
+- `HWACCEL_FOR_ENCODER`: her kodlayıcı için eşleşen çözme bayrağı (`h264_nvenc→cuda`, `h264_qsv→qsv`, `h264_amf→d3d11va` [yalnızca win32], `h264_videotoolbox→videotoolbox`). AMD/Linux ve videotoolbox eşleşmeleri **test edilemedi** (uygun donanım yok) — güvenlik ağı aşağıdaki fallback.
+- `videoEncodeArgs(codec, crf)`: her kodlayıcı için 0-51 crf ölçeğine en yakın parametre seti (nvenc: `-rc vbr -cq N -b:v 0`, qsv: `-global_quality N`, amf: `-rc cqp -qp_i N`, videotoolbox: `-q:v` ters orantılı çevrim).
+- `runEncodeWithFallback(buildArgs, crf, onLine, cwd)`: probe geçse bile gerçek render başarısız olursa (donanım/sürücü kaynaklı) **tek seferlik tam CPU'ya (libx264, hwaccel'siz) otomatik düşüş** — hem probe hem gerçek iş için çift güvenlik katmanı.
+
+3 render noktası da (takipli-kırpma ön-kesim, takipli dinamik kırpma, genel dikey dönüştürme) bu yardımcıyı kullanacak şekilde güncellendi. Ses-only (mp3, `-c copy`) yeniden kodlama gerektirmediği için etkilenmedi.
+
+## Doğrulama
+
+- `probeEncoder` mantığı gerçek CLI ile ayrı ayrı test edildi (nvenc başarılı, qsv beklenen şekilde başarısız).
+- Tam GPU çözme+kodlama komutu gerçek önbellek dosyasıyla (`_FIIRbzSTGU_best.mp4`, 4K AV1) çalıştırıldı: 51 sn'lik klip 10.9 sn'de bitti, ffmpeg'in kendi bildirdiği hız 4.82x.
+- JS'teki argüman dizisi kurgusu (`hwaccel`/`venc`/`inputArgs` sıralaması) ayrı bir Node betiğiyle simüle edilip kanıtlanmış CLI komutuyla birebir eşleştiği doğrulandı.
+- Uygulama açılışında konsola `[encoder] h264_nvenc` yazdığı teyit edildi (arka planda erken tespit çalışıyor).
+
+## Bilinçli olarak ertelenenler
+
+- **Arka planda kuyruk:** roadmap'in Performans bölümünde vardı ama Faz 4'teki (çoklu klip/batch) kuyruk mimarisiyle çakıştığı için oraya ertelendi — ikisini ayrı ayrı inşa etmek tekrar iş demek.
+- **Anlaşılır hata mesajları:** roadmap'te "Kalite/Güvenilirlik" bölümünde kategorize edilmişti, Faz 2 kapsamına (Performans) dahil edilmedi; Faz 5'te ele alınacak.
