@@ -9,7 +9,25 @@ permissions:
   contents: write
 
 jobs:
+  # 3 platform işi paralel çalışıp hepsi --publish always ile aynı yeni etikete
+  # release oluşturmaya çalışınca yarış durumu oluşabiliyor (bkz. v1.2.1: Windows
+  # işi "başarılı" bitti ama exe'yi hiç yükleyemedi). Release'i tek bir işte,
+  # matris başlamadan önce oluşturup bu riski ortadan kaldırıyoruz.
+  create-release:
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            --repo ${{ github.repository }} \
+            --draft \
+            --title "${{ github.ref_name }}" \
+            --notes "" \
+            || echo "Release zaten var, devam ediliyor"
+
   build:
+    needs: create-release
     strategy:
       fail-fast: false
       matrix:

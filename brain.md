@@ -208,3 +208,11 @@ v1.2.0 yayınlandıktan hemen sonra gerçek kullanıcı testinde 3 sorun bildiri
 - **"GPU zayıf" gözlemi indirme (yt-dlp, ağ bağlı) aşamasında mı yoksa kesme/dönüştürme (ffmpeg, GPU) aşamasında mı?** Ekran görüntüsü indirme aşamasındaydı (%7.2, ETA ağdan geliyor) — GPU ile ilgisi olmayabilir.
 
 GPU kodlama şu an geri alınmadı (probe+fallback güvenlik ağı zaten var); kullanıcıdan netlik gelene kadar mimari korunuyor.
+
+## CI: Release oluşturma yarışı (race condition) — v1.2.1'de keşfedildi
+
+`v1.2.1` build'inde Windows işi "başarılı" (exit 0) bitti ama `TrimTube-Setup-1.2.1.exe` release'e hiç yüklenmedi. Log incelemesi: 3 platform işi paralel çalışıp hepsi `--publish always` ile **aynı anda, ilk kez** `v1.2.1` etiketi için release oluşturmaya çalışıyor — biri release'i oluştururken diğeri de aynı anda oluşturmayı deniyor, kaybeden işin varlık kontrolü/yükleme adımı sessizce (hata fırlatmadan) yarım kalabiliyor.
+
+**Geçici çözüm (o an):** `gh api jobs/{id}/rerun` ile sadece Windows işini yeniden tetikledim — release artık var olduğu için ikinci denemede sorunsuz yükledi.
+
+**Kalıcı çözüm:** `.github/workflows/release.yml`'e `create-release` adında ayrı bir iş eklendi; `gh release create --draft` ile etiket için release'i **matris başlamadan önce** oluşturuyor. 3 platform işi artık `needs: create-release` ile bu işten sonra başlıyor, hepsi zaten var olan release'e yükleme yapıyor — yarış durumu ortadan kalktı.
