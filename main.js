@@ -11,6 +11,23 @@ if (process.platform === 'darwin') {
   process.env.PATH = `/opt/homebrew/bin:/usr/local/bin:${process.env.PATH}`;
 }
 
+// Beklenmeyen bir hata (ör. bir alt süreç/promise'te öngörülmeyen bir durum)
+// artık tüm uygulamayı çökertmesin — Node'un varsayılan davranışı işlenmemiş
+// promise reddini/istisnayı fatal sayıp süreci sonlandırmaktır. Loglanır,
+// uygulama açık kalır; kullanıcı en kötü ihtimalle o işlemi tekrar dener.
+// Paketlenmiş uygulamada ana süreç konsolu görünmez (terminal yok); hatayı
+// DevTools'ta (F12) görülebilsin diye render sürecine de ilet.
+function reportFatal(label, err) {
+  console.error(label, err);
+  try {
+    if (win && !win.isDestroyed()) {
+      win.webContents.send('main-error', `${label} ${err && err.message ? err.message : err}`);
+    }
+  } catch {}
+}
+process.on('uncaughtException', (err) => reportFatal('[uncaughtException]', err));
+process.on('unhandledRejection', (err) => reportFatal('[unhandledRejection]', err));
+
 let win = null;
 let currentProc = null;
 let cancelRequested = false;
@@ -141,6 +158,11 @@ function createWindow() {
     }
   });
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+
+  // F12: sorun bildirimlerinde konsol hatasını görebilmek için DevTools
+  win.webContents.on('before-input-event', (e, input) => {
+    if (input.key === 'F12' && input.type === 'keyDown') win.webContents.toggleDevTools();
+  });
 }
 
 // GitHub Releases'teki en son (Draft/Prerelease olmayan) sürümü kontrol eder.

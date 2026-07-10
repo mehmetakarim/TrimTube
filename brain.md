@@ -184,3 +184,27 @@ Sıradaki fazlar: Faz 2 (GPU kodlama + hata mesajları), Faz 3 (altyazı), Faz 4
 
 - **Arka planda kuyruk:** roadmap'in Performans bölümünde vardı ama Faz 4'teki (çoklu klip/batch) kuyruk mimarisiyle çakıştığı için oraya ertelendi — ikisini ayrı ayrı inşa etmek tekrar iş demek.
 - **Anlaşılır hata mesajları:** roadmap'te "Kalite/Güvenilirlik" bölümünde kategorize edilmişti, Faz 2 kapsamına (Performans) dahil edilmedi; Faz 5'te ele alınacak.
+
+---
+
+# Windows Oturumu — v1.2.1 Acil Düzeltme (Faz 2 sonrası saha raporu)
+
+v1.2.0 yayınlandıktan hemen sonra gerçek kullanıcı testinde 3 sorun bildirildi: önizleme/dalga formu açılmıyor, GPU performansı CPU'dan zayıf görünüyor, kişi takibi kapalıyken bile uygulama çöküyor.
+
+## Kod incelemesinde bulunan gerçek açık
+
+`renderer/app.js`'te `await window.api.download(opts)` **try/catch'siz** çağrılıyordu. Ana süreçte beklenmeyen bir istisna (GPU kodlama mimarisi eklenirken oluşmuş olabilir) IPC üzerinden reddedilirse, `setBusy(false)` hiç çalışmıyor — arayüz "İndiriliyor…" durumunda sonsuza dek donuyor. Kullanıcı bunu "uygulama çöktü" olarak yorumlamış olabilir; gerçek bir Electron process crash'i değil, arayüz kilitlenmesi.
+
+## Uygulanan düzeltmeler (v1.2.1)
+
+1. **`window.api.download()` ve `getWaveform()` artık try/catch'li** — herhangi bir beklenmeyen hata artık kullanıcıya görünür bir hata mesajı olarak dönüyor, arayüz donmuyor.
+2. **`process.on('uncaughtException'/'unhandledRejection')`** eklendi — Node'un varsayılan davranışı (işlenmemiş hata → süreci sonlandır) artık devre dışı; hata loglanıp uygulama açık kalıyor. `reportFatal()` ile hata render sürecine de (`main-error` IPC) iletiliyor.
+3. **F12 ile DevTools açma** eklendi (`before-input-event`) — paketlenmiş uygulamada terminal olmadığı için ana süreç hataları görünmezdi; artık render konsoluna da yansıyor.
+4. **Önizleme yükleme hatasında bir kez otomatik yeniden deneme** — ilk `error` olayında `previewRetried` bayrağıyla `v.src` tekrar atanıyor, ikinci denemede de başarısız olursa kalıcı hata gösteriliyor. (Kök neden netleşmedi: aynı URL `curl` ile 200 dönüyor, doğru header'lara sahip — muhtemelen Chromium'un ilk medya yüklemesinde geçici bir hata.)
+
+## Açık kalan sorular (kullanıcıdan bekleniyor)
+
+- **Çökme gerçekten pencerenin kapanması mı, yoksa arayüzün donması mı?** (F12 → Console'da kırmızı hata var mı?)
+- **"GPU zayıf" gözlemi indirme (yt-dlp, ağ bağlı) aşamasında mı yoksa kesme/dönüştürme (ffmpeg, GPU) aşamasında mı?** Ekran görüntüsü indirme aşamasındaydı (%7.2, ETA ağdan geliyor) — GPU ile ilgisi olmayabilir.
+
+GPU kodlama şu an geri alınmadı (probe+fallback güvenlik ağı zaten var); kullanıcıdan netlik gelene kadar mimari korunuyor.

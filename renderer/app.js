@@ -37,6 +37,8 @@ function clearStatus() { $('statusMsg').classList.add('hidden'); }
 
 // ---- önizleme oynatıcısı (yt-dlp'den alınan doğrudan stream URL'si) ----
 
+let previewRetried = false;
+
 function loadPlayer() {
   const v = $('preview');
   if (!previewUrl) {
@@ -49,6 +51,7 @@ function loadPlayer() {
   $('playerEmpty').classList.add('hidden');
   v.classList.remove('hidden');
   $('playerChrome').classList.remove('hidden');
+  previewRetried = false;
   if (v.dataset.url !== previewUrl) {
     v.dataset.url = previewUrl;
     v.src = previewUrl;
@@ -61,6 +64,16 @@ function seekPreview(sec) {
 }
 
 $('preview').addEventListener('error', () => {
+  // İlk yüklemede bazen geçici bir Chromium medya hatası oluşabiliyor
+  // (kaynak erişilebilir olsa bile); kalıcı hata göstermeden önce bir kez
+  // yeniden dene — çoğu durumda ikinci denemede sorunsuz açılıyor
+  if (!previewRetried && previewUrl) {
+    previewRetried = true;
+    console.warn('[preview] ilk yükleme başarısız, yeniden deneniyor…');
+    const v = $('preview');
+    v.src = previewUrl;
+    return;
+  }
   $('preview').classList.add('hidden');
   $('playerChrome').classList.add('hidden');
   $('playerEmpty').textContent = 'Önizleme akışı oynatılamadı — zaman kutularını kullanabilirsiniz';
@@ -237,7 +250,12 @@ function requestWaveform() {
     const token = ++waveToken;
     const duration = zoomWin.end - zoomWin.start;
     if (duration <= 0) return;
-    const data = await window.api.getWaveform({ url: previewUrl, start: zoomWin.start, duration });
+    let data = null;
+    try {
+      data = await window.api.getWaveform({ url: previewUrl, start: zoomWin.start, duration });
+    } catch {
+      // dalga formu isteğe bağlı bir görsel — başarısız olursa sessizce gizlenir
+    }
     if (token !== waveToken) return; // bu arada pencere değişti, sonuç bayat
     if (data) {
       img.src = data;
@@ -482,7 +500,16 @@ $('downloadBtn').addEventListener('click', async () => {
   clearStatus();
   setBusy(true);
 
-  const result = await window.api.download(opts);
+  let result;
+  try {
+    result = await window.api.download(opts);
+  } catch (err) {
+    // Ana süreçte beklenmeyen bir hata IPC üzerinden reddedilirse arayüz
+    // sonsuza dek "İndiriliyor…" durumunda donmasın — her zaman geri dönülsün
+    setBusy(false);
+    setStatus('err', 'Beklenmeyen bir hata oluştu: ' + (err.message || String(err)));
+    return;
+  }
 
   setBusy(false);
 
@@ -562,3 +589,7 @@ $('updateActionBtn').addEventListener('click', async () => {
 });
 
 $('updateDismissBtn').addEventListener('click', () => setUpdateCard('idle'));
+
+// Ana süreçte yakalanan beklenmeyen hatalar buraya düşer — F12 ile DevTools
+// açıp konsola bakınca görülebilir (sorun bildirimlerinde teşhis için).
+window.api.onMainError((message) => console.error('[main]', message));

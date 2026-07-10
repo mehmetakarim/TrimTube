@@ -18,5 +18,7 @@ contextBridge.exposeInMainWorld('api', {
   onUpdateAvailable: (cb) => ipcRenderer.on('update-available', (e, version) => cb(version)),
   onUpdateProgress: (cb) => ipcRenderer.on('update-progress', (e, percent) => cb(percent)),
   onUpdateReady: (cb) => ipcRenderer.on('update-ready', () => cb()),
-  onUpdateError: (cb) => ipcRenderer.on('update-error', (e, message) => cb(message))
+  onUpdateError: (cb) => ipcRenderer.on('update-error', (e, message) => cb(message)),
+
+  onMainError: (cb) => ipcRenderer.on('main-error', (e, message) => cb(message))
 });
