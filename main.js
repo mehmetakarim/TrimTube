@@ -194,9 +194,13 @@ function qualityArgs(quality) {
 }
 
 function runYtdlp(extraArgs) {
-  // YouTube indirmelerinde bağlantının kopmasını engellemek için eşzamanlı parça sayısını 1'e düşürdük (-N 1)
-  // Ayrıca yt-dlp'nin ffmpeg'i bulup ses/videoyu birleştirebilmesi için --ffmpeg-location ekledik
-  const args = ['--no-playlist', '--newline', '--progress', '--no-warnings', '-N', '1', '--ffmpeg-location', FFMPEG, ...extraArgs];
+  // Eşzamanlı parça sayısı platforma göre: macOS'ta çoklu bağlantı YouTube tarafından
+  // sıfırlanıp "X bytes read, Y more expected" hatası verdiği için 1; Windows'ta bu
+  // sorun görülmedi ve -N 8 uzun videolarda ~4-5 kat hız kazandırıyor.
+  // --ffmpeg-location: yt-dlp, ses/videoyu birleştirirken sistem PATH'ine bakmak
+  // yerine gömülü ffmpeg'i kullanır (ffmpeg kurulu olmayan kullanıcılar için şart).
+  const fragments = process.platform === 'win32' ? '8' : '1';
+  const args = ['--no-playlist', '--newline', '--progress', '--no-warnings', '-N', fragments, '--ffmpeg-location', FFMPEG, ...extraArgs];
   return runProc(YTDLP, args, (line) => {
     const m = line.match(/\[download\]\s+(\d+(?:\.\d+)?)%/);
     if (m) win.webContents.send('progress', parseFloat(m[1]));

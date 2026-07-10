@@ -1,6 +1,10 @@
-# TrimTube Geliştirme Günlüğü (macOS Oturumu Sorunları ve Çözümleri)
+# TrimTube Geliştirme Günlüğü
 
-Bu dosya, TrimTube uygulamasının evdeki macOS (M-serisi) ortamındaki kurulum, çalıştırma ve hata ayıklama süreçlerinde karşılaşılan problemleri ve uygulanan kalıcı çözümleri barındırır (ofisteki Windows ortamı ile karıştırılmaması için macOS oturumu olarak not alınmıştır).
+Bu dosya, farklı ortamlardaki (ev: macOS M-serisi, ofis: Windows 11) geliştirme oturumlarında karşılaşılan problemleri ve uygulanan kalıcı çözümleri barındırır. Her başlık hangi ortama ait olduğunu belirtir — iki ortam arasında hafıza aktarımı bu dosya üzerinden yapılır.
+
+---
+
+# macOS Oturumu (Sorunlar ve Çözümler)
 
 ---
 
@@ -99,3 +103,30 @@ python3 -m pip uninstall -y opencv-python opencv-contrib-python --break-system-p
 python3 -m pip install opencv-contrib-python --break-system-packages
 ```
 *(OpenCV 5.0.0+ sürümü ile `cv2.TrackerCSRT_create()` nesnesinin başarıyla oluşturulduğu teyit edildi).*
+
+---
+
+# Windows Oturumu (10 Temmuz 2026)
+
+## 1. macOS düzeltmelerinin Windows'a etkilerinin gözden geçirilmesi
+
+### `--ffmpeg-location` (macOS düzeltmesi, Windows'a da yarıyor)
+macOS oturumunda eklenen `--ffmpeg-location FFMPEG` parametresi, Windows'taki gizli bir hatayı da çözdü: paketlenmiş Windows sürümünde gömülü yt-dlp, ses/video birleştirmek için ffmpeg'i sistem PATH'inde arıyordu. Geliştirme makinesinde ffmpeg kurulu olduğu için fark edilmemişti; ffmpeg'i olmayan kullanıcılarda yüksek kaliteli indirmeler (ayrı ses+video akışları) birleştirilemeden kalacaktı.
+
+**Doğrulama:** PATH'ten ffmpeg tamamen gizlenerek (PATH=system32 ile) birleştirme gerektiren bir indirme test edildi — gömülü `ffmpeg-static` yoluyla birleştirme başarılı. Ek değişiklik gerekmedi.
+
+## 2. `-N` (eşzamanlı parça) sayısının platforma göre ayrılması
+
+### Sorun:
+macOS oturumunda bağlantı kopmaları (`Got error: X bytes read, Y more expected`) nedeniyle `-N 8` → `-N 1` yapılmıştı. Ancak bu değişiklik Windows'u da kapsıyordu; Windows'ta `-N 8` sorunsuz çalışıyor ve 2 saat 15 dakikalık bir bölümü ~4 dakikada indiriyor (`-N 1` ile belirgin şekilde yavaş olur).
+
+### Çözüm (Kaynak Kod Düzeyinde):
+`main.js > runYtdlp` içinde parça sayısı platforma göre koşullu hale getirildi:
+```javascript
+const fragments = process.platform === 'win32' ? '8' : '1';
+```
+Windows: `-N 8` (hızlı, sorun görülmedi) · macOS/Linux: `-N 1` (bağlantı stabilitesi).
+
+## 3. Sürüm eşitlemesi
+
+macOS oturumunda v1.0.5 ve v1.0.6 release'leri alınmış; Windows tarafındaki yerel repo `git fetch --tags` ile eşitlendi. Güncel yayın: **v1.0.6**.
