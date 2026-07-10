@@ -100,19 +100,140 @@ function syncFromInputs() {
 
 $('rangeStart').addEventListener('input', syncFromSlider);
 $('rangeEnd').addEventListener('input', syncFromSlider);
-$('startTime').addEventListener('change', () => { syncFromInputs(); seekPreview(+$('rangeStart').value); });
-$('endTime').addEventListener('change', () => { syncFromInputs(); seekPreview(Math.max(0, +$('rangeEnd').value - 3)); });
+$('startTime').addEventListener('change', () => { syncFromInputs(); seekPreview(+$('rangeStart').value); computeZoomWindow(); });
+$('endTime').addEventListener('change', () => { syncFromInputs(); seekPreview(Math.max(0, +$('rangeEnd').value - 3)); computeZoomWindow(); });
 // Slider bırakıldığında önizlemeyi o noktaya sar (bitiş için 3 sn öncesine)
-$('rangeStart').addEventListener('change', () => seekPreview(+$('rangeStart').value));
-$('rangeEnd').addEventListener('change', () => seekPreview(Math.max(0, +$('rangeEnd').value - 3)));
+$('rangeStart').addEventListener('change', () => { seekPreview(+$('rangeStart').value); computeZoomWindow(); });
+$('rangeEnd').addEventListener('change', () => { seekPreview(Math.max(0, +$('rangeEnd').value - 3)); computeZoomWindow(); });
+
+// ---- İnce ayar (zoom) şeridi ----
+// Ana slider tüm videoyu kapsar; uzun videolarda saniye hassasiyeti imkânsızlaşır.
+// Bu şerit, seçili aralığın etrafındaki dar bir pencereye yakınlaşır ve arka
+// planında o pencerenin ses dalga formunu gösterir.
+
+const zoomWin = { start: 0, end: 0 };
+
+function updateFineVisual() {
+  const winLen = zoomWin.end - zoomWin.start;
+  if (winLen <= 0) return;
+  const s = +$('rangeStartFine').value;
+  const e = +$('rangeEndFine').value;
+  $('sliderRangeFine').style.left = ((s - zoomWin.start) / winLen * 100) + '%';
+  $('sliderRangeFine').style.width = ((e - s) / winLen * 100) + '%';
+}
+
+function computeZoomWindow() {
+  if (videoDuration <= 0) return;
+  const s = +$('rangeStart').value;
+  const e = +$('rangeEnd').value;
+  // Pencere: aralığın %25'i kadar (en az 15 sn) kenar payı
+  const pad = Math.max(15, Math.round((e - s) * 0.25));
+  zoomWin.start = Math.max(0, s - pad);
+  zoomWin.end = Math.min(videoDuration, e + pad);
+  for (const id of ['rangeStartFine', 'rangeEndFine']) {
+    $(id).min = zoomWin.start;
+    $(id).max = zoomWin.end;
+  }
+  $('rangeStartFine').value = s;
+  $('rangeEndFine').value = e;
+  $('zoomLabel').textContent = `${fmtTime(zoomWin.start)} – ${fmtTime(zoomWin.end)}`;
+  updateFineVisual();
+  requestWaveform();
+}
+
+function syncFromFine() {
+  let s = +$('rangeStartFine').value;
+  const e = +$('rangeEndFine').value;
+  if (s >= e) { // kollar çakışmasın
+    s = Math.min(s, e - 1);
+    $('rangeStartFine').value = Math.max(zoomWin.start, s);
+    if (+$('rangeStartFine').value >= e) $('rangeEndFine').value = +$('rangeStartFine').value + 1;
+  }
+  $('rangeStart').value = +$('rangeStartFine').value;
+  $('rangeEnd').value = +$('rangeEndFine').value;
+  $('startTime').value = fmtTime(+$('rangeStart').value);
+  $('endTime').value = fmtTime(+$('rangeEnd').value);
+  updateSliderVisual();
+  updateFineVisual();
+}
+
+$('rangeStartFine').addEventListener('input', syncFromFine);
+$('rangeEndFine').addEventListener('input', syncFromFine);
+$('rangeStartFine').addEventListener('change', () => { seekPreview(+$('rangeStartFine').value); computeZoomWindow(); });
+$('rangeEndFine').addEventListener('change', () => { seekPreview(Math.max(0, +$('rangeEndFine').value - 3)); computeZoomWindow(); });
+
+// ---- dalga formu (debounce + eski istekleri yok say) ----
+
+let waveToken = 0;
+let waveTimer = null;
+
+function requestWaveform() {
+  const img = $('waveform');
+  if (!previewUrl) { img.classList.add('hidden'); return; }
+  clearTimeout(waveTimer);
+  waveTimer = setTimeout(async () => {
+    const token = ++waveToken;
+    const duration = zoomWin.end - zoomWin.start;
+    if (duration <= 0) return;
+    const data = await window.api.getWaveform({ url: previewUrl, start: zoomWin.start, duration });
+    if (token !== waveToken) return; // bu arada pencere değişti, sonuç bayat
+    if (data) {
+      img.src = data;
+      img.classList.remove('hidden');
+    } else {
+      img.classList.add('hidden');
+    }
+  }, 600);
+}
 
 $('setStartBtn').addEventListener('click', () => {
   $('startTime').value = fmtTime(Math.floor($('preview').currentTime));
   syncFromInputs();
+  computeZoomWindow();
 });
 $('setEndBtn').addEventListener('click', () => {
   $('endTime').value = fmtTime(Math.ceil($('preview').currentTime));
   syncFromInputs();
+  computeZoomWindow();
+});
+
+// ---- klavye kısayolları ----
+// Boşluk: oynat/duraklat · I/O: başlangıç/bitiş işaretle · J/L: ∓5 sn · ←/→: ∓1 sn
+
+document.addEventListener('keydown', (e) => {
+  const t = e.target;
+  // Metin girişi veya buton odaktayken kısayollar devre dışı (buton için boşluk = tıklama)
+  if (t.matches('input[type="text"], select, button')) return;
+  const v = $('preview');
+  if (!v.src || v.classList.contains('hidden')) return;
+
+  switch (e.key) {
+    case ' ':
+      e.preventDefault();
+      if (v.paused) v.play(); else v.pause();
+      break;
+    case 'i': case 'I': case 'ı': case 'İ':
+      if ($('trimEnable').checked) $('setStartBtn').click();
+      break;
+    case 'o': case 'O':
+      if ($('trimEnable').checked) $('setEndBtn').click();
+      break;
+    case 'j': case 'J':
+      v.currentTime = Math.max(0, v.currentTime - 5);
+      break;
+    case 'l': case 'L':
+      v.currentTime = Math.min(v.duration || videoDuration, v.currentTime + 5);
+      break;
+    case 'k': case 'K':
+      if (v.paused) v.play(); else v.pause();
+      break;
+    case 'ArrowLeft':
+      if (t.type !== 'range') { e.preventDefault(); v.currentTime = Math.max(0, v.currentTime - 1); }
+      break;
+    case 'ArrowRight':
+      if (t.type !== 'range') { e.preventDefault(); v.currentTime = Math.min(v.duration || videoDuration, v.currentTime + 1); }
+      break;
+  }
 });
 
 // ---- aralık kesme anahtarı ----
@@ -198,6 +319,8 @@ async function fetchInfo() {
     $('rangeStart').value = 0;
     $('rangeEnd').value = videoDuration;
     syncFromSlider();
+    $('waveform').classList.add('hidden'); // önceki videonun dalga formu kalmasın
+    computeZoomWindow();
     loadPlayer();
     clearTrackMarker();
 
@@ -233,13 +356,17 @@ const PHASE_LABELS = {
   track: 'Kişi takip ediliyor…'
 };
 
+let etaText = null;
+
 window.api.onProgress((p) => {
   $('progressFill').style.width = p + '%';
-  $('progressText').textContent = '%' + p.toFixed(1);
+  $('progressText').textContent = '%' + p.toFixed(1) + (etaText ? ` · kalan ${etaText}` : '');
 });
+window.api.onEta((eta) => { etaText = eta; });
 window.api.onLog((line) => { $('logLine').textContent = line; });
 window.api.onPhase((phase) => {
   downloadPhase = phase;
+  etaText = null; // her aşama kendi ETA'sını üretir, öncekinden kalmasın
   $('phaseLabel').textContent = PHASE_LABELS[phase] || 'İşleniyor…';
 });
 
@@ -250,6 +377,7 @@ function setBusy(on) {
   btn.classList.toggle('cancel', on);
   $('progressWrap').classList.toggle('hidden', !on);
   if (on) {
+    etaText = null;
     $('progressFill').style.width = '0%';
     $('progressText').textContent = '%0';
     $('phaseLabel').textContent = 'Başlatılıyor…';

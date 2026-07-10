@@ -136,6 +136,44 @@ function runProc(cmd, args, onLine, cwd) {
   });
 }
 
+// --- İnce ayar şeridi için dalga formu üretimi ---
+// Önizleme akışının (360p progressive mp4) yalnızca istenen aralığını HTTP range
+// ile okuyup showwavespic ile PNG üretir. İndirme/kesme işlerinden bağımsızdır:
+// currentProc'a dokunmaz (İptal butonu dalga formunu öldürmesin), kendi içinde
+// önceki isteği iptal eder (kullanıcı slider'ı hızlı oynattığında birikme olmasın).
+let waveformProc = null;
+
+ipcMain.handle('waveform', async (e, { url, start, duration }) => {
+  if (!url) return null;
+  if (waveformProc) { try { waveformProc.kill(); } catch {} waveformProc = null; }
+
+  const out = path.join(os.tmpdir(), `trimtube-wave-${Date.now()}.png`);
+  const args = [
+    '-y', '-ss', String(start), '-i', url, '-t', String(duration),
+    '-filter_complex', 'aformat=channel_layouts=mono,showwavespic=s=900x48:colors=0A84FF',
+    '-frames:v', '1', out, '-loglevel', 'error'
+  ];
+
+  return new Promise((resolve) => {
+    const proc = spawn(FFMPEG, args, { windowsHide: true, env: procEnv });
+    waveformProc = proc;
+    const timer = setTimeout(() => { try { proc.kill(); } catch {} }, 30000);
+    proc.on('close', (code) => {
+      clearTimeout(timer);
+      if (waveformProc === proc) waveformProc = null;
+      if (code !== 0 || !fs.existsSync(out)) return resolve(null);
+      try {
+        const b64 = fs.readFileSync(out).toString('base64');
+        fs.rmSync(out, { force: true });
+        resolve('data:image/png;base64,' + b64);
+      } catch {
+        resolve(null);
+      }
+    });
+    proc.on('error', () => { clearTimeout(timer); resolve(null); });
+  });
+});
+
 ipcMain.handle('get-default-folder', () => app.getPath('downloads'));
 
 ipcMain.handle('choose-folder', async () => {
@@ -203,8 +241,13 @@ function runYtdlp(extraArgs) {
   const args = ['--no-playlist', '--newline', '--progress', '--no-warnings', '-N', fragments, '--ffmpeg-location', FFMPEG, ...extraArgs];
   return runProc(YTDLP, args, (line) => {
     const m = line.match(/\[download\]\s+(\d+(?:\.\d+)?)%/);
-    if (m) win.webContents.send('progress', parseFloat(m[1]));
-    else win.webContents.send('log', line.trim());
+    if (m) {
+      win.webContents.send('progress', parseFloat(m[1]));
+      const eta = line.match(/ETA\s+([\d:]+)/);
+      win.webContents.send('eta', eta ? eta[1] : null);
+    } else {
+      win.webContents.send('log', line.trim());
+    }
   });
 }
 
@@ -265,11 +308,20 @@ ipcMain.handle('download', async (e, opts) => {
 
   const clipSec = trim ? (toSec(trim.end) - toSec(trim.start)) : (duration || 0);
 
+  let ffSpeed = 0; // ffmpeg -progress çıktısındaki speed= alanı (ör. 3.5x)
   const ffProgress = (line) => {
+    const sp = line.match(/^speed=\s*([\d.]+)x/);
+    if (sp) { ffSpeed = parseFloat(sp[1]); return; }
     const m = line.match(/^out_time=(\d+):(\d+):(\d+)/);
     if (m && clipSec > 0) {
       const t = (+m[1]) * 3600 + (+m[2]) * 60 + (+m[3]);
       win.webContents.send('progress', Math.min(99.9, (t / clipSec) * 100));
+      if (ffSpeed > 0) {
+        const remain = Math.max(0, Math.round((clipSec - t) / ffSpeed));
+        const mm = Math.floor(remain / 60);
+        const ss = remain % 60;
+        win.webContents.send('eta', `${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`);
+      }
     }
   };
 

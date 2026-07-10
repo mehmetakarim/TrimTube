@@ -7,9 +7,11 @@ contextBridge.exposeInMainWorld('api', {
   chooseFolder: () => ipcRenderer.invoke('choose-folder'),
   openFolder: (folder) => ipcRenderer.invoke('open-folder', folder),
   getDefaultFolder: () => ipcRenderer.invoke('get-default-folder'),
+  getWaveform: (opts) => ipcRenderer.invoke('waveform', opts),
   onProgress: (cb) => ipcRenderer.on('progress', (e, p) => cb(p)),
   onLog: (cb) => ipcRenderer.on('log', (e, line) => cb(line)),
   onPhase: (cb) => ipcRenderer.on('phase', (e, phase) => cb(phase)),
+  onEta: (cb) => ipcRenderer.on('eta', (e, eta) => cb(eta)),
 
   downloadUpdate: () => ipcRenderer.invoke('update-download'),
   installUpdate: () => ipcRenderer.invoke('update-install'),

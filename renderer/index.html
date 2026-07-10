@@ -53,6 +53,21 @@
             <input type="range" id="rangeEnd" min="0" value="0" step="1">
           </div>
 
+          <!-- Seçili aralığın etrafına yakınlaşan ince ayar şeridi (dalga formu arka planlı) -->
+          <div class="zoom-area">
+            <div class="zoom-head">
+              <span class="label">İnce ayar</span>
+              <span id="zoomLabel" class="zoom-label">–</span>
+            </div>
+            <div class="slider-wrap zoom">
+              <img id="waveform" class="waveform hidden" alt="">
+              <div class="slider-track"></div>
+              <div class="slider-range" id="sliderRangeFine"></div>
+              <input type="range" id="rangeStartFine" min="0" value="0" step="1">
+              <input type="range" id="rangeEndFine" min="0" value="0" step="1">
+            </div>
+          </div>
+
           <div class="times-row">
             <div class="time-group">
               <div class="time-block">
@@ -72,6 +87,10 @@
                 <input type="text" id="endTime" value="00:00:00" spellcheck="false">
               </div>
             </div>
+          </div>
+
+          <div class="shortcut-hint">
+            <kbd>Boşluk</kbd> oynat/duraklat · <kbd>I</kbd>/<kbd>O</kbd> başlangıç/bitiş işaretle · <kbd>J</kbd>/<kbd>L</kbd> ∓5 sn · <kbd>←</kbd>/<kbd>→</kbd> ∓1 sn
           </div>
         </div>
       </section>
