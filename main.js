@@ -351,7 +351,11 @@ ipcMain.handle('get-info', (e, url) => {
             duration: j.duration,
             thumbnail: j.thumbnail,
             uploader: j.uploader || j.channel || '',
-            previewUrl: preferred ? preferred.url : null
+            previewUrl: preferred ? preferred.url : null,
+            // Altyazı: manuel diller olduğu gibi; otomatik (ASR) listesi yüzlerce
+            // çeviri varyantı içerdiğinden yalnızca Türkçe varyantlar aktarılır
+            subLangs: Object.keys(j.subtitles || {}),
+            autoLangs: Object.keys(j.automatic_captions || {}).filter(l => l === 'tr' || l.startsWith('tr-'))
           });
         } catch {
           reject(new Error('Video bilgisi çözümlenemedi.'));
@@ -363,6 +367,73 @@ ipcMain.handle('get-info', (e, url) => {
 
 function sanitizeName(name) {
   return name.replace(/[\\/:*?"<>|]/g, '').trim() || 'video';
+}
+
+// --- Altyazı gömme ---
+// Stiller libass force_style ile uygulanır; üçü de gerçek 1080x1920 çıktı
+// üzerinde görsel olarak doğrulandı. FontSize/MarginV değerleri libass'ın
+// varsayılan PlayRes (384x288) ölçeğindedir, çıktı boyutuna otomatik ölçeklenir.
+const SUBTITLE_STYLES = {
+  klasik: 'FontName=Arial,Bold=1,FontSize=13,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=1.5,Shadow=0.5',
+  kutulu: 'FontName=Arial,Bold=1,FontSize=13,PrimaryColour=&H00FFFFFF,BorderStyle=4,BackColour=&HA0000000,Outline=0,Shadow=0',
+  dolgun: 'FontName=Arial Black,Bold=1,FontSize=17,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2.8,Shadow=0'
+};
+
+// SRT'yi kesim penceresine kaydırır: pencere dışındaki bloklar atılır,
+// kalanların zamanı klip başlangıcına göre sıfırlanır.
+function shiftSrt(content, startSec, durSec) {
+  const toMs = (h, m, s, ms) => ((+h * 3600 + +m * 60 + +s) * 1000 + +ms);
+  const fmt = (ms) => {
+    ms = Math.max(0, Math.round(ms));
+    const h = Math.floor(ms / 3600000); ms %= 3600000;
+    const m = Math.floor(ms / 60000); ms %= 60000;
+    const s = Math.floor(ms / 1000);
+    const r = ms % 1000;
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')},${String(r).padStart(3, '0')}`;
+  };
+  const startMs = startSec * 1000;
+  const endMs = (startSec + durSec) * 1000;
+  const out = [];
+  let idx = 1;
+  for (const block of content.split(/\r?\n\r?\n/)) {
+    const m = block.match(/(\d{2}):(\d{2}):(\d{2})[,.](\d{3})\s*-->\s*(\d{2}):(\d{2}):(\d{2})[,.](\d{3})/);
+    if (!m) continue;
+    const s = toMs(m[1], m[2], m[3], m[4]);
+    const e = toMs(m[5], m[6], m[7], m[8]);
+    if (e <= startMs || s >= endMs) continue;
+    const lines = block.split(/\r?\n/);
+    const text = lines.slice(lines.findIndex(l => l.includes('-->')) + 1).join('\n');
+    if (!text.trim()) continue;
+    out.push(`${idx++}\n${fmt(Math.max(0, s - startMs))} --> ${fmt(Math.min(endMs, e) - startMs)}\n${text}`);
+  }
+  return out.length ? out.join('\n\n') + '\n' : '';
+}
+
+// Altyazıyı indirip önbelleğe alır (videonun kendisi gibi altyazı da
+// tekrar klip kesimlerinde yeniden indirilmesin)
+async function fetchSubtitle(url, videoId, lang, isAuto) {
+  const cacheDir = path.join(app.getPath('userData'), 'cache');
+  fs.mkdirSync(cacheDir, { recursive: true });
+  const cached = path.join(cacheDir, `${videoId}_sub_${lang}${isAuto ? '.auto' : ''}.srt`);
+  if (fs.existsSync(cached)) return cached;
+
+  const outBase = path.join(cacheDir, `${videoId}_subdl`);
+  const args = [
+    '--no-playlist', '--no-warnings', '--skip-download',
+    isAuto ? '--write-auto-subs' : '--write-subs',
+    '--sub-langs', lang, '--convert-subs', 'srt',
+    '--ffmpeg-location', FFMPEG, '-o', outBase, url
+  ];
+  await runProc(YTDLP, args, () => {});
+
+  const produced = `${outBase}.${lang}.srt`;
+  if (fs.existsSync(produced)) { fs.renameSync(produced, cached); return cached; }
+  // Dil kodu varyasyonu (ör. tr-TR) — üretilen ilk srt'yi kabul et
+  try {
+    const alt = fs.readdirSync(cacheDir).find(f => f.startsWith(`${videoId}_subdl`) && f.endsWith('.srt'));
+    if (alt) { fs.renameSync(path.join(cacheDir, alt), cached); return cached; }
+  } catch {}
+  return null;
 }
 
 // yt-dlp indirme argümanları (kalite seçimine göre)
@@ -399,7 +470,7 @@ function runYtdlp(extraArgs) {
 function pruneCache(cacheDir, keep) {
   try {
     fs.readdirSync(cacheDir)
-      .filter(f => f !== keep && !f.endsWith('.part'))
+      .filter(f => f !== keep && !f.endsWith('.part') && !f.includes('_sub'))
       .map(f => ({ f, t: fs.statSync(path.join(cacheDir, f)).mtimeMs }))
       .sort((a, b) => b.t - a.t)
       .slice(1) // keep dışında en yeni 1 dosya daha kalsın
@@ -408,13 +479,14 @@ function pruneCache(cacheDir, keep) {
 }
 
 ipcMain.handle('download', async (e, opts) => {
-  const { url, id, title, folder, quality, trim, vertical, duration, track, trackPoint } = opts;
+  const { url, id, title, folder, quality, trim, vertical, duration, track, trackPoint, subtitle } = opts;
   cancelRequested = false;
 
   const isAudio = quality === 'audio';
   const wantVertical = vertical && !isAudio;
   const wantTrack = wantVertical && track;
-  const needPost = !!trim || wantVertical;
+  const wantSubs = !!subtitle && !isAudio; // altyazı gömme yeniden kodlama gerektirir
+  const needPost = !!trim || wantVertical || wantSubs;
 
   // --- Basit durum: kesme/dönüştürme yok → doğrudan hedef klasöre indir ---
   if (!needPost) {
@@ -445,12 +517,40 @@ ipcMain.handle('download', async (e, opts) => {
     win.webContents.send('log', 'Video önbellekte bulundu, indirme atlandı.');
   }
 
+  const clipSec = trim ? (toSec(trim.end) - toSec(trim.start)) : (duration || 0);
+
+  // --- Altyazı hazırlığı: indir (önbellekten), kesim penceresine kaydır ---
+  // Kişi takibi ve/veya altyazı gömme geçici klasörle çalışır (sendcmd/subtitles
+  // filtrelerine Windows yolu vermek yerine cwd üzerinden göreli ad kullanılır)
+  const tmpDir = (wantTrack || wantSubs) ? fs.mkdtempSync(path.join(os.tmpdir(), 'yt-trim-')) : null;
+  const cleanupTmp = () => { if (tmpDir) { try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {} } };
+
+  let subFilter = '';
+  if (wantSubs) {
+    win.webContents.send('log', 'Altyazı hazırlanıyor…');
+    const srtPath = await fetchSubtitle(url, id, subtitle.lang, subtitle.auto);
+    if (cancelRequested) { cleanupTmp(); return { ok: false, cancelled: true }; }
+    if (srtPath) {
+      const content = fs.readFileSync(srtPath, 'utf8');
+      const shifted = trim ? shiftSrt(content, toSec(trim.start), clipSec) : content;
+      if (shifted.trim()) {
+        fs.writeFileSync(path.join(tmpDir, 'subs.srt'), shifted, 'utf8');
+        // MarginV: dikeyde platform arayüz öğelerinin üstünde kalması için daha yüksek
+        const style = SUBTITLE_STYLES[subtitle.style] || SUBTITLE_STYLES.klasik;
+        subFilter = `subtitles=subs.srt:force_style='${style},MarginV=${wantVertical ? 55 : 25}'`;
+      } else {
+        win.webContents.send('log', 'Seçilen aralıkta altyazı bulunmuyor.');
+      }
+    } else {
+      win.webContents.send('log', 'Altyazı indirilemedi, altyazısız devam ediliyor.');
+    }
+  }
+
   // Çıktı adı ve ffmpeg argümanları
   let suffix = trim ? ` [${trim.start.replace(/:/g, '.')}-${trim.end.replace(/:/g, '.')}]` : '';
   if (wantVertical) suffix += wantTrack ? ' [9x16 takipli]' : ' [9x16]';
+  if (subFilter) suffix += ' [altyazılı]';
   const target = path.join(folder, `${sanitizeName(title)}${suffix}.${isAudio ? 'mp3' : 'mp4'}`);
-
-  const clipSec = trim ? (toSec(trim.end) - toSec(trim.start)) : (duration || 0);
 
   let ffSpeed = 0; // ffmpeg -progress çıktısındaki speed= alanı (ör. 3.5x)
   const ffProgress = (line) => {
@@ -471,8 +571,6 @@ ipcMain.handle('download', async (e, opts) => {
 
   // --- Kişi takipli dikey kadraj: kes → takip et → dinamik kırp ---
   if (wantTrack) {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yt-trim-'));
-    const cleanupTmp = () => { try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {} };
     try {
       // 1) Kesit (orijinal en-boy oranında); kesme yoksa tam video kullanılır
       let clipFile = cacheFile;
@@ -511,9 +609,12 @@ ipcMain.handle('download', async (e, opts) => {
       // 3) Takip verisiyle dinamik kırpma (sendcmd yolu sorun çıkarmasın diye cwd=tmpDir)
       win.webContents.send('phase', 'convert');
       win.webContents.send('progress', 0);
+      // Altyazı en sonda (pad'den sonra) basılır: konum nihai 1080x1920 kareye göre
+      const trackVf = 'sendcmd=f=cmds.txt,crop=w=ih*9/16:h=ih:x=(iw-ow)/2:y=0,scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2'
+        + (subFilter ? ',' + subFilter : '');
       const ff = await runEncodeWithFallback((hwaccel, venc) => [
         '-y', ...hwaccel, '-i', clipFile,
-        '-vf', 'sendcmd=f=cmds.txt,crop=w=ih*9/16:h=ih:x=(iw-ow)/2:y=0,scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2',
+        '-vf', trackVf,
         ...venc, '-c:a', 'aac', '-b:a', '192k',
         '-progress', 'pipe:1', '-nostats', target
       ], 20, ffProgress, tmpDir);
@@ -540,16 +641,19 @@ ipcMain.handle('download', async (e, opts) => {
     // mp3 kesmede yeniden kodlamaya (dolayısıyla GPU kodlamaya) gerek yok
     ff = await runProc(FFMPEG, ['-y', ...inputArgs, '-c', 'copy', '-progress', 'pipe:1', '-nostats', target], ffProgress);
   } else {
-    // Ortadan 9:16 kırp; kaynak zaten darsa kırpma, 1080x1920 tuvale sığdır
-    const vf = wantVertical
-      ? ['-vf', 'crop=min(iw\\,ih*9/16):ih,scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2']
-      : [];
+    // Ortadan 9:16 kırp; kaynak zaten darsa kırpma, 1080x1920 tuvale sığdır.
+    // Altyazı her zaman zincirin sonunda: konum nihai kareye göre hesaplanır.
+    const vfParts = [];
+    if (wantVertical) vfParts.push('crop=min(iw\\,ih*9/16):ih,scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2');
+    if (subFilter) vfParts.push(subFilter);
+    const vf = vfParts.length ? ['-vf', vfParts.join(',')] : [];
     ff = await runEncodeWithFallback((hwaccel, venc) => [
       '-y', ...hwaccel, ...inputArgs, ...vf, ...venc, '-c:a', 'aac', '-b:a', '192k',
       '-progress', 'pipe:1', '-nostats', target
-    ], 20, ffProgress);
+    ], 20, ffProgress, tmpDir || undefined);
   }
 
+  cleanupTmp();
   if (cancelRequested) {
     try { fs.rmSync(target, { force: true }); } catch {}
     return { ok: false, cancelled: true };

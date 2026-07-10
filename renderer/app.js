@@ -358,7 +358,57 @@ $('quality').addEventListener('change', () => {
   const isAudio = $('quality').value === 'audio';
   $('btnVertical').disabled = isAudio;
   if (isAudio) setFormat('original');
+  // MP3'te görüntü olmadığı için altyazı gömme de anlamsız
+  if (isAudio) {
+    $('subEnable').checked = false;
+    $('subStyles').classList.add('hidden');
+  }
+  $('subEnable').disabled = isAudio || !subPick;
 });
+
+// ---- altyazı ----
+
+let subPick = null; // { lang, auto } — video için seçilen altyazı kaynağı
+let subStyleValue = 'klasik';
+
+// Tercih sırası: manuel Türkçe > herhangi bir manuel > otomatik (ASR) Türkçe
+function pickSubtitle(info) {
+  const manual = info.subLangs || [];
+  const auto = info.autoLangs || [];
+  const mTr = manual.find(l => l === 'tr' || l.startsWith('tr-'));
+  if (mTr) return { lang: mTr, auto: false };
+  if (manual.length) return { lang: manual[0], auto: false };
+  if (auto.length) return { lang: auto[0], auto: true };
+  return null;
+}
+
+function updateSubCard(info) {
+  subPick = pickSubtitle(info);
+  $('subCard').classList.remove('hidden');
+  $('subEnable').checked = false;
+  $('subStyles').classList.add('hidden');
+  if (subPick) {
+    $('subEnable').disabled = false;
+    $('subCardSub').textContent = subPick.auto
+      ? `Otomatik ${subPick.lang.toUpperCase()} altyazısı gömülür (kalitesi değişken)`
+      : `${subPick.lang.toUpperCase()} altyazısı videoya gömülür`;
+  } else {
+    $('subEnable').disabled = true;
+    $('subCardSub').textContent = 'Bu videoda altyazı bulunamadı';
+  }
+}
+
+$('subEnable').addEventListener('change', () => {
+  $('subStyles').classList.toggle('hidden', !$('subEnable').checked);
+});
+
+for (const btn of document.querySelectorAll('#subStyles .seg')) {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#subStyles .seg').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    subStyleValue = btn.dataset.substyle;
+  });
+}
 
 // ---- kişi takibi (akıllı kadraj) ----
 
@@ -404,6 +454,7 @@ async function fetchInfo() {
     currentVideoId = info.id;
     previewUrl = info.previewUrl;
     infoLoaded = true;
+    updateSubCard(info);
 
     $('title').textContent = info.title;
     $('meta').textContent = `${info.uploader} · ${fmtTime(videoDuration)}`;
@@ -498,6 +549,7 @@ $('downloadBtn').addEventListener('click', async () => {
     vertical: formatValue === 'vertical',
     track: formatValue === 'vertical' && $('trackEnable').checked,
     trackPoint,
+    subtitle: ($('subEnable').checked && subPick) ? { ...subPick, style: subStyleValue } : null,
     duration: videoDuration,
     trim: null
   };

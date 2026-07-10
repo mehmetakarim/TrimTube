@@ -274,3 +274,24 @@ Kullanıcının üç maddelik geri bildirimi üzerine:
 **"GPU'ya geçince dalga formu bozuldu" algısı hakkında:** GPU kod yolu (probe/encode) dalga formu üretimine mekanik olarak dokunmuyor — ayrı süreç, ayrı komut. Korelasyonun gerçek nedeni: GPU sürümleriyle eş zamanlı yapılan saha testlerinde dalga formunun bağımsız iki hatası (tüm-video isteği + uzak akış yavaşlığı) art arda ortaya çıktı.
 
 **Saha doğrulaması (v1.2.4):** Kullanıcı test etti — dalga formu, kesim akışı ve konsol temizliği sorunsuz onaylandı. v1.2.0 sonrası açılan saha sorunu zinciri (donma, dalga formu, CSP) bu sürümle kapandı.
+
+---
+
+# Windows Oturumu — Faz 3: Stilli Altyazı Gömme (v1.3.0)
+
+Kullanıcının isteği: altyazı "bodoslama" gömülmesin, stil seçenekli şık bir görünüm olsun.
+
+## Mimari
+
+- **`get-info`** artık `subLangs` (manuel altyazı dilleri) ve `autoLangs` (yalnızca Türkçe ASR varyantları — tam liste yüzlerce çeviri içerir) döndürüyor.
+- **Tercih sırası** (renderer `pickSubtitle`): manuel TR > herhangi bir manuel > otomatik TR. Altyazı yoksa kart devre dışı ("Bu videoda altyazı bulunamadı").
+- **`fetchSubtitle`**: yt-dlp `--skip-download --write-subs --sub-langs <lang> --convert-subs srt` ile indirir, `<id>_sub_<lang>.srt` olarak önbelleğe alır (pruneCache `_sub` dosyalarını atlar).
+- **`shiftSrt`**: SRT'yi kesim penceresine kaydırır — pencere dışı bloklar atılır, zamanlar klip başına sıfırlanır. Gerçek SRT ile test edildi (51 sn pencereye 28 blok).
+- **3 stil** (`SUBTITLE_STYLES`, libass `force_style`): `klasik` (beyaz + ince kontur), `kutulu` (BorderStyle=4 yarı saydam koyu kutu — gömülü libass'ta çalıştığı doğrulandı), `dolgun` (Arial Black kalın, Shorts tarzı). Üçü de gerçek 1080x1920 çıktıda kare yakalanıp gözle doğrulandı; Türkçe karakterler sorunsuz.
+- **Filtre zinciri**: altyazı her zaman zincirin SONUNDA (`pad`'den sonra) — konum nihai kareye göre. MarginV: dikey 55 / yatay 25 (PlayRes 288 ölçeği).
+- **Yol/escape sorunu yok**: `subtitles=subs.srt` göreli adla, ffmpeg `cwd=tmpDir` ile çalışır (sendcmd'deki desenin aynısı).
+- Altyazı seçiliyken `needPost=true` (gömme yeniden kodlama gerektirir); dosya adına ` [altyazılı]` eki gelir. MP3'te devre dışı.
+
+## Doğrulama
+
+- Uygulamanın kuracağı komutun birebiri (GPU decode+encode + dikey + kutulu stil + cwd/göreli srt) gerçek önbellek dosyasıyla çalıştırıldı: 10 sn klip 9.9x hızla sorunsuz üretildi.

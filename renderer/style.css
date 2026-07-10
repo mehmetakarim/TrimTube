@@ -525,6 +525,8 @@ button:disabled { opacity: 0.45; cursor: default; }
 }
 .seg:disabled { opacity: 0.4; }
 
+.sub-styles { margin-top: 8px; }
+
 .folder-row { display: flex; align-items: center; gap: 8px; }
 .folder-pill {
   flex: 1;
