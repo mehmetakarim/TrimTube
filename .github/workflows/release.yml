@@ -18,13 +18,26 @@ jobs:
     steps:
       - env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        # v1.3.0'da aynı etiket için İKİ draft oluştuğu görüldü (electron-builder
+        # her işte hangi draft'ı bulursa ona yükleyince dosyalar bölünüyor).
+        # Bu adım idempotent: draft yoksa bir tane oluşturur, birden fazlaysa
+        # ilkini tutup fazlalıkları siler — build işleri hep tek draft bulur.
         run: |
-          gh release create "${{ github.ref_name }}" \
-            --repo ${{ github.repository }} \
-            --draft \
-            --title "${{ github.ref_name }}" \
-            --notes "" \
-            || echo "Release zaten var, devam ediliyor"
+          ids=$(gh api "repos/$REPO/releases" --paginate \
+            --jq "[.[] | select(.tag_name == \"$TAG\" and .draft)] | map(.id) | @sh" | tr -d "'")
+          count=$(echo $ids | wc -w)
+          if [ "$count" -eq 0 ]; then
+            gh release create "$TAG" --repo "$REPO" --draft --title "$TAG" --notes ""
+          elif [ "$count" -gt 1 ]; then
+            echo "Uyarı: $count adet draft bulundu, fazlalıklar siliniyor"
+            for id in $(echo $ids | cut -d' ' -f2-); do
+              gh api -X DELETE "repos/$REPO/releases/$id"
+            done
+          else
+            echo "Draft zaten var, devam ediliyor"
+          fi
 
   build:
     needs: create-release

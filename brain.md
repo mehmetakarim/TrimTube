@@ -295,3 +295,16 @@ Kullanıcının isteği: altyazı "bodoslama" gömülmesin, stil seçenekli şı
 ## Doğrulama
 
 - Uygulamanın kuracağı komutun birebiri (GPU decode+encode + dikey + kutulu stil + cwd/göreli srt) gerçek önbellek dosyasıyla çalıştırıldı: 10 sn klip 9.9x hızla sorunsuz üretildi.
+
+---
+
+# Windows Oturumu — v1.3.0 yayın sorunları (11 Temmuz 2026)
+
+## 1. gh CLI token'ının bozulması
+Oturum ortasında `gh auth status` "token invalid" vermeye başladı; okuma çağrıları aralıklı çalışırken yazma (POST/PATCH/DELETE) tutarlı 401 verdi. Bu durum yanlış teşhise yol açtı: draft release'ler yalnızca yazma yetkili token'la görünür — bozuk token'la yapılan listelemede v1.3.0 draft'ları "silinmiş" gibi göründü. Kullanıcı `gh auth login` ile yeniden giriş yapınca düzeldi. **Ders: gh listelerinde draft'lar eksikse önce auth'u doğrula.**
+
+## 2. Aynı etikete çift draft
+v1.3.0 run'ında aynı saniyede İKİ draft oluştu; electron-builder işleri hangisini bulduysa ona yükledi → dosyalar bölündü (5+10). Geçici çözüm: yarım draft API ile silindi, eksiksiz olan yayınlandı. Kalıcı çözüm: `create-release` işi idempotent yapıldı — draft yoksa oluşturur, birden fazlaysa ilkini tutup fazlalıkları siler.
+
+## 3. v1.2.1 ve v1.2.2 release'lerinin kaybolması (açıklanamadı)
+Yayınlanmış v1.2.1/v1.2.2 release'leri GitHub'dan silinmiş durumda (etiketler duruyor). electron-builder'ın yayınlanmış release silme davranışı bilinmiyor; büyük olasılıkla manuel temizlik. Güncel sürüm zinciri etkilenmiyor (updater yalnızca en son sürüme bakar). Kullanıcıya soruldu.
