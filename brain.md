@@ -308,3 +308,5 @@ v1.3.0 run'ında aynı saniyede İKİ draft oluştu; electron-builder işleri ha
 
 ## 3. v1.2.1 ve v1.2.2 release'lerinin kaybolması (açıklanamadı)
 Yayınlanmış v1.2.1/v1.2.2 release'leri GitHub'dan silinmiş durumda (etiketler duruyor). electron-builder'ın yayınlanmış release silme davranışı bilinmiyor; büyük olasılıkla manuel temizlik. Güncel sürüm zinciri etkilenmiyor (updater yalnızca en son sürüme bakar). Kullanıcıya soruldu.
+
+**Saha doğrulaması (v1.3.0):** Kullanıcı güncelleyip test etti — stilli altyazı gömme sorunsuz onaylandı. v1.2.1/v1.2.2 release'lerinin kaybı da açıklandı: kullanıcı manuel temizlemiş (etiketler duruyor, işlevsel etki yok). Faz 3 kapandı.
