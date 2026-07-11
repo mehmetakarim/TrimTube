@@ -5,7 +5,6 @@ let busy = false;
 let infoLoaded = false;
 let currentVideoId = null;
 let previewUrl = null;
-let formatValue = 'original';
 let trackPoint = null; // önizleme üzerinde normalize (0-1) işaret konumu
 let downloadPhase = 'download';
 
@@ -337,31 +336,86 @@ $('trimEnable').addEventListener('change', () => {
   computeZoomWindow();
 });
 
-// ---- format segment seçici ----
+// ---- bölümler (chapter): hazır kesim önerileri ----
 
-function setFormat(value) {
-  formatValue = value;
-  $('btnOriginal').classList.toggle('active', value === 'original');
-  $('btnVertical').classList.toggle('active', value === 'vertical');
-  $('trackCard').classList.toggle('hidden', value !== 'vertical');
-  if (value !== 'vertical') {
+let chapters = [];
+
+function updateChapters(info) {
+  chapters = info.chapters || [];
+  const sel = $('chapterSelect');
+  sel.innerHTML = '<option value="">Bölüm seçin…</option>';
+  if (!chapters.length) {
+    $('chapterField').classList.add('hidden');
+    return;
+  }
+  chapters.forEach((c, i) => {
+    const o = document.createElement('option');
+    o.value = String(i);
+    o.textContent = `${fmtTime(c.start)} · ${c.title}`;
+    sel.appendChild(o);
+  });
+  $('chapterField').classList.remove('hidden');
+}
+
+$('chapterSelect').addEventListener('change', () => {
+  const v = $('chapterSelect').value;
+  if (v === '') return;
+  const c = chapters[+v];
+  if (!c) return;
+  // Bölüm seçmek kesmeyi de açar — aralık bölüm sınırlarına ayarlanır
+  if (!$('trimEnable').checked) {
+    $('trimEnable').checked = true;
+    $('trimEnable').dispatchEvent(new Event('change'));
+  }
+  $('startTime').value = fmtTime(c.start);
+  $('endTime').value = fmtTime(Math.min(c.end || videoDuration, videoDuration));
+  syncFromInputs();
+  computeZoomWindow();
+  seekPreview(c.start);
+});
+
+// ---- format seçici (çoklu: her seçim ayrı dosya üretir) ----
+
+const selectedFormats = new Set(['original']);
+
+function refreshFormatButtons() {
+  document.querySelectorAll('.segmented.multi .seg').forEach(b => {
+    b.classList.toggle('active', selectedFormats.has(b.dataset.format));
+  });
+  const hasVertical = selectedFormats.has('vertical');
+  $('trackCard').classList.toggle('hidden', !hasVertical);
+  if (!hasVertical) {
     $('trackEnable').checked = false;
     $('trackHint').classList.add('hidden');
     clearTrackMarker();
   }
 }
-$('btnOriginal').addEventListener('click', () => setFormat('original'));
-$('btnVertical').addEventListener('click', () => setFormat('vertical'));
 
-// Sadece ses seçiliyken dikey format anlamsız — kapat
+for (const btn of document.querySelectorAll('.segmented.multi .seg')) {
+  btn.addEventListener('click', () => {
+    const f = btn.dataset.format;
+    if (selectedFormats.has(f)) {
+      if (selectedFormats.size === 1) return; // en az bir format seçili kalmalı
+      selectedFormats.delete(f);
+    } else {
+      selectedFormats.add(f);
+    }
+    refreshFormatButtons();
+  });
+}
+
+// Sadece ses seçiliyken format/altyazı anlamsız — kapat
 $('quality').addEventListener('change', () => {
   const isAudio = $('quality').value === 'audio';
-  $('btnVertical').disabled = isAudio;
-  if (isAudio) setFormat('original');
-  // MP3'te görüntü olmadığı için altyazı gömme de anlamsız
+  document.querySelectorAll('.segmented.multi .seg').forEach(b => { b.disabled = isAudio; });
   if (isAudio) {
+    $('trackCard').classList.add('hidden');
+    $('trackEnable').checked = false;
+    clearTrackMarker();
     $('subEnable').checked = false;
     $('subStyles').classList.add('hidden');
+  } else {
+    refreshFormatButtons();
   }
   $('subEnable').disabled = isAudio || !subPick;
 });
@@ -472,6 +526,8 @@ async function fetchInfo() {
     clearTrackMarker();
 
     $('downloadBtn').disabled = false;
+    $('addQueueBtn').disabled = false;
+    updateChapters(info);
     clearStatus();
     $('progressWrap').classList.add('hidden');
   } catch (err) {
@@ -522,6 +578,7 @@ function setBusy(on) {
   const btn = $('downloadBtn');
   btn.textContent = on ? 'İptal' : 'İndir';
   btn.classList.toggle('cancel', on);
+  $('addQueueBtn').disabled = on || !infoLoaded;
   $('progressWrap').classList.toggle('hidden', !on);
   if (on) {
     etaText = null;
@@ -536,18 +593,17 @@ function setBusy(on) {
   }
 }
 
-$('downloadBtn').addEventListener('click', async () => {
-  if (busy) { window.api.cancel(); return; }
-  if (!infoLoaded) return;
-
+// Mevcut arayüz seçimlerinden indirme seçeneklerini kurar; geçersizse error döner
+function buildOpts() {
   const opts = {
     url: $('url').value.trim(),
     id: currentVideoId,
     title: $('title').textContent,
     folder: $('folder').textContent,
     quality: $('quality').value,
-    vertical: formatValue === 'vertical',
-    track: formatValue === 'vertical' && $('trackEnable').checked,
+    formats: [...selectedFormats],
+    vertical: selectedFormats.has('vertical'),
+    track: selectedFormats.has('vertical') && $('trackEnable').checked,
     trackPoint,
     subtitle: ($('subEnable').checked && subPick) ? { ...subPick, style: subStyleValue } : null,
     duration: videoDuration,
@@ -558,45 +614,126 @@ $('downloadBtn').addEventListener('click', async () => {
     const start = parseTime($('startTime').value);
     const end = parseTime($('endTime').value);
     if (start === null || end === null || start >= end) {
-      setStatus('err', 'Geçersiz zaman aralığı. Başlangıç bitişten küçük olmalı (örn. 00:01:30).');
-      return;
+      return { error: 'Geçersiz zaman aralığı. Başlangıç bitişten küçük olmalı (örn. 00:01:30).' };
     }
     if (end > videoDuration) {
-      setStatus('err', `Bitiş zamanı video süresini (${fmtTime(videoDuration)}) aşıyor.`);
-      return;
+      return { error: `Bitiş zamanı video süresini (${fmtTime(videoDuration)}) aşıyor.` };
     }
     opts.trim = { start: fmtTime(start), end: fmtTime(end) };
   }
+  return { opts };
+}
+
+// ---- kuyruk ----
+// Her öğe bağımsız bir iş (kendi aralığı/formatları/altyazısı ile). Önbellek
+// sayesinde aynı videodan gelen işlerde indirme yalnızca ilkinde yapılır.
+
+const queue = [];
+
+function queueBadges(opts) {
+  const fmts = (opts.formats || []).map(f => f === 'vertical' ? '9:16' : f === 'square' ? '1:1' : 'orj').join('+');
+  const extras = [opts.track ? 'takip' : null, opts.subtitle ? 'altyazı' : null].filter(Boolean).join('·');
+  return [opts.quality === 'audio' ? 'mp3' : fmts, extras].filter(Boolean).join(' · ');
+}
+
+function renderQueue(activeIndex = -1) {
+  $('queueCount').textContent = queue.length;
+  $('queueSection').classList.toggle('hidden', !queue.length);
+  const list = $('queueList');
+  list.innerHTML = '';
+  queue.forEach((item, i) => {
+    const div = document.createElement('div');
+    div.className = 'queue-item' + (i === activeIndex ? ' active' : '');
+    div.innerHTML = '<span class="q-label"></span><span class="q-badges"></span><button class="q-remove" title="Kaldır">×</button>';
+    div.querySelector('.q-label').textContent = item.opts.trim
+      ? `${item.opts.trim.start} – ${item.opts.trim.end}`
+      : 'Tam video';
+    div.querySelector('.q-badges').textContent = queueBadges(item.opts);
+    div.querySelector('.q-remove').addEventListener('click', () => {
+      if (busy) return;
+      queue.splice(i, 1);
+      renderQueue();
+      updateDownloadBtn();
+    });
+    list.appendChild(div);
+  });
+}
+
+function updateDownloadBtn() {
+  if (busy) return;
+  $('downloadBtn').textContent = queue.length ? `Kuyruğu indir (${queue.length})` : 'İndir';
+}
+
+$('addQueueBtn').addEventListener('click', () => {
+  if (busy || !infoLoaded) return;
+  const r = buildOpts();
+  if (r.error) { setStatus('err', r.error); return; }
+  queue.push({ opts: r.opts });
+  clearStatus();
+  renderQueue();
+  updateDownloadBtn();
+});
+
+$('downloadBtn').addEventListener('click', async () => {
+  if (busy) { window.api.cancel(); return; }
+  if (!infoLoaded && !queue.length) return;
+
+  // Kuyruk doluysa kuyruğu işle; boşsa mevcut seçim tek iş olarak çalışır
+  let jobs;
+  if (queue.length) {
+    jobs = queue.slice();
+  } else {
+    const r = buildOpts();
+    if (r.error) { setStatus('err', r.error); return; }
+    jobs = [{ opts: r.opts }];
+  }
+  const isQueueRun = queue.length > 0;
+  const total = jobs.length;
 
   clearStatus();
   setBusy(true);
 
-  let result;
-  try {
-    result = await window.api.download(opts);
-  } catch (err) {
-    // Ana süreçte beklenmeyen bir hata IPC üzerinden reddedilirse arayüz
-    // sonsuza dek "İndiriliyor…" durumunda donmasın — her zaman geri dönülsün
-    setBusy(false);
-    setStatus('err', 'Beklenmeyen bir hata oluştu: ' + (err.message || String(err)));
-    return;
+  let doneCount = 0;
+  let failure = null; // { cancelled } | { message }
+  for (let i = 0; i < total; i++) {
+    if (isQueueRun) renderQueue(0); // işlenen her zaman kuyruğun başı
+    if (total > 1) $('logLine').textContent = `Kuyruk: ${i + 1}/${total}`;
+
+    let result;
+    try {
+      result = await window.api.download(jobs[i].opts);
+    } catch (err) {
+      // Ana süreçte beklenmeyen bir hata IPC üzerinden reddedilirse arayüz
+      // sonsuza dek "İndiriliyor…" durumunda donmasın — her zaman geri dönülsün
+      failure = { message: 'Beklenmeyen bir hata oluştu: ' + (err.message || String(err)) };
+      break;
+    }
+    if (result.cancelled) { failure = { cancelled: true }; break; }
+    if (!result.ok) { failure = { message: result.error || 'İndirme başarısız oldu.' }; break; }
+
+    doneCount++;
+    if (isQueueRun) { queue.shift(); renderQueue(); } // başarılı iş kuyruktan düşer
   }
 
   setBusy(false);
+  renderQueue();
+  updateDownloadBtn();
 
-  if (result.ok) {
+  if (!failure) {
     // Not: inline style özniteliği CSP (style-src 'self') tarafından engelleniyor —
     // svg genişliği #statusMsg svg CSS kuralıyla sabitlenir
     setStatus('ok',
       '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#34C759" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>' +
-      '<span>İndirme tamamlandı</span><a id="openFolderLink">Klasörü aç</a>');
+      `<span>${total > 1 ? total + ' iş tamamlandı' : 'İndirme tamamlandı'}</span><a id="openFolderLink">Klasörü aç</a>`);
     document.getElementById('openFolderLink').addEventListener('click', () => {
       window.api.openFolder($('folder').textContent);
     });
-  } else if (result.cancelled) {
-    setStatus('err', 'İndirme iptal edildi.');
+  } else if (failure.cancelled) {
+    setStatus('err', doneCount > 0
+      ? `İptal edildi — ${doneCount}/${total} iş tamamlanmıştı, kalanlar kuyrukta duruyor.`
+      : 'İndirme iptal edildi.');
   } else {
-    setStatus('err', result.error || 'İndirme başarısız oldu.');
+    setStatus('err', (total > 1 ? `İş ${doneCount + 1}/${total} başarısız: ` : '') + failure.message);
   }
 });
 

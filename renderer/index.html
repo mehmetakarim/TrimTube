@@ -129,6 +129,17 @@
           </label>
         </div>
 
+        <!-- Video sahibinin tanımladığı bölümler: hazır kesim önerileri -->
+        <div id="chapterField" class="field hidden">
+          <span class="label">Bölümden seç</span>
+          <div class="select-wrap">
+            <select id="chapterSelect">
+              <option value="">Bölüm seçin…</option>
+            </select>
+            <svg width="10" height="14" viewBox="0 0 10 14" fill="none" stroke="#86868b" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 5 5 2l3 3M2 9l3 3 3-3"/></svg>
+          </div>
+        </div>
+
         <div class="field">
           <span class="label">Kalite</span>
           <div class="select-wrap">
@@ -143,10 +154,11 @@
         </div>
 
         <div class="field">
-          <span class="label">Format</span>
-          <div class="segmented">
-            <button id="btnOriginal" class="seg active">Orijinal 16:9</button>
-            <button id="btnVertical" class="seg">Dikey 9:16</button>
+          <span class="label">Format · birden fazla seçilebilir</span>
+          <div class="segmented multi">
+            <button id="fmtOriginal" class="seg active" data-format="original">Orijinal</button>
+            <button id="fmtVertical" class="seg" data-format="vertical">9:16</button>
+            <button id="fmtSquare" class="seg" data-format="square">1:1</button>
           </div>
         </div>
 
@@ -192,6 +204,12 @@
           </div>
         </div>
 
+        <!-- Klip kuyruğu: aynı videodan (veya farklı ayarlarla) birden çok iş -->
+        <div id="queueSection" class="queue-section hidden">
+          <span class="label">Kuyruk (<span id="queueCount">0</span>)</span>
+          <div id="queueList" class="queue-list"></div>
+        </div>
+
         <div class="spacer"></div>
 
         <div id="progressWrap" class="progress-block hidden">
@@ -205,7 +223,10 @@
 
         <div id="statusMsg" class="hidden"></div>
 
-        <button id="downloadBtn" class="btn-download" disabled>İndir</button>
+        <div class="download-row">
+          <button id="addQueueBtn" class="btn-ghost queue-add" disabled title="Mevcut seçimi kuyruğa ekle">+ Kuyruk</button>
+          <button id="downloadBtn" class="btn-download" disabled>İndir</button>
+        </div>
       </aside>
     </div>
   </main>

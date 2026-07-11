@@ -355,7 +355,13 @@ ipcMain.handle('get-info', (e, url) => {
             // Altyazı: manuel diller olduğu gibi; otomatik (ASR) listesi yüzlerce
             // çeviri varyantı içerdiğinden yalnızca Türkçe varyantlar aktarılır
             subLangs: Object.keys(j.subtitles || {}),
-            autoLangs: Object.keys(j.automatic_captions || {}).filter(l => l === 'tr' || l.startsWith('tr-'))
+            autoLangs: Object.keys(j.automatic_captions || {}).filter(l => l === 'tr' || l.startsWith('tr-')),
+            // Video sahibinin tanımladığı bölümler — hazır kesim önerisi olarak sunulur
+            chapters: (j.chapters || []).map(c => ({
+              title: c.title,
+              start: Math.floor(c.start_time || 0),
+              end: Math.floor(c.end_time || 0)
+            }))
           });
         } catch {
           reject(new Error('Video bilgisi çözümlenemedi.'));
@@ -478,15 +484,37 @@ function pruneCache(cacheDir, keep) {
   } catch {}
 }
 
+// Çıktı formatları: her biri ayrı bir dosya üretir. Kişi takibi yalnızca
+// 9:16 çıktısına uygulanır (takip verisi o kırpma genişliği için üretilir);
+// 1:1 ve orijinal her zaman merkez kadrajdır.
+const FORMAT_DEFS = {
+  original: { suffix: '', vf: null, marginV: 25, label: 'orijinal' },
+  vertical: {
+    suffix: ' [9x16]',
+    vf: 'crop=min(iw\\,ih*9/16):ih,scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2',
+    marginV: 55,
+    label: '9:16'
+  },
+  square: {
+    suffix: ' [1x1]',
+    vf: 'crop=min(iw\\,ih):min(iw\\,ih),scale=1080:1080:force_original_aspect_ratio=decrease,pad=1080:1080:(ow-iw)/2:(oh-ih)/2',
+    marginV: 35,
+    label: '1:1'
+  }
+};
+
 ipcMain.handle('download', async (e, opts) => {
   const { url, id, title, folder, quality, trim, vertical, duration, track, trackPoint, subtitle } = opts;
   cancelRequested = false;
 
   const isAudio = quality === 'audio';
-  const wantVertical = vertical && !isAudio;
-  const wantTrack = wantVertical && track;
+  // Geriye uyumluluk: formats gelmezse eski tekil vertical bayrağından türet
+  const formats = (!isAudio && Array.isArray(opts.formats) && opts.formats.length)
+    ? opts.formats.filter(f => FORMAT_DEFS[f])
+    : [vertical && !isAudio ? 'vertical' : 'original'];
+  const wantTrack = !isAudio && track && formats.includes('vertical');
   const wantSubs = !!subtitle && !isAudio; // altyazı gömme yeniden kodlama gerektirir
-  const needPost = !!trim || wantVertical || wantSubs;
+  const needPost = !!trim || wantSubs || formats.some(f => f !== 'original') || formats.length > 1;
 
   // --- Basit durum: kesme/dönüştürme yok → doğrudan hedef klasöre indir ---
   if (!needPost) {
@@ -525,7 +553,8 @@ ipcMain.handle('download', async (e, opts) => {
   const tmpDir = (wantTrack || wantSubs) ? fs.mkdtempSync(path.join(os.tmpdir(), 'yt-trim-')) : null;
   const cleanupTmp = () => { if (tmpDir) { try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {} } };
 
-  let subFilter = '';
+  // Altyazı hazırsa format bazında MarginV ile filtre üretir (dikeyde daha yüksek konum)
+  let subStyleBase = null;
   if (wantSubs) {
     win.webContents.send('log', 'Altyazı hazırlanıyor…');
     const srtPath = await fetchSubtitle(url, id, subtitle.lang, subtitle.auto);
@@ -535,9 +564,7 @@ ipcMain.handle('download', async (e, opts) => {
       const shifted = trim ? shiftSrt(content, toSec(trim.start), clipSec) : content;
       if (shifted.trim()) {
         fs.writeFileSync(path.join(tmpDir, 'subs.srt'), shifted, 'utf8');
-        // MarginV: dikeyde platform arayüz öğelerinin üstünde kalması için daha yüksek
-        const style = SUBTITLE_STYLES[subtitle.style] || SUBTITLE_STYLES.klasik;
-        subFilter = `subtitles=subs.srt:force_style='${style},MarginV=${wantVertical ? 55 : 25}'`;
+        subStyleBase = SUBTITLE_STYLES[subtitle.style] || SUBTITLE_STYLES.klasik;
       } else {
         win.webContents.send('log', 'Seçilen aralıkta altyazı bulunmuyor.');
       }
@@ -545,12 +572,17 @@ ipcMain.handle('download', async (e, opts) => {
       win.webContents.send('log', 'Altyazı indirilemedi, altyazısız devam ediliyor.');
     }
   }
+  const subFilterFor = (marginV) => subStyleBase
+    ? `subtitles=subs.srt:force_style='${subStyleBase},MarginV=${marginV}'`
+    : '';
 
-  // Çıktı adı ve ffmpeg argümanları
-  let suffix = trim ? ` [${trim.start.replace(/:/g, '.')}-${trim.end.replace(/:/g, '.')}]` : '';
-  if (wantVertical) suffix += wantTrack ? ' [9x16 takipli]' : ' [9x16]';
-  if (subFilter) suffix += ' [altyazılı]';
-  const target = path.join(folder, `${sanitizeName(title)}${suffix}.${isAudio ? 'mp3' : 'mp4'}`);
+  // Ortak çıktı adı parçaları
+  const baseSuffix = trim ? ` [${trim.start.replace(/:/g, '.')}-${trim.end.replace(/:/g, '.')}]` : '';
+  const subSuffix = subStyleBase ? ' [altyazılı]' : '';
+  const targetFor = (fmt, tracked) => {
+    const fmtSuffix = fmt === 'vertical' ? (tracked ? ' [9x16 takipli]' : ' [9x16]') : FORMAT_DEFS[fmt].suffix;
+    return path.join(folder, `${sanitizeName(title)}${baseSuffix}${fmtSuffix}${subSuffix}.${isAudio ? 'mp3' : 'mp4'}`);
+  };
 
   let ffSpeed = 0; // ffmpeg -progress çıktısındaki speed= alanı (ör. 3.5x)
   const ffProgress = (line) => {
@@ -569,30 +601,47 @@ ipcMain.handle('download', async (e, opts) => {
     }
   };
 
-  // --- Kişi takipli dikey kadraj: kes → takip et → dinamik kırp ---
-  if (wantTrack) {
-    try {
-      // 1) Kesit (orijinal en-boy oranında); kesme yoksa tam video kullanılır
-      let clipFile = cacheFile;
+  // --- Ses (MP3): tek çıktı, yeniden kodlamasız kesim ---
+  if (isAudio) {
+    const target = targetFor('original', false);
+    const inputArgs = [];
+    if (trim) inputArgs.push('-ss', trim.start);
+    inputArgs.push('-i', cacheFile);
+    if (trim) inputArgs.push('-t', String(clipSec));
+    win.webContents.send('phase', 'convert');
+    win.webContents.send('progress', 0);
+    const ff = await runProc(FFMPEG, ['-y', ...inputArgs, '-c', 'copy', '-progress', 'pipe:1', '-nostats', target], ffProgress);
+    cleanupTmp();
+    if (cancelRequested) { try { fs.rmSync(target, { force: true }); } catch {} return { ok: false, cancelled: true }; }
+    if (ff.code !== 0) return { ok: false, error: 'Kesme başarısız:\n' + ff.stderr.split(/\r?\n/).filter(Boolean).slice(-4).join('\n') };
+    return { ok: true };
+  }
+
+  try {
+    // --- Kişi takibi ön hazırlığı (yalnızca 9:16 çıktısı için) ---
+    // Kesit bir kez tmp'e alınır, tracker bir kez çalışır; 9:16 sendcmd ile
+    // dinamik, diğer formatlar merkez kadrajla üretilir.
+    let trackClipFile = null;
+    let trackReady = false;
+    if (wantTrack) {
+      trackClipFile = cacheFile;
       if (trim) {
-        clipFile = path.join(tmpDir, 'clip.mp4');
+        trackClipFile = path.join(tmpDir, 'clip.mp4');
         win.webContents.send('phase', 'convert');
         win.webContents.send('progress', 0);
         const cut = await runEncodeWithFallback((hwaccel, venc) => [
           '-y', ...hwaccel, '-ss', trim.start, '-i', cacheFile, '-t', String(clipSec),
           ...venc, '-c:a', 'copy',
-          '-progress', 'pipe:1', '-nostats', clipFile
+          '-progress', 'pipe:1', '-nostats', trackClipFile
         ], 18, ffProgress);
         if (cancelRequested) { cleanupTmp(); return { ok: false, cancelled: true }; }
         if (cut.code !== 0) { cleanupTmp(); return { ok: false, error: 'Kesme başarısız:\n' + cut.stderr.split(/\r?\n/).filter(Boolean).slice(-3).join('\n') }; }
       }
 
-      // 2) Kişiyi takip et (tracker.py kırpma penceresi komutlarını üretir)
       win.webContents.send('phase', 'track');
       win.webContents.send('progress', 0);
-      const trackArgs = [path.join(__dirname, 'tracker.py'), clipFile, '--out', path.join(tmpDir, 'cmds.txt')];
+      const trackArgs = [path.join(__dirname, 'tracker.py'), trackClipFile, '--out', path.join(tmpDir, 'cmds.txt')];
       if (trackPoint) trackArgs.push('--point', `${trackPoint.x.toFixed(4)},${trackPoint.y.toFixed(4)}`);
-      
       // macOS/Linux'ta python3, Windows'ta python çalıştır
       const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
       const tr = await runProc(pythonCmd, trackArgs, (line) => {
@@ -605,63 +654,57 @@ ipcMain.handle('download', async (e, opts) => {
         cleanupTmp();
         return { ok: false, error: 'Kişi takibi başarısız:\n' + tr.stderr.split(/\r?\n/).filter(Boolean).slice(-3).join('\n') };
       }
-
-      // 3) Takip verisiyle dinamik kırpma (sendcmd yolu sorun çıkarmasın diye cwd=tmpDir)
-      win.webContents.send('phase', 'convert');
-      win.webContents.send('progress', 0);
-      // Altyazı en sonda (pad'den sonra) basılır: konum nihai 1080x1920 kareye göre
-      const trackVf = 'sendcmd=f=cmds.txt,crop=w=ih*9/16:h=ih:x=(iw-ow)/2:y=0,scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2'
-        + (subFilter ? ',' + subFilter : '');
-      const ff = await runEncodeWithFallback((hwaccel, venc) => [
-        '-y', ...hwaccel, '-i', clipFile,
-        '-vf', trackVf,
-        ...venc, '-c:a', 'aac', '-b:a', '192k',
-        '-progress', 'pipe:1', '-nostats', target
-      ], 20, ffProgress, tmpDir);
-      if (cancelRequested) { try { fs.rmSync(target, { force: true }); } catch {} cleanupTmp(); return { ok: false, cancelled: true }; }
-      if (ff.code !== 0) { cleanupTmp(); return { ok: false, error: 'Dinamik kırpma başarısız:\n' + ff.stderr.split(/\r?\n/).filter(Boolean).slice(-3).join('\n') }; }
-      cleanupTmp();
-      return { ok: true };
-    } catch (err) {
-      cleanupTmp();
-      return { ok: false, error: err.message };
+      trackReady = true;
     }
-  }
-  // -ss'in -i'den önce olması hızlı sarma sağlar; yeniden kodlamayla kare hassasiyetindedir
-  const inputArgs = [];
-  if (trim) inputArgs.push('-ss', trim.start);
-  inputArgs.push('-i', cacheFile);
-  if (trim) inputArgs.push('-t', String(clipSec));
 
-  win.webContents.send('phase', 'convert');
-  win.webContents.send('progress', 0);
+    // --- Format döngüsü: seçilen her format ayrı dosya üretir ---
+    win.webContents.send('phase', 'convert');
+    for (let i = 0; i < formats.length; i++) {
+      const fmt = formats[i];
+      const def = FORMAT_DEFS[fmt];
+      const tracked = fmt === 'vertical' && trackReady;
+      const target = targetFor(fmt, tracked);
+      if (formats.length > 1) win.webContents.send('log', `Format ${i + 1}/${formats.length}: ${def.label}${tracked ? ' (takipli)' : ''}`);
+      win.webContents.send('progress', 0);
 
-  let ff;
-  if (isAudio) {
-    // mp3 kesmede yeniden kodlamaya (dolayısıyla GPU kodlamaya) gerek yok
-    ff = await runProc(FFMPEG, ['-y', ...inputArgs, '-c', 'copy', '-progress', 'pipe:1', '-nostats', target], ffProgress);
-  } else {
-    // Ortadan 9:16 kırp; kaynak zaten darsa kırpma, 1080x1920 tuvale sığdır.
-    // Altyazı her zaman zincirin sonunda: konum nihai kareye göre hesaplanır.
-    const vfParts = [];
-    if (wantVertical) vfParts.push('crop=min(iw\\,ih*9/16):ih,scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2');
-    if (subFilter) vfParts.push(subFilter);
-    const vf = vfParts.length ? ['-vf', vfParts.join(',')] : [];
-    ff = await runEncodeWithFallback((hwaccel, venc) => [
-      '-y', ...hwaccel, ...inputArgs, ...vf, ...venc, '-c:a', 'aac', '-b:a', '192k',
-      '-progress', 'pipe:1', '-nostats', target
-    ], 20, ffProgress, tmpDir || undefined);
-  }
+      const vfParts = [];
+      if (tracked) {
+        vfParts.push('sendcmd=f=cmds.txt,crop=w=ih*9/16:h=ih:x=(iw-ow)/2:y=0,scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2');
+      } else if (def.vf) {
+        vfParts.push(def.vf);
+      }
+      const sf = subFilterFor(def.marginV);
+      if (sf) vfParts.push(sf);
+      const vf = vfParts.length ? ['-vf', vfParts.join(',')] : [];
 
-  cleanupTmp();
-  if (cancelRequested) {
-    try { fs.rmSync(target, { force: true }); } catch {}
-    return { ok: false, cancelled: true };
+      // Takipli çıktı, önceden kesilmiş klipten okur (-ss gerekmez);
+      // diğerleri önbellekteki tam videodan -ss ile hızlı sarar
+      const inputArgs = tracked
+        ? ['-i', trackClipFile]
+        : [...(trim ? ['-ss', trim.start] : []), '-i', cacheFile, ...(trim ? ['-t', String(clipSec)] : [])];
+
+      const ff = await runEncodeWithFallback((hwaccel, venc) => [
+        '-y', ...hwaccel, ...inputArgs, ...vf, ...venc, '-c:a', 'aac', '-b:a', '192k',
+        '-progress', 'pipe:1', '-nostats', target
+      ], 20, ffProgress, tmpDir || undefined);
+
+      if (cancelRequested) {
+        try { fs.rmSync(target, { force: true }); } catch {}
+        cleanupTmp();
+        return { ok: false, cancelled: true };
+      }
+      if (ff.code !== 0) {
+        cleanupTmp();
+        return { ok: false, error: `${def.label} formatı başarısız:\n` + ff.stderr.split(/\r?\n/).filter(Boolean).slice(-4).join('\n') };
+      }
+    }
+
+    cleanupTmp();
+    return { ok: true };
+  } catch (err) {
+    cleanupTmp();
+    return { ok: false, error: err.message };
   }
-  if (ff.code !== 0) {
-    return { ok: false, error: 'Kesme/dönüştürme başarısız:\n' + ff.stderr.split(/\r?\n/).filter(Boolean).slice(-4).join('\n') };
-  }
-  return { ok: true };
 });
 
 ipcMain.handle('cancel', () => {

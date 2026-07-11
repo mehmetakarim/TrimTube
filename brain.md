@@ -310,3 +310,29 @@ v1.3.0 run'ında aynı saniyede İKİ draft oluştu; electron-builder işleri ha
 Yayınlanmış v1.2.1/v1.2.2 release'leri GitHub'dan silinmiş durumda (etiketler duruyor). electron-builder'ın yayınlanmış release silme davranışı bilinmiyor; büyük olasılıkla manuel temizlik. Güncel sürüm zinciri etkilenmiyor (updater yalnızca en son sürüme bakar). Kullanıcıya soruldu.
 
 **Saha doğrulaması (v1.3.0):** Kullanıcı güncelleyip test etti — stilli altyazı gömme sorunsuz onaylandı. v1.2.1/v1.2.2 release'lerinin kaybı da açıklandı: kullanıcı manuel temizlemiş (etiketler duruyor, işlevsel etki yok). Faz 3 kapandı.
+
+---
+
+# Windows Oturumu — Faz 4: Çoklu Üretim (v1.4.0)
+
+Yol haritasının "Çoklu üretim" fazı. Üç özellik:
+
+## 1. Çoklu format (tek kesimden çoklu dosya)
+- `FORMAT_DEFS` (main.js): `original` (vf yok), `vertical` (9:16, MarginV 55), `square` (1:1, MarginV 35). Her formatın kendi crop/scale/pad zinciri ve altyazı MarginV değeri.
+- `download` handler artık `opts.formats` dizisi alıyor (geriye uyum: yoksa eski `vertical` bayrağından türetiliyor). Ses (mp3) tek çıktı olarak ayrıldı.
+- Format döngüsü: indirme + kişi takibi (varsa) bir kez yapılır, sonra her format ayrı ffmpeg render'ıyla ayrı dosya üretir. Kişi takibi YALNIZCA 9:16'ya uygulanır (sendcmd verisi o kırpma genişliği için); 1:1 ve orijinal merkez kadraj. Takipli çıktı önceden kesilmiş tmp klipten okur, diğerleri önbellekten -ss ile.
+- Dosya adı ekleri: `[9x16]`/`[9x16 takipli]`/`[1x1]`, altyazılıysa `[altyazılı]`.
+- Renderer: `selectedFormats` Set'i, `.segmented.multi` çoklu seçim (en az bir seçili kalır). `formatValue` tekil değişkeni kaldırıldı.
+
+## 2. Klip kuyruğu
+- Renderer'da `queue[]` dizisi; her öğe bağımsız `opts` (kendi url/aralık/format/altyazı). "+ Kuyruk" butonu mevcut seçimi ekler, İndir butonu kuyruk doluysa "Kuyruğu indir (N)" olur.
+- Ardışık işlenir; başarılı iş kuyruktan düşer (`queue.shift()`), iptal/hata kalanları kuyrukta bırakır. Önbellek sayesinde aynı videodan işlerde indirme yalnızca ilkinde.
+- `buildOpts()` arayüz seçimlerinden opts kurar (hem anlık indirme hem kuyruğa ekleme kullanır).
+
+## 3. Bölüm (chapter) önerileri
+- `get-info` artık `chapters` (title/start/end) döndürüyor. Renderer'da video bölümlüyse "Bölümden seç" menüsü belirir; seçince kesme açılır, aralık bölüm sınırlarına kurulur, önizleme oraya sarar. Bölümsüz videolarda menü gizli.
+
+## Doğrulama
+- 1:1 crop filtresi gerçek render'da tam 1080x1080 üretti (nvenc+cuda).
+- Bölüm çıkarımı gerçek bölümlü videoda (8jPQjjsBbIc, 4 bölüm) doğrulandı; bölümsüzde boş dizi.
+- Kullanıcı arayüzden uçtan uca test etti (çoklu format + kuyruk + bölüm) — sorunsuz onayladı.
