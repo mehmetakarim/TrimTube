@@ -3,16 +3,66 @@
 :root {
   --bg: #ffffff;
   --panel: #fafafa;
+  --surface: #ffffff;   /* kart/input zemini (karanlık modda koyulaşır) */
   --fill: #f2f2f7;
   --fill-hover: #e9e9ee;
   --border: rgba(0, 0, 0, 0.12);
   --hairline: rgba(0, 0, 0, 0.07);
   --text: #1d1d1f;
   --muted: #86868b;
+  --faint: #aeaeb2;
   --accent: #0A84FF;
   --accent-hover: #0974df;
+  --accent-soft: rgba(10, 132, 255, 0.09);
   --green: #34C759;
   --red: #FF3B30;
+}
+
+/* Karanlık tema token'ları. İki yolla devreye girer:
+   (1) JS henüz çalışmadan, sistem tercihi koyu ise beyaz parlamayı önlemek için
+       @media fallback — ANCAK yalnızca data-theme henüz set edilmemişken.
+   (2) JS ayarı uygulayınca kök öğedeki data-theme="dark" ile (kesin tercih). */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    color-scheme: dark;
+    --bg: #16171b;
+    --panel: #1c1d22;
+    --surface: #26272e;
+    --fill: #2a2b32;
+    --fill-hover: #33343c;
+    --border: rgba(255, 255, 255, 0.14);
+    --hairline: rgba(255, 255, 255, 0.09);
+    --text: #f2f2f5;
+    --muted: #9a9aa2;
+    --faint: #6a6a72;
+    --accent: #4a9bff;
+    --accent-hover: #6aabff;
+    --accent-soft: rgba(74, 155, 255, 0.15);
+    --green: #34C759;
+    --red: #FF4A3D;
+  }
+}
+/* color-scheme: native kontrolleri (select açılır listesi, kaydırma çubuğu,
+   number input okları) temaya göre çizdirir — <option> gibi öğeler CSS
+   token'larıyla boyanamadığı için asıl çözüm budur. */
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #16171b;
+  --panel: #1c1d22;
+  --surface: #26272e;
+  --fill: #2a2b32;
+  --fill-hover: #33343c;
+  --border: rgba(255, 255, 255, 0.14);
+  --hairline: rgba(255, 255, 255, 0.09);
+  --text: #f2f2f5;
+  --muted: #9a9aa2;
+  --faint: #6a6a72;
+  --accent: #4a9bff;
+  --accent-hover: #6aabff;
+  --accent-soft: rgba(74, 155, 255, 0.15);
+  --green: #34C759;
+  --red: #FF4A3D;
 }
 
 html, body { height: 100%; }
@@ -48,7 +98,7 @@ body {
   gap: 12px;
   align-items: flex-start;
   padding: 14px;
-  background: #fff;
+  background: var(--surface);
   border: 1px solid var(--hairline);
   border-radius: 14px;
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.16);
@@ -128,6 +178,66 @@ body {
 button { font-family: inherit; cursor: pointer; }
 button:disabled { opacity: 0.45; cursor: default; }
 
+.icon-btn {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 36px; height: 36px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--muted);
+  padding: 0;
+}
+.icon-btn:hover { background: var(--fill); color: var(--text); }
+
+/* ---- Ayarlar modalı ---- */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.4);
+  animation: fade-in 0.15s ease;
+}
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+.modal {
+  width: 400px;
+  max-width: calc(100vw - 40px);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.3);
+  overflow: hidden;
+}
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--hairline);
+}
+.modal-title { font-size: 15px; font-weight: 600; }
+.modal-head .icon-btn { width: 28px; height: 28px; border: none; font-size: 14px; border-radius: 8px; }
+.modal-body { padding: 18px; display: flex; flex-direction: column; gap: 18px; }
+.setting-group { display: flex; flex-direction: column; gap: 8px; }
+.cache-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.cache-info { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.cache-limit-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.cache-limit-label { font-size: 13px; color: var(--text); }
+#setCacheLimit {
+  width: 64px; height: 32px;
+  text-align: center;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  outline: none;
+}
+.setting-note { font-size: 11.5px; color: var(--faint); text-align: center; }
+
 .btn-primary {
   height: 36px;
   padding: 0 18px;
@@ -146,7 +256,7 @@ button:disabled { opacity: 0.45; cursor: default; }
   padding: 0 12px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: #fff;
+  background: var(--surface);
   color: var(--text);
   font-size: 12px;
   font-weight: 500;
@@ -272,7 +382,7 @@ button:disabled { opacity: 0.45; cursor: default; }
   top: 11px; left: 0; right: 0;
   height: 6px;
   border-radius: 3px;
-  background: #e5e5ea;
+  background: var(--fill-hover);
 }
 .slider-range {
   position: absolute;
@@ -432,7 +542,7 @@ button:disabled { opacity: 0.45; cursor: default; }
   align-items: center;
   gap: 12px;
   padding: 12px 14px;
-  background: #fff;
+  background: var(--surface);
   border: 1px solid var(--hairline);
   border-radius: 12px;
 }
@@ -447,7 +557,7 @@ button:disabled { opacity: 0.45; cursor: default; }
   position: absolute;
   inset: 0;
   border-radius: 12px;
-  background: #e5e5ea;
+  background: var(--fill-hover);
   transition: background 0.2s;
   pointer-events: none;
 }
@@ -482,7 +592,7 @@ button:disabled { opacity: 0.45; cursor: default; }
   padding: 0 32px 0 12px;
   border: 1px solid var(--border);
   border-radius: 10px;
-  background: #fff;
+  background: var(--surface);
   font: inherit;
   color: var(--text);
   appearance: none;
@@ -490,7 +600,13 @@ button:disabled { opacity: 0.45; cursor: default; }
   cursor: pointer;
   outline: none;
 }
-.select-wrap select:hover { background: #f7f7f9; }
+.select-wrap select:hover { background: var(--fill); }
+/* appearance:none olan select'lerde açılır liste color-scheme'i takip etmez;
+   option öğelerini doğrudan boyamak koyu temada beyaz popup sorununu çözer */
+.select-wrap select option {
+  background: var(--surface);
+  color: var(--text);
+}
 .select-wrap svg {
   position: absolute;
   right: 12px;
@@ -518,7 +634,7 @@ button:disabled { opacity: 0.45; cursor: default; }
   transition: all 0.15s ease;
 }
 .seg.active {
-  background: #fff;
+  background: var(--surface);
   color: var(--text);
   font-weight: 600;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
@@ -534,14 +650,14 @@ button:disabled { opacity: 0.45; cursor: default; }
   display: flex;
   align-items: center;
   padding: 0 12px;
-  background: #fff;
+  background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 10px;
   min-width: 0;
 }
 .folder-pill span {
   font-size: 12px;
-  color: #48484a;
+  color: var(--muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -562,7 +678,7 @@ button:disabled { opacity: 0.45; cursor: default; }
 .progress-bar {
   height: 5px;
   border-radius: 3px;
-  background: #e5e5ea;
+  background: var(--fill-hover);
   overflow: hidden;
 }
 #progressFill {
@@ -616,7 +732,7 @@ button:disabled { opacity: 0.45; cursor: default; }
   align-items: center;
   gap: 8px;
   padding: 7px 10px;
-  background: #fff;
+  background: var(--surface);
   border: 1px solid var(--hairline);
   border-radius: 8px;
   font-size: 11.5px;

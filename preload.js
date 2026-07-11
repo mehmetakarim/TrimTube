@@ -20,5 +20,10 @@ contextBridge.exposeInMainWorld('api', {
   onUpdateReady: (cb) => ipcRenderer.on('update-ready', () => cb()),
   onUpdateError: (cb) => ipcRenderer.on('update-error', (e, message) => cb(message)),
 
-  onMainError: (cb) => ipcRenderer.on('main-error', (e, message) => cb(message))
+  onMainError: (cb) => ipcRenderer.on('main-error', (e, message) => cb(message)),
+
+  getSettings: () => ipcRenderer.invoke('get-settings'),
+  setSettings: (patch) => ipcRenderer.invoke('set-settings', patch),
+  cacheInfo: () => ipcRenderer.invoke('cache-info'),
+  cacheClear: () => ipcRenderer.invoke('cache-clear')
 });

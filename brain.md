@@ -336,3 +336,30 @@ Yol haritasının "Çoklu üretim" fazı. Üç özellik:
 - 1:1 crop filtresi gerçek render'da tam 1080x1080 üretti (nvenc+cuda).
 - Bölüm çıkarımı gerçek bölümlü videoda (8jPQjjsBbIc, 4 bölüm) doğrulandı; bölümsüzde boş dizi.
 - Kullanıcı arayüzden uçtan uca test etti (çoklu format + kuyruk + bölüm) — sorunsuz onayladı.
+
+---
+
+# Windows Oturumu — Faz 5: Cila (v1.5.0)
+
+Yol haritasının son fazı. Ayarlar + önbellek yönetimi + karanlık mod.
+
+## Ayarlar (kalıcı, userData/settings.json)
+- electron-store bağımlılığı EKLENMEDİ; basit JSON store (`loadSettings`/`saveSettings`, tembel yükleme). Şema: theme, cacheLimit, defaultQuality, defaultFormats, lastFolder.
+- IPC: `get-settings` (appVersion de ekler), `set-settings`, `cache-info`, `cache-clear`.
+- Modal: Görünüm (Sistem/Açık/Koyu segment), Varsayılan kalite, Önbellek (boyut+video sayısı, Temizle, tutulacak video sayısı 1-10), sürüm notu.
+- Varsayılanlar açılışta UI'a uygulanıyor (`applyDefaultsToUI`): kalite, formatlar, son klasör. Klasör değişince `lastFolder` kaydediliyor.
+- `pruneCache` artık sabit 2 yerine `cacheLimit` kullanıyor.
+
+## Karanlık mod
+- `:root` token seti + `:root[data-theme="dark"]` override + `@media (prefers-color-scheme: dark) :root:not([data-theme])` fallback (JS öncesi beyaz parlamayı önler).
+- 12 sabit `#fff` → `var(--surface)` (kartlar/input'lar); slider topuzları + switch knob beyaz kaldı. Sabit `#e5e5ea` track'ler → `var(--fill-hover)`, `#48484a` metin → `var(--muted)`.
+- JS: `applyTheme(theme)` — 'system' ise `matchMedia` ile OS tercihi, aksi halde data-theme yazar. `darkMq` change dinleniyor.
+
+## ÖNEMLİ: select açılır listesi (dark popup) sorunu
+İki tur yanlış deneme oldu:
+1. `color-scheme: dark` (:root'ta) — TEK BAŞINA YETMEDİ. Sebep: select'lerde `appearance:none` olduğu için Chromium/Electron color-scheme'i açılır listeye (option popup) uygulamıyor. Kapalı kutu koyulaştı ama açılan liste beyaz kaldı.
+2. **Kesin çözüm:** `.select-wrap select option { background: var(--surface); color: var(--text); }` — option'ları doğrudan boyamak. Ayrıca `select:hover` sabit `#f7f7f9` idi (koyuda kutuyu beyaza çeviriyordu) → `var(--fill)`.
+- Ders: appearance:none select'lerde koyu tema için color-scheme yetmez, option'ları elle boya + tüm hover renklerini token yap.
+
+## Doğrulama
+- Native Electron penceresi programatik görülemedi; kullanıcı görsel doğruladı (koyu tema + düzeltilmiş dropdown "çok güzel oldu").

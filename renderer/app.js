@@ -542,13 +542,14 @@ async function fetchInfo() {
 $('fetchBtn').addEventListener('click', fetchInfo);
 $('url').addEventListener('keydown', (e) => { if (e.key === 'Enter') fetchInfo(); });
 
-// ---- klasör seçimi ----
-
-window.api.getDefaultFolder().then((f) => { $('folder').textContent = f; });
+// ---- klasör seçimi (varsayılan: ayarlardaki son klasör, yoksa İndirilenler) ----
 
 $('folderBtn').addEventListener('click', async () => {
   const f = await window.api.chooseFolder();
-  if (f) $('folder').textContent = f;
+  if (f) {
+    $('folder').textContent = f;
+    window.api.setSettings({ lastFolder: f });
+  }
 });
 
 // ---- indirme ----
@@ -803,3 +804,121 @@ $('updateDismissBtn').addEventListener('click', () => setUpdateCard('idle'));
 // Ana süreçte yakalanan beklenmeyen hatalar buraya düşer — F12 ile DevTools
 // açıp konsola bakınca görülebilir (sorun bildirimlerinde teşhis için).
 window.api.onMainError((message) => console.error('[main]', message));
+
+// ---- ayarlar & tema ----
+
+let settings = null;
+
+// Tema uygulaması: 'system' ise OS tercihine bakılır (matchMedia), aksi halde
+// data-theme öznitelği kök öğeye yazılır — CSS token'ları buna göre değişir.
+const darkMq = window.matchMedia('(prefers-color-scheme: dark)');
+function applyTheme(theme) {
+  const effective = theme === 'system' ? (darkMq.matches ? 'dark' : 'light') : theme;
+  document.documentElement.setAttribute('data-theme', effective);
+}
+darkMq.addEventListener('change', () => {
+  if (settings && settings.theme === 'system') applyTheme('system');
+});
+
+function applyDefaultsToUI() {
+  // Varsayılan kalite
+  if (settings.defaultQuality) {
+    $('quality').value = settings.defaultQuality;
+    $('quality').dispatchEvent(new Event('change'));
+  }
+  // Varsayılan formatlar
+  if (Array.isArray(settings.defaultFormats) && settings.defaultFormats.length) {
+    selectedFormats.clear();
+    settings.defaultFormats.forEach(f => selectedFormats.add(f));
+    refreshFormatButtons();
+  }
+  // Klasör: son kullanılan varsa o, yoksa sistem İndirilenler
+  if (settings.lastFolder) $('folder').textContent = settings.lastFolder;
+  else window.api.getDefaultFolder().then((f) => { if (!$('folder').textContent) $('folder').textContent = f; });
+}
+
+async function initSettings() {
+  settings = await window.api.getSettings();
+  applyTheme(settings.theme);
+  applyDefaultsToUI();
+
+  // Modal alanlarını doldur
+  $('setQuality').value = settings.defaultQuality || 'best';
+  $('setCacheLimit').value = settings.cacheLimit || 2;
+  document.querySelectorAll('#themeSeg .seg').forEach(b => {
+    b.classList.toggle('active', b.dataset.themeOpt === settings.theme);
+  });
+  $('settingsVersion').textContent = settings.appVersion ? `TrimTube v${settings.appVersion}` : '';
+}
+
+// Tema seçimi
+document.querySelectorAll('#themeSeg .seg').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const t = btn.dataset.themeOpt;
+    document.querySelectorAll('#themeSeg .seg').forEach(b => b.classList.toggle('active', b === btn));
+    settings.theme = t;
+    applyTheme(t);
+    window.api.setSettings({ theme: t });
+  });
+});
+
+// Varsayılan kalite (ayarlar modalından) — hem kaydeder hem anlık uygular
+$('setQuality').addEventListener('change', () => {
+  const q = $('setQuality').value;
+  settings.defaultQuality = q;
+  window.api.setSettings({ defaultQuality: q });
+  $('quality').value = q;
+  $('quality').dispatchEvent(new Event('change'));
+});
+
+// Önbellek limiti
+$('setCacheLimit').addEventListener('change', () => {
+  let n = parseInt($('setCacheLimit').value, 10);
+  if (isNaN(n) || n < 1) n = 1;
+  if (n > 10) n = 10;
+  $('setCacheLimit').value = n;
+  settings.cacheLimit = n;
+  window.api.setSettings({ cacheLimit: n });
+});
+
+function fmtBytes(b) {
+  if (b < 1024) return b + ' B';
+  if (b < 1024 * 1024) return (b / 1024).toFixed(0) + ' KB';
+  if (b < 1024 * 1024 * 1024) return (b / 1024 / 1024).toFixed(1) + ' MB';
+  return (b / 1024 / 1024 / 1024).toFixed(2) + ' GB';
+}
+
+async function refreshCacheInfo() {
+  const info = await window.api.cacheInfo();
+  $('cacheInfo').textContent = info.videos
+    ? `${info.videos} video · ${fmtBytes(info.bytes)}`
+    : `Boş · ${fmtBytes(info.bytes)}`;
+}
+
+$('cacheClearBtn').addEventListener('click', async () => {
+  $('cacheClearBtn').disabled = true;
+  await window.api.cacheClear();
+  await refreshCacheInfo();
+  $('cacheClearBtn').disabled = false;
+});
+
+// Modal aç/kapat
+function openSettings() {
+  $('settingsOverlay').classList.remove('hidden');
+  refreshCacheInfo();
+}
+function closeSettings() {
+  $('settingsOverlay').classList.add('hidden');
+  // Varsayılan formatları çıkışta kaydet (kullanıcı ana ekranda değiştirmiş olabilir)
+  window.api.setSettings({ defaultFormats: [...selectedFormats] });
+}
+$('settingsBtn').addEventListener('click', openSettings);
+$('settingsClose').addEventListener('click', closeSettings);
+$('settingsOverlay').addEventListener('click', (e) => {
+  if (e.target === $('settingsOverlay')) closeSettings();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !$('settingsOverlay').classList.contains('hidden')) closeSettings();
+});
+
+initSettings();

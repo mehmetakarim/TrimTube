@@ -28,6 +28,37 @@ function reportFatal(label, err) {
 process.on('uncaughtException', (err) => reportFatal('[uncaughtException]', err));
 process.on('unhandledRejection', (err) => reportFatal('[unhandledRejection]', err));
 
+// --- Kalıcı ayarlar (userData/settings.json) ---
+// electron-store bağımlılığı eklemeden basit bir JSON store. Varsayılan kalite/
+// format/klasör, tema ve önbellek limiti burada tutulur. app.whenReady öncesinde
+// de okunabilmesi için app.getPath yerine tembel yükleme kullanılır.
+const SETTINGS_DEFAULTS = {
+  theme: 'system',        // system | light | dark
+  cacheLimit: 2,          // önbellekte tutulacak video sayısı (1-10)
+  defaultQuality: 'best',
+  defaultFormats: ['original'],
+  lastFolder: null
+};
+let settingsCache = null;
+function settingsPath() { return path.join(app.getPath('userData'), 'settings.json'); }
+function loadSettings() {
+  if (settingsCache) return settingsCache;
+  try {
+    settingsCache = { ...SETTINGS_DEFAULTS, ...JSON.parse(fs.readFileSync(settingsPath(), 'utf8')) };
+  } catch {
+    settingsCache = { ...SETTINGS_DEFAULTS };
+  }
+  return settingsCache;
+}
+function saveSettings(patch) {
+  settingsCache = { ...loadSettings(), ...patch };
+  try { fs.writeFileSync(settingsPath(), JSON.stringify(settingsCache, null, 2), 'utf8'); } catch {}
+  return settingsCache;
+}
+
+ipcMain.handle('get-settings', () => ({ ...loadSettings(), appVersion: app.getVersion() }));
+ipcMain.handle('set-settings', (e, patch) => saveSettings(patch));
+
 let win = null;
 let currentProc = null;
 let cancelRequested = false;
@@ -473,16 +504,50 @@ function runYtdlp(extraArgs) {
 }
 
 // Önbellekte en yeni 2 video kalsın (tam bölümler büyük yer kaplayabilir)
+// Önbellekte en yeni N video (ayarlanabilir, varsayılan 2) kalsın. Altyazı
+// (_sub) ve yarım (.part) dosyalar bu sayıma dahil değildir.
 function pruneCache(cacheDir, keep) {
+  const limit = Math.max(1, loadSettings().cacheLimit || 2);
   try {
     fs.readdirSync(cacheDir)
       .filter(f => f !== keep && !f.endsWith('.part') && !f.includes('_sub'))
       .map(f => ({ f, t: fs.statSync(path.join(cacheDir, f)).mtimeMs }))
       .sort((a, b) => b.t - a.t)
-      .slice(1) // keep dışında en yeni 1 dosya daha kalsın
+      .slice(limit - 1) // keep dışında (limit-1) video daha kalsın
       .forEach(x => { try { fs.rmSync(path.join(cacheDir, x.f), { force: true }); } catch {} });
   } catch {}
 }
+
+// --- Önbellek yönetimi ---
+function cacheDirPath() { return path.join(app.getPath('userData'), 'cache'); }
+
+ipcMain.handle('cache-info', () => {
+  const dir = cacheDirPath();
+  let bytes = 0, videos = 0;
+  try {
+    for (const f of fs.readdirSync(dir)) {
+      if (f === 'Cache_Data') continue; // Chromium'un kendi önbelleği, bize ait değil
+      const full = path.join(dir, f);
+      let st;
+      try { st = fs.statSync(full); } catch { continue; }
+      if (!st.isFile()) continue;
+      bytes += st.size;
+      if ((f.endsWith('.mp4') || f.endsWith('.mp3')) && !f.endsWith('.part')) videos++;
+    }
+  } catch {}
+  return { bytes, videos };
+});
+
+ipcMain.handle('cache-clear', () => {
+  const dir = cacheDirPath();
+  try {
+    for (const f of fs.readdirSync(dir)) {
+      if (f === 'Cache_Data') continue;
+      try { fs.rmSync(path.join(dir, f), { force: true, recursive: true }); } catch {}
+    }
+  } catch {}
+  return { ok: true };
+});
 
 // Çıktı formatları: her biri ayrı bir dosya üretir. Kişi takibi yalnızca
 // 9:16 çıktısına uygulanır (takip verisi o kırpma genişliği için üretilir);
