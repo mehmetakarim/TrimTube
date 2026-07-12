@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld('api', {
   download: (opts) => ipcRenderer.invoke('download', opts),
   cancel: () => ipcRenderer.invoke('cancel'),
   chooseFolder: () => ipcRenderer.invoke('choose-folder'),
+  chooseImage: () => ipcRenderer.invoke('choose-image'),
   openFolder: (folder) => ipcRenderer.invoke('open-folder', folder),
   getDefaultFolder: () => ipcRenderer.invoke('get-default-folder'),
   getWaveform: (opts) => ipcRenderer.invoke('waveform', opts),

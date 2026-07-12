@@ -247,6 +247,44 @@
           </div>
         </div>
 
+        <!-- Marka: logo/watermark + başlık metni (yalnızca video çıktılarında) -->
+        <div id="brandCard" class="hidden">
+          <div class="card-toggle">
+            <div class="card-text">
+              <span class="card-title">Logo / filigran</span>
+              <span class="card-sub" id="wmSub">Köşeye logo bindir</span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="wmEnable">
+              <span class="knob"></span>
+            </label>
+          </div>
+          <div id="wmControls" class="hidden">
+            <div class="wm-row">
+              <button id="wmChooseBtn" class="btn-ghost">Logo seç…</button>
+              <span id="wmFile" class="wm-file">Dosya seçilmedi</span>
+            </div>
+            <div class="wm-pos-grid" id="wmPos">
+              <button class="wm-pos" data-pos="sol-ust" title="Sol üst">◤</button>
+              <button class="wm-pos active" data-pos="sag-ust" title="Sağ üst">◥</button>
+              <button class="wm-pos" data-pos="sol-alt" title="Sol alt">◣</button>
+              <button class="wm-pos" data-pos="sag-alt" title="Sağ alt">◢</button>
+            </div>
+          </div>
+
+          <div class="card-toggle" style="margin-top:10px">
+            <div class="card-text">
+              <span class="card-title">Başlık metni</span>
+              <span class="card-sub">İlk 3 saniyede üstte gösterilir</span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="titleEnable">
+              <span class="knob"></span>
+            </label>
+          </div>
+          <input type="text" id="titleText" class="title-input hidden" placeholder="Örn. Aile Saadeti — Bölüm 8" maxlength="80" spellcheck="false">
+        </div>
+
         <div class="field">
           <span class="label">Kayıt klasörü</span>
           <div class="folder-row">

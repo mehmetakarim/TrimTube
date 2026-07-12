@@ -31,14 +31,15 @@ Bu dosya, [TrimTube Özellik Yol Haritası](https://claude.ai/code/artifact/2fd1
 - [x] Önbellek yönetimi (boyut görüntüleme, temizleme, limit ayarı)
 - [x] Karanlık mod (sistem tercihi / açık / koyu)
 
+### Faz 6 — Marka & Netlik · `v1.6.0`
+- [x] Logo / watermark bindirme (4 köşe, oransal boyut, çoklu formata uygulanır)
+- [x] Başlık metni (ilk 3 sn üst-orta, libass ile Türkçe+tipografik glifler)
+- [x] Daha net Türkçe hata mesajları (yaş/gizli/bölge/bağlantı vb.)
+  - _Not: ufak arayüz rötuşları sonraya bırakıldı (kullanıcı geri bildirimi)._
+
 ---
 
 ## 🔲 Kalanlar
-
-### Kısa vadeli (düşük–orta çaba, net fayda)
-- [ ] **Logo / watermark bindirme** — kanal logosunu köşeye sabitleme (ffmpeg `overlay`, düşük çaba)
-- [ ] **Daha net hata mesajları** — yaş/bölge kısıtı, kaldırılmış video gibi durumları anlaşılır Türkçe karşılıklara çevirme
-- [ ] **Başlık / metin kartı** — klip başına 1–2 sn'lik başlık kartı (ffmpeg `drawtext`, Türkçe font dikkat ister)
 
 ### Orta vadeli
 - [ ] **Whisper ile otomatik altyazı** — altyazısı olmayan videolar için ses→metin (faster-whisper, `subtitle.py`)

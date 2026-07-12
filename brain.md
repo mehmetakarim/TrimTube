@@ -363,3 +363,31 @@ Yol haritasının son fazı. Ayarlar + önbellek yönetimi + karanlık mod.
 
 ## Doğrulama
 - Native Electron penceresi programatik görülemedi; kullanıcı görsel doğruladı (koyu tema + düzeltilmiş dropdown "çok güzel oldu").
+
+---
+
+# Windows Oturumu — Faz 6: Marka & Netlik (v1.6.0)
+
+Yol haritasının kalan "kısa vadeli" üç maddesi. Üçü de gerçek ffmpeg ile doğrulandı.
+
+## 1. Anlaşılır hata mesajları
+`extractError` başına `ERROR_PATTERNS` regex tablosu: yaş kısıtı, gizli video, üye-only, kaldırılmış, bölge kısıtı, canlı/prömiyer, bot doğrulama, ağ hatası, geçersiz URL, 429. Eşleşme yoksa ham ERROR satırı. Birim test edildi.
+
+## 2. Logo / watermark
+- IPC `choose-image` (png/jpg/webp/gif).
+- Filtre: `[0:v]BASE[base];[1:v]scale=-1:LOGOH[wm];[base][wm]overlay=POS[out]` + `-map [out] -map 0:a?`. Yani watermark VARSA `-vf` yerine `-filter_complex` + ikinci girdi (`-i logo`).
+- LOGOH = outH*0.09, PAD = outW*0.03, 4 köşe (`watermarkOverlayExpr`).
+- **KRİTİK TUZAK:** filtre grafiği değil, `-t`'nin konumu. `-ss X -i main -t Y -i logo` yazınca `-t Y` LOGO girdisine uygulanıp ana video sonuna kadar (saatlerce) okunuyor → kilitlenme + devasa dosya. Çözüm: `-t` HER ZAMAN çıktı seçeneği olarak (venc'ten sonra, target'tan önce, `durArg`). Tracked path zaten kesilmiş klipten okuduğu için `-t` yok.
+- `scale2ref` denendi ve terk edildi (tek-kare görsel + çok-kareli video arasında sorun); logoyu sabit piksel yüksekliğe ölçeklemek daha sağlam.
+
+## 3. Başlık metni
+- **drawtext KULLANILMADI:** ffmpeg-static'te fontconfig yok ("Cannot load default config file"), `font=`/`fontfile=` yok sayılıp glif-eksik sistem fontuna (Windows'ta MingLiU) düşüyor → ĞİŞ, —, • tofu. `fontfile=` bu build'de honor edilmiyor.
+- **Çözüm: libass** (altyazıdaki kanıtlanmış yol). `writeTitleAss` → PlayResX/Y=çıktı boyutu, FontSize=outH*0.05, MarginV=outH*0.045, Alignment=8 (üst-orta), BorderStyle=4 (yarı saydam kutu). `subtitles=title.ass` (cwd=tmpDir ile göreli). Türkçe + « » — hepsi doğru.
+- **ASS tuzağı:** `[Events]` Format satırı TAM standart alan listesini içermeli (`Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`), yoksa Dialogue alan değerleri (`,0,0,0,,`) metne sızıyor.
+- İndirdiğim DejaVuSans.ttf gereksiz çıktı (libass fontu kendi çözüyor), assets/fonts silindi.
+
+## Ortak: probeDims
+ffprobe pakete dahil değil; `probeDims(file)` = `ffmpeg -i file` stderr'inden `\d+x\d+` ayıklar. Orijinal format için watermark/başlık oransal ölçeği bir kez sorgulanır (vertical=1080x1920, square=1080x1080 sabit).
+
+## Açık kalan
+Kullanıcı test etti, "ufak düzeltmelere ihtiyacı var ama şimdinin konusu değil" dedi (detay verilmedi) — bir sonraki turda sorulacak. v1.6.0 bu haliyle yayınlandı.

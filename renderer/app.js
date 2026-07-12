@@ -404,7 +404,7 @@ for (const btn of document.querySelectorAll('.segmented.multi .seg')) {
   });
 }
 
-// Sadece ses seçiliyken format/altyazı anlamsız — kapat
+// Sadece ses seçiliyken format/altyazı/marka anlamsız — kapat
 $('quality').addEventListener('change', () => {
   const isAudio = $('quality').value === 'audio';
   document.querySelectorAll('.segmented.multi .seg').forEach(b => { b.disabled = isAudio; });
@@ -414,10 +414,39 @@ $('quality').addEventListener('change', () => {
     clearTrackMarker();
     $('subEnable').checked = false;
     $('subStyles').classList.add('hidden');
+    $('brandCard').classList.add('hidden');
   } else {
     refreshFormatButtons();
+    if (infoLoaded) $('brandCard').classList.remove('hidden');
   }
   $('subEnable').disabled = isAudio || !subPick;
+});
+
+// ---- marka: logo/watermark + başlık ----
+
+let watermarkFile = null;
+let watermarkPos = 'sag-ust';
+
+$('wmEnable').addEventListener('change', () => {
+  $('wmControls').classList.toggle('hidden', !$('wmEnable').checked);
+});
+$('wmChooseBtn').addEventListener('click', async () => {
+  const f = await window.api.chooseImage();
+  if (f) {
+    watermarkFile = f;
+    $('wmFile').textContent = f.split(/[\\/]/).pop();
+  }
+});
+for (const btn of document.querySelectorAll('#wmPos .wm-pos')) {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#wmPos .wm-pos').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    watermarkPos = btn.dataset.pos;
+  });
+}
+$('titleEnable').addEventListener('change', () => {
+  $('titleText').classList.toggle('hidden', !$('titleEnable').checked);
+  if ($('titleEnable').checked) $('titleText').focus();
 });
 
 // ---- altyazı ----
@@ -509,6 +538,7 @@ async function fetchInfo() {
     previewUrl = info.previewUrl;
     infoLoaded = true;
     updateSubCard(info);
+    $('brandCard').classList.toggle('hidden', $('quality').value === 'audio');
 
     $('title').textContent = info.title;
     $('meta').textContent = `${info.uploader} · ${fmtTime(videoDuration)}`;
@@ -607,6 +637,8 @@ function buildOpts() {
     track: selectedFormats.has('vertical') && $('trackEnable').checked,
     trackPoint,
     subtitle: ($('subEnable').checked && subPick) ? { ...subPick, style: subStyleValue } : null,
+    watermark: ($('wmEnable').checked && watermarkFile) ? { file: watermarkFile, position: watermarkPos } : null,
+    titleText: ($('titleEnable').checked && $('titleText').value.trim()) ? $('titleText').value.trim() : null,
     duration: videoDuration,
     trim: null
   };
@@ -633,7 +665,12 @@ const queue = [];
 
 function queueBadges(opts) {
   const fmts = (opts.formats || []).map(f => f === 'vertical' ? '9:16' : f === 'square' ? '1:1' : 'orj').join('+');
-  const extras = [opts.track ? 'takip' : null, opts.subtitle ? 'altyazı' : null].filter(Boolean).join('·');
+  const extras = [
+    opts.track ? 'takip' : null,
+    opts.subtitle ? 'altyazı' : null,
+    opts.watermark ? 'logo' : null,
+    opts.titleText ? 'başlık' : null
+  ].filter(Boolean).join('·');
   return [opts.quality === 'audio' ? 'mp3' : fmts, extras].filter(Boolean).join(' · ');
 }
 

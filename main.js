@@ -242,9 +242,38 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => app.quit());
 
 // yt-dlp'nin stderr çıktısından kullanıcıya gösterilebilir hata mesajı ayıklar
+// yt-dlp'nin ham İngilizce hatalarını bilinen kalıplara göre anlaşılır Türkçe
+// karşılıklara çevirir. Eşleşme yoksa ham ERROR satırı gösterilir (teşhis için).
+const ERROR_PATTERNS = [
+  [/Sign in to confirm your age|age-restricted|inappropriate for some users/i,
+    'Bu video yaş kısıtlamalı. YouTube oturum açmadan indirilemiyor.'],
+  [/Private video|This video is private/i,
+    'Bu video gizli (private) olarak işaretlenmiş, indirilemiyor.'],
+  [/members-only|join this channel/i,
+    'Bu video yalnızca kanal üyelerine açık, indirilemiyor.'],
+  [/video is unavailable|video has been removed|no longer available|account.*terminated/i,
+    'Bu video kaldırılmış veya artık kullanılamıyor.'],
+  [/not available in your country|geo|blocked it in your country/i,
+    'Bu video bulunduğunuz bölgede erişime kapalı.'],
+  [/This live event will begin|Premieres in|is not currently live/i,
+    'Bu bir canlı yayın/prömiyer; henüz yayınlanmadığı için indirilemiyor.'],
+  [/Sign in to confirm.*not a bot|confirm you.?re not a robot/i,
+    'YouTube bot doğrulaması istiyor. Bir süre sonra tekrar deneyin.'],
+  [/Unable to download webpage|Failed to resolve|getaddrinfo|Temporary failure in name resolution|Connection.*timed out|Network is unreachable/i,
+    'İnternet bağlantısı kurulamadı. Bağlantınızı kontrol edip tekrar deneyin.'],
+  [/Unsupported URL|is not a valid URL|Unable to extract/i,
+    'Bağlantı tanınamadı. Geçerli bir YouTube video bağlantısı olduğundan emin olun.'],
+  [/HTTP Error 429|Too Many Requests/i,
+    'YouTube çok fazla istek nedeniyle geçici olarak engelledi. Birkaç dakika sonra deneyin.']
+];
+
 function extractError(stderr) {
-  const lines = (stderr || '').split(/\r?\n/).filter(l => l.includes('ERROR'));
-  return lines.length ? lines.join('\n') : (stderr || 'Bilinmeyen hata');
+  const raw = stderr || '';
+  for (const [re, msg] of ERROR_PATTERNS) {
+    if (re.test(raw)) return msg;
+  }
+  const lines = raw.split(/\r?\n/).filter(l => l.includes('ERROR'));
+  return lines.length ? lines.join('\n') : (raw || 'Bilinmeyen hata');
 }
 
 function toSec(hms) {
@@ -357,6 +386,14 @@ ipcMain.handle('choose-folder', async () => {
 });
 
 ipcMain.handle('open-folder', (e, folder) => shell.openPath(folder));
+
+ipcMain.handle('choose-image', async () => {
+  const res = await dialog.showOpenDialog(win, {
+    properties: ['openFile'],
+    filters: [{ name: 'Görsel', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif'] }]
+  });
+  return res.canceled ? null : res.filePaths[0];
+});
 
 ipcMain.handle('get-info', (e, url) => {
   return new Promise((resolve, reject) => {
@@ -549,6 +586,60 @@ ipcMain.handle('cache-clear', () => {
   return { ok: true };
 });
 
+// Bir videonun/görselin genişlik-yüksekliğini ffmpeg -i çıktısından okur
+// (ffprobe pakete dahil değil). Başarısızlıkta 16:9 varsayılanı döner.
+function probeDims(file) {
+  return new Promise((resolve) => {
+    const proc = spawn(FFMPEG, ['-i', file], { windowsHide: true, env: procEnv });
+    let buf = '';
+    proc.stderr.on('data', (d) => { buf += d.toString('utf8'); });
+    proc.on('close', () => {
+      const m = buf.match(/Video:.*?(\d{2,5})x(\d{2,5})/);
+      resolve(m ? { w: +m[1], h: +m[2] } : { w: 1920, h: 1080 });
+    });
+    proc.on('error', () => resolve({ w: 1920, h: 1080 }));
+  });
+}
+
+// Watermark overlay konum ifadeleri (W,H=ana; w,h=logo; PAD=kenar payı)
+function watermarkOverlayExpr(position, pad) {
+  switch (position) {
+    case 'sol-ust': return `x=${pad}:y=${pad}`;
+    case 'sag-alt': return `x=W-w-${pad}:y=H-h-${pad}`;
+    case 'sol-alt': return `x=${pad}:y=H-h-${pad}`;
+    case 'sag-ust':
+    default: return `x=W-w-${pad}:y=${pad}`;
+  }
+}
+
+// Başlık için ASS dosyası üretir (üst-orta, kalın, yarı saydam kutu). PlayRes
+// çıktı boyutuna eşitlenip yazı/kenar payı oransal ölçeklenir. libass Türkçe
+// ve tipografik karakterleri (— « » vb.) doğru işler — drawtext'in aksine.
+function writeTitleAss(dir, text, dims, seconds) {
+  const fontSize = Math.round(dims.h * 0.05);
+  const marginV = Math.round(dims.h * 0.045);
+  // ASS metninde satır sonu \N; virgül/süslü parantez sorun çıkarmaz ama
+  // kaçış için newline'ları \N'e çeviriyoruz
+  const safe = String(text).replace(/\r?\n/g, '\\N');
+  const end = `0:00:0${Math.min(9, seconds)}.00`;
+  const ass = `[Script Info]
+ScriptType: v4.00+
+PlayResX: ${dims.w}
+PlayResY: ${dims.h}
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, Bold, BorderStyle, Outline, Shadow, BackColour, Alignment, MarginL, MarginR, MarginV
+Style: Baslik, Arial, ${fontSize}, &H00FFFFFF, 1, 4, 0, 0, &H90000000, 8, 60, 60, ${marginV}
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:00.00,${end},Baslik,,0,0,0,,${safe}
+`;
+  const p = path.join(dir, 'title.ass');
+  fs.writeFileSync(p, ass, 'utf8');
+  return 'title.ass'; // cwd=tmpDir ile göreli kullanılacak
+}
+
 // Çıktı formatları: her biri ayrı bir dosya üretir. Kişi takibi yalnızca
 // 9:16 çıktısına uygulanır (takip verisi o kırpma genişliği için üretilir);
 // 1:1 ve orijinal her zaman merkez kadrajdır.
@@ -579,7 +670,10 @@ ipcMain.handle('download', async (e, opts) => {
     : [vertical && !isAudio ? 'vertical' : 'original'];
   const wantTrack = !isAudio && track && formats.includes('vertical');
   const wantSubs = !!subtitle && !isAudio; // altyazı gömme yeniden kodlama gerektirir
-  const needPost = !!trim || wantSubs || formats.some(f => f !== 'original') || formats.length > 1;
+  // Marka öğeleri (Faz 6): logo/watermark + başlık metni
+  const watermark = (!isAudio && opts.watermark && opts.watermark.file && fs.existsSync(opts.watermark.file)) ? opts.watermark : null;
+  const titleText = (!isAudio && opts.titleText && String(opts.titleText).trim()) ? String(opts.titleText).trim() : null;
+  const needPost = !!trim || wantSubs || !!watermark || !!titleText || formats.some(f => f !== 'original') || formats.length > 1;
 
   // --- Basit durum: kesme/dönüştürme yok → doğrudan hedef klasöre indir ---
   if (!needPost) {
@@ -615,7 +709,7 @@ ipcMain.handle('download', async (e, opts) => {
   // --- Altyazı hazırlığı: indir (önbellekten), kesim penceresine kaydır ---
   // Kişi takibi ve/veya altyazı gömme geçici klasörle çalışır (sendcmd/subtitles
   // filtrelerine Windows yolu vermek yerine cwd üzerinden göreli ad kullanılır)
-  const tmpDir = (wantTrack || wantSubs) ? fs.mkdtempSync(path.join(os.tmpdir(), 'yt-trim-')) : null;
+  const tmpDir = (wantTrack || wantSubs || titleText) ? fs.mkdtempSync(path.join(os.tmpdir(), 'yt-trim-')) : null;
   const cleanupTmp = () => { if (tmpDir) { try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {} } };
 
   // Altyazı hazırsa format bazında MarginV ile filtre üretir (dikeyde daha yüksek konum)
@@ -644,9 +738,20 @@ ipcMain.handle('download', async (e, opts) => {
   // Ortak çıktı adı parçaları
   const baseSuffix = trim ? ` [${trim.start.replace(/:/g, '.')}-${trim.end.replace(/:/g, '.')}]` : '';
   const subSuffix = subStyleBase ? ' [altyazılı]' : '';
+  const brandSuffix = (watermark || titleText) ? ' [marka]' : '';
   const targetFor = (fmt, tracked) => {
     const fmtSuffix = fmt === 'vertical' ? (tracked ? ' [9x16 takipli]' : ' [9x16]') : FORMAT_DEFS[fmt].suffix;
-    return path.join(folder, `${sanitizeName(title)}${baseSuffix}${fmtSuffix}${subSuffix}.${isAudio ? 'mp3' : 'mp4'}`);
+    return path.join(folder, `${sanitizeName(title)}${baseSuffix}${fmtSuffix}${subSuffix}${brandSuffix}.${isAudio ? 'mp3' : 'mp4'}`);
+  };
+
+  // Orijinal format için kaynak boyutu (watermark/başlık oransal ölçeği); yalnızca
+  // gerektiğinde ve bir kez sorgulanır
+  let srcDims = null;
+  const outDimsFor = async (fmt) => {
+    if (fmt === 'vertical') return { w: 1080, h: 1920 };
+    if (fmt === 'square') return { w: 1080, h: 1080 };
+    if (!srcDims) srcDims = await probeDims(cacheFile);
+    return srcDims;
   };
 
   let ffSpeed = 0; // ffmpeg -progress çıktısındaki speed= alanı (ör. 3.5x)
@@ -732,26 +837,51 @@ ipcMain.handle('download', async (e, opts) => {
       if (formats.length > 1) win.webContents.send('log', `Format ${i + 1}/${formats.length}: ${def.label}${tracked ? ' (takipli)' : ''}`);
       win.webContents.send('progress', 0);
 
-      const vfParts = [];
+      const outDims = (watermark || titleText) ? await outDimsFor(fmt) : null;
+
+      // Temel görüntü filtre zinciri: kadraj → altyazı → başlık (hepsi [0:v] üzerinde)
+      const baseParts = [];
       if (tracked) {
-        vfParts.push('sendcmd=f=cmds.txt,crop=w=ih*9/16:h=ih:x=(iw-ow)/2:y=0,scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2');
+        baseParts.push('sendcmd=f=cmds.txt,crop=w=ih*9/16:h=ih:x=(iw-ow)/2:y=0,scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2');
       } else if (def.vf) {
-        vfParts.push(def.vf);
+        baseParts.push(def.vf);
       }
       const sf = subFilterFor(def.marginV);
-      if (sf) vfParts.push(sf);
-      const vf = vfParts.length ? ['-vf', vfParts.join(',')] : [];
+      if (sf) baseParts.push(sf);
+      if (titleText) {
+        writeTitleAss(tmpDir, titleText, outDims, 3);
+        baseParts.push('subtitles=title.ass'); // cwd=tmpDir ile göreli
+      }
+      const baseChain = baseParts.join(',');
 
       // Takipli çıktı, önceden kesilmiş klipten okur (-ss gerekmez);
-      // diğerleri önbellekteki tam videodan -ss ile hızlı sarar
-      const inputArgs = tracked
+      // diğerleri önbellekteki tam videodan -ss ile hızlı sarar. -t her zaman
+      // çıktı seçeneği olarak (target'tan hemen önce) verilir ki watermark
+      // ikinci girdisi araya girince yanlışlıkla ona uygulanmasın.
+      const mainInput = tracked
         ? ['-i', trackClipFile]
-        : [...(trim ? ['-ss', trim.start] : []), '-i', cacheFile, ...(trim ? ['-t', String(clipSec)] : [])];
+        : [...(trim ? ['-ss', trim.start] : []), '-i', cacheFile];
+      const durArg = (!tracked && trim) ? ['-t', String(clipSec)] : [];
 
-      const ff = await runEncodeWithFallback((hwaccel, venc) => [
-        '-y', ...hwaccel, ...inputArgs, ...vf, ...venc, '-c:a', 'aac', '-b:a', '192k',
-        '-progress', 'pipe:1', '-nostats', target
-      ], 20, ffProgress, tmpDir || undefined);
+      // Watermark: ikinci girdi (logo) + filter_complex overlay; yoksa düz -vf
+      const buildArgs = (hwaccel, venc) => {
+        if (watermark) {
+          const pad = Math.round(outDims.w * 0.03);
+          const logoH = Math.round(outDims.h * 0.09);
+          const overlay = watermarkOverlayExpr(watermark.position, pad);
+          const chain = `[0:v]${baseChain || 'null'}[base];[1:v]scale=-1:${logoH}[wm];[base][wm]overlay=${overlay}[out]`;
+          return ['-y', ...hwaccel, ...mainInput, '-i', watermark.file,
+            '-filter_complex', chain, '-map', '[out]', '-map', '0:a?',
+            ...venc, '-c:a', 'aac', '-b:a', '192k', ...durArg,
+            '-progress', 'pipe:1', '-nostats', target];
+        }
+        const vf = baseChain ? ['-vf', baseChain] : [];
+        return ['-y', ...hwaccel, ...mainInput, ...vf,
+          ...venc, '-c:a', 'aac', '-b:a', '192k', ...durArg,
+          '-progress', 'pipe:1', '-nostats', target];
+      };
+
+      const ff = await runEncodeWithFallback(buildArgs, 20, ffProgress, tmpDir || undefined);
 
       if (cancelRequested) {
         try { fs.rmSync(target, { force: true }); } catch {}
