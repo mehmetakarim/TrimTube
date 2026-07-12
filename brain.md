@@ -391,3 +391,13 @@ ffprobe pakete dahil değil; `probeDims(file)` = `ffmpeg -i file` stderr'inden `
 
 ## Açık kalan
 Kullanıcı test etti, "ufak düzeltmelere ihtiyacı var ama şimdinin konusu değil" dedi (detay verilmedi) — bir sonraki turda sorulacak. v1.6.0 bu haliyle yayınlandı.
+
+---
+
+# Windows Oturumu — v1.6.1: macOS güncelleme zarif geçişi
+
+macOS'ta imzasız uygulamada oto-güncelleme kurulum aşamasında (Squirrel.Mac imza doğrulaması) başarısız oluyordu — bilinen kısıt (bkz. macOS oturumu #4). Kullanıcı onayıyla "zarif geçiş" eklendi:
+- `preload`: `platform: process.platform` + `openReleasePage()`.
+- `main.js`: `open-release-page` IPC → `shell.openExternal('.../releases/latest')`.
+- `renderer`: `isMac` ise güncelleme kartı 'available' durumunda "Yeni sürümü indir" gösterir; tıklayınca release sayfasını tarayıcıda açar (indir→kur→imza-hatası çıkmazı yerine). Windows/Linux akışı değişmedi.
+- Apple Developer ID imzalama (~99$/yıl) alternatifi kullanıcıya sunuldu, "şimdilik" tercih edilmedi.

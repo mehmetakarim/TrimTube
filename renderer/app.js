@@ -780,6 +780,7 @@ $('downloadBtn').addEventListener('click', async () => {
 // sadece bilgi kartı gösterilir, indirme "Güncelle" butonuna basılınca başlar.
 
 let updateState = 'idle'; // idle | available | downloading | ready | error
+const isMac = window.api.platform === 'darwin';
 
 function setUpdateCard(state, opts = {}) {
   updateState = state;
@@ -794,8 +795,14 @@ function setUpdateCard(state, opts = {}) {
 
   if (state === 'available') {
     $('updateTitle').textContent = 'Yeni sürüm mevcut';
-    $('updateSub').textContent = `TrimTube ${opts.version} indirilmeye hazır.`;
-    btn.textContent = 'Güncelle';
+    if (isMac) {
+      // macOS'ta imzasız oto-kurulum çalışmadığı için elle indirmeye yönlendir
+      $('updateSub').textContent = `TrimTube ${opts.version} — indirme sayfasından güncelleyin.`;
+      btn.textContent = 'Yeni sürümü indir';
+    } else {
+      $('updateSub').textContent = `TrimTube ${opts.version} indirilmeye hazır.`;
+      btn.textContent = 'Güncelle';
+    }
     btn.disabled = false;
   } else if (state === 'downloading') {
     $('updateTitle').textContent = 'Güncelleme indiriliyor…';
@@ -823,6 +830,12 @@ window.api.onUpdateReady(() => setUpdateCard('ready'));
 window.api.onUpdateError((message) => setUpdateCard('error', { message }));
 
 $('updateActionBtn').addEventListener('click', async () => {
+  // macOS: oto-kurulum yerine release sayfasını aç (imzasız kurulum çalışmıyor)
+  if (isMac && (updateState === 'available' || updateState === 'error')) {
+    window.api.openReleasePage();
+    setUpdateCard('idle');
+    return;
+  }
   if (updateState === 'available' || updateState === 'error') {
     setUpdateCard('downloading');
     $('updateProgressFill').style.width = '0%';

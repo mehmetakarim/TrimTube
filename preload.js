@@ -14,8 +14,10 @@ contextBridge.exposeInMainWorld('api', {
   onPhase: (cb) => ipcRenderer.on('phase', (e, phase) => cb(phase)),
   onEta: (cb) => ipcRenderer.on('eta', (e, eta) => cb(eta)),
 
+  platform: process.platform,
   downloadUpdate: () => ipcRenderer.invoke('update-download'),
   installUpdate: () => ipcRenderer.invoke('update-install'),
+  openReleasePage: () => ipcRenderer.invoke('open-release-page'),
   onUpdateAvailable: (cb) => ipcRenderer.on('update-available', (e, version) => cb(version)),
   onUpdateProgress: (cb) => ipcRenderer.on('update-progress', (e, percent) => cb(percent)),
   onUpdateReady: (cb) => ipcRenderer.on('update-ready', () => cb()),

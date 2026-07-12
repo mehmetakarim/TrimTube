@@ -228,6 +228,10 @@ function initAutoUpdate() {
   autoUpdater.checkForUpdates().catch((err) => console.error('[autoUpdater]', err.message));
 }
 
+// macOS'ta imzasız uygulamada oto-kurulum imza doğrulamasına takılır; kullanıcı
+// bunun yerine en son release'i tarayıcıda açıp dmg'yi elle indirir.
+ipcMain.handle('open-release-page', () => shell.openExternal('https://github.com/mehmetakarim/TrimTube/releases/latest'));
+
 ipcMain.handle('update-download', () => autoUpdater.downloadUpdate());
 // isSilent=false: kurulum sihirbazı görünür açılır (sessiz kurulumda oluşabilecek
 // hataların kullanıcı tarafından fark edilmeden uygulamanın silinmesini önler).
