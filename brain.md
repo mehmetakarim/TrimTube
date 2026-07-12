@@ -4,6 +4,25 @@ Bu dosya, farklı ortamlardaki (ev: macOS M-serisi, ofis: Windows 11) geliştirm
 
 ---
 
+## 📍 GÜNCEL DURUM & SIRADAKİ İŞLER (yeni oturum buradan başlasın)
+
+**Yayındaki sürüm:** `v1.6.1` · Windows/macOS(arm64)/Linux · GitHub: mehmetakarim/TrimTube
+**Yapılacaklar listesi (asıl kaynak):** proje kökündeki `YOL-HARITASI.md` (onay kutulu, faz faz).
+
+**Tamamlanan fazlar (detayları aşağıda):**
+- Faz 1 (v1.1.0) kesim deneyimi · Faz 2 (v1.2.0) GPU · Faz 3 (v1.3.0) altyazı · Faz 4 (v1.4.0) çoklu üretim · Faz 5 (v1.5.0) cila · Faz 6 (v1.6.0) marka & netlik · v1.6.1 macOS güncelleme geçişi
+
+**Kalan fazlar (öncelik sırası):**
+- **Faz 7 — Otomatik altyazı (Whisper):** altyazısı olmayan videolar için ses→metin. Not: faster-whisper + model indirme (~150MB-1GB), yavaş test döngüleri; `subtitle.py` yazılıp mevcut altyazı-gömme yoluna beslenir. Büyük/test-ağırlıklı iş.
+- **Faz 8 — Kaynak & önizleme:** yerel dosya sürükle-bırak + kişi-takip kadraj yolunun render öncesi önizlemesi.
+- **Faz 9 — Toplu işleme:** playlist toplu indirme + arka planda kuyruk (render sürerken yeni video hazırlama).
+- **Faz 10 (araştırma):** gömülü Python/WASM ile kurulumsuz takip + konuşmacı-değişimli çoklu kişi takibi.
+- **Bekleyen küçük iş:** Faz 6 (marka) arayüzünde kullanıcının belirteceği ufak rötuşlar (detay henüz verilmedi — sorulacak).
+
+**Release akışı (her faz sonu):** `package.json` sürümü artır → commit → `git tag -a vX.Y.Z` → `git push origin main && git push origin vX.Y.Z` → CI (create-release idempotent + 3 platform) → `gh` ile draft'ı doğrula → `gh api PATCH ... draft=false` ile başlık+not ekleyerek yayınla. gh yolu: `/c/Program Files/GitHub CLI/gh.exe`.
+
+---
+
 # macOS Oturumu (Sorunlar ve Çözümler)
 
 ---
