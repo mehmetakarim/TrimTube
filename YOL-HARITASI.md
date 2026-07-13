@@ -62,4 +62,4 @@ Bu dosya, [TrimTube Özellik Yol Haritası](https://claude.ai/code/artifact/2fd1
 
 ---
 
-*Son güncelleme: Faz 8 kodu hazır (yerel dosya + kadraj önizlemesi). Faz 7 (Whisper) ile birlikte yayın bekliyor.*
+*Son güncelleme: v1.8.0 yayında — Faz 7 (Whisper otomatik altyazı) + Faz 8 (yerel dosya & kadraj önizlemesi) birlikte yayınlandı.*

@@ -6,19 +6,17 @@ Bu dosya, farklı ortamlardaki (ev: macOS M-serisi, ofis: Windows 11) geliştirm
 
 ## 📍 GÜNCEL DURUM & SIRADAKİ İŞLER (yeni oturum buradan başlasın)
 
-**Yayındaki sürüm:** `v1.6.1` · Windows/macOS(arm64)/Linux · GitHub: mehmetakarim/TrimTube
+**Yayındaki sürüm:** `v1.8.0` · Windows/macOS(arm64)/Linux · GitHub: mehmetakarim/TrimTube
 **Yapılacaklar listesi (asıl kaynak):** proje kökündeki `YOL-HARITASI.md` (onay kutulu, faz faz).
 
 **Tamamlanan fazlar (detayları aşağıda):**
-- Faz 1 (v1.1.0) kesim deneyimi · Faz 2 (v1.2.0) GPU · Faz 3 (v1.3.0) altyazı · Faz 4 (v1.4.0) çoklu üretim · Faz 5 (v1.5.0) cila · Faz 6 (v1.6.0) marka & netlik · v1.6.1 macOS güncelleme geçişi · **Faz 7 (v1.7.0) Whisper altyazı + Faz 8 (v1.8.0) yerel dosya & kadraj önizlemesi — İKİSİ DE KOD HAZIR, henüz yayınlanmadı**
+- Faz 1 (v1.1.0) kesim deneyimi · Faz 2 (v1.2.0) GPU · Faz 3 (v1.3.0) altyazı · Faz 4 (v1.4.0) çoklu üretim · Faz 5 (v1.5.0) cila · Faz 6 (v1.6.0) marka & netlik · v1.6.1 macOS güncelleme geçişi · **Faz 7 + Faz 8 (v1.8.0) Whisper altyazı + yerel dosya & kadraj önizlemesi — YAYINLANDI (tek sürüm)**
 
 **Kalan fazlar (öncelik sırası):**
-- **Faz 7 — Otomatik altyazı (Whisper):** ✅ KOD TAMAM (aşağıya bkz). Yayın bekliyor; kullanıcı arayüzden test etmedi.
-- **Faz 8 — Kaynak & önizleme:** ✅ KOD TAMAM (aşağıya bkz). Yerel dosya sürükle-bırak + kadraj yolu önizlemesi. Yayın bekliyor; kullanıcı arayüzden test etmedi (özellikle `file://` medya yüklemesi görsel doğrulanmalı).
 - **Faz 9 — Toplu işleme:** playlist toplu indirme + arka planda kuyruk (render sürerken yeni video hazırlama).
 - **Faz 10 (araştırma):** gömülü Python/WASM ile kurulumsuz takip + konuşmacı-değişimli çoklu kişi takibi.
 - **Bekleyen küçük iş:** Faz 6 (marka) arayüzünde kullanıcının belirteceği ufak rötuşlar (detay henüz verilmedi — sorulacak).
-- **Yayın kararı:** Faz 7+8 tek sürümde (v1.8.0) mü yoksa ayrı ayrı (v1.7.0 sonra v1.8.0) mı yayınlanacak — kullanıcıya sorulacak.
+- **Faz 7+8 saha testi:** kullanıcı henüz uygulama arayüzünden uçtan uca test etmedi (kod + CLI + başsız Electron file:// testi geçti). Sorun çıkarsa buradan devam.
 
 **Release akışı (her faz sonu):** `package.json` sürümü artır → commit → `git tag -a vX.Y.Z` → `git push origin main && git push origin vX.Y.Z` → CI (create-release idempotent + 3 platform) → `gh` ile draft'ı doğrula → `gh api PATCH ... draft=false` ile başlık+not ekleyerek yayınla. gh yolu: `/c/Program Files/GitHub CLI/gh.exe`.
 
@@ -451,7 +449,7 @@ Videoda gömülü/indirilebilir altyazı yoksa, kesitin sesi `faster-whisper` il
 ## Kalan / Sıradaki
 
 - **Kullanıcı arayüzden uçtan uca test etmedi** (native Electron programatik görülemiyor — Faz 5/6'daki gibi).
-- Yayın: `package.json` sürüm artır, commit, tag, push → CI → gh ile yayınla (başa bkz. release akışı). **Kullanıcı onayı bekleniyor** (Faz 7+8 birlikte v1.8.0 önerilir).
+- **YAYINLANDI: Faz 8 ile birlikte v1.8.0** (kullanıcı "birlikte" dedi). CI 3 platform başarılı, gh ile yayımlandı.
 - Bilinçli sınır: GPU (CUDA) whisper eklenmedi (cuDNN dağıtım riski). İleride hız için düşünülebilir. `medium` (~1.5GB) CPU'da uzun sürer — kullanıcı "En iyi"yi seçerse kısa kesit önerilir (arayüzde `#subHint` uyarısı var).
 
 ---
@@ -467,7 +465,7 @@ Videoda gömülü/indirilebilir altyazı yoksa, kesitin sesi `faster-whisper` il
 - **download handler**: `localFile = opts.localFile` varsa: `cacheFile = localFile` (indirme yok, dosya doğrudan işlenir; önbelleğe KOPYALANMAZ). needPost yoksa dosya olduğu gibi hedefe `copyFileSync`. MP3'te yerel kaynak `-vn -c:a libmp3lame -q:a 2` (yt-dlp mp3 çıktısı ise eskisi gibi `-c copy`). `waveform` handler'ı `localPath` alıyor (dalga formu doğrudan dosyadan).
 - **preload**: `localInfo`, `chooseVideo`, **`pathForFile(file)` = `webUtils.getPathForFile(file)`** (Electron'da `File.path` kaldırıldı; sürükle-bırakta gerçek disk yolunu bu verir).
 - **renderer**: `fetchInfo` ortak `populateFromInfo(info)`'ya bölündü; hem URL hem yerel akış onu doldurur. `currentLocalFile` durumu; buildOpts'a `localFile` eklendi. Sürükle-bırak: tam ekran `#dropOverlay`, `dragenter/over/leave` sayaçlı (dragDepth), `drop`'ta `pathForFile` ile yol → `loadLocalFile`. Toolbar'a "Yerel video aç" ikon butonu. **KRİTİK:** `dragover` mutlaka `preventDefault` (Files tipinde) yoksa `drop` hiç ateşlenmez, tarayıcı dosyaya gider.
-- **CSP**: `media-src https:` → `media-src https: file:` (yerel önizleme file:// ile oynatılır). **RİSK:** `file://` medya yüklemesi görsel doğrulanmadı (native Electron). loadFile→file:// sayfadan file:// medya Electron'da standart çalışır; olmazsa çözüm özel protokol (`protocol.handle` + `net.fetch(pathToFileURL)` — range/seek destekli).
+- **CSP**: `media-src https:` → `media-src https: file:` (yerel önizleme file:// ile oynatılır). **DOĞRULANDI:** başsız Electron testiyle (uygulamanın gerçek CSP'si + varsayılan webSecurity) file:// video yüklendi (1280x720, dur 8137 okundu). Olmasaydı çözüm özel protokol (`protocol.handle` + `net.fetch(pathToFileURL)` — range/seek destekli) idi; gerekmedi.
 
 ## 2. Kadraj yolu önizlemesi
 
