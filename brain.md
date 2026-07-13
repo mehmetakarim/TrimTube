@@ -6,7 +6,7 @@ Bu dosya, farklı ortamlardaki (ev: macOS M-serisi, ofis: Windows 11) geliştirm
 
 ## 📍 GÜNCEL DURUM & SIRADAKİ İŞLER (yeni oturum buradan başlasın)
 
-**Yayındaki sürüm:** `v1.8.2` · Windows/macOS(arm64)/Linux · GitHub: mehmetakarim/TrimTube
+**Yayındaki sürüm:** `v1.9.0` · Windows/macOS(arm64)/Linux · GitHub: mehmetakarim/TrimTube
 **Yapılacaklar listesi (asıl kaynak):** proje kökündeki `YOL-HARITASI.md` (onay kutulu, faz faz).
 
 **Tamamlanan fazlar (detayları aşağıda):**
@@ -14,7 +14,7 @@ Bu dosya, farklı ortamlardaki (ev: macOS M-serisi, ofis: Windows 11) geliştirm
 
 v1.8.2 (YAYINLANDI): kadraj önizleme modalında önizleme **sesi** + **tasarım tutarlılığı** (ayarlar modalıyla aynı dil).
 
-**⏳ KOD HAZIR (v1.9.0), yayın bekliyor: Faz 9 — Toplu işleme** (playlist toplu indirme + arka planda kuyruk). Kod + başsız Electron doğrulaması tamam, aşağıya bkz.
+**Faz 9 (v1.9.0) YAYINLANDI:** playlist toplu indirme + arka planda kuyruk. Kullanıcı arayüzden test edip "sorunsuz çalışıyor" onayı verdi. Böylece **ana plan (Faz 1-9) tamamen bitti.**
 
 **Kalan fazlar (öncelik sırası):**
 - **Faz 10 (araştırma):** gömülü Python/WASM ile kurulumsuz takip + konuşmacı-değişimli çoklu kişi takibi. (Yol haritasının son "büyük iş" kalemi — Faz 9 sonrası ana plan bitiyor.)
