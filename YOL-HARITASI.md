@@ -37,20 +37,24 @@ Bu dosya, [TrimTube Özellik Yol Haritası](https://claude.ai/code/artifact/2fd1
 - [x] Daha net Türkçe hata mesajları (yaş/gizli/bölge/bağlantı vb.)
   - _Not: ufak arayüz rötuşları sonraya bırakıldı (kullanıcı geri bildirimi)._
 
+### Faz 7 — Otomatik Altyazı · `v1.7.0`
+- [x] Whisper ile otomatik altyazı (`subtitle.py`, faster-whisper) — hazır altyazı yoksa kesitin sesi metne çevrilip mevcut stilli-gömme yoluna beslenir; model boyutu Hızlı/Dengeli/En iyi seçilebilir
+
+### Faz 8 — Kaynak & Önizleme · `v1.8.0`
+- [x] **Yerel dosya sürükle-bırak** — YouTube dışı videolarla da çalışma; dosya sürükle-bırak veya seçici ile alınıp aynı boru hattından (kesme/format/takip/altyazı/marka) geçer, yalnızca indirme atlanır
+- [x] **Render öncesi kırpma yolu önizlemesi** — kişi takibinin 9:16 kadraj penceresini render'dan önce önizleme videosunun üzerinde canlı maske olarak gösterme
+
 ---
 
 ## 🔲 Kalanlar
 
 ### Orta vadeli
-- [ ] **Whisper ile otomatik altyazı** — altyazısı olmayan videolar için ses→metin (faster-whisper, `subtitle.py`)
-- [ ] **Render öncesi kırpma yolu önizlemesi** — kişi takibinin kadraj yolunu render'dan önce önizlemede gösterme
 - [ ] **Playlist / çoklu URL toplu indirme** — bir playlist bağlantısını açıp tüm videoları kuyruğa alma
 - [ ] **Arka planda kuyruk** — render sürerken yeni video hazırlayabilme (arayüz kilitlenmesin)
 
 ### Uzun vadeli (araştırma / büyük iş)
 - [ ] **Gömülü Python veya WASM takip** — kişi takibini kurulumsuz hale getirme (Python bağımlılığını kaldırma)
 - [ ] **Konuşmacı değişimli çoklu kişi takibi** — sahnede aktif konuşana kadrajı kaydırma (ses + dudak hareketi)
-- [ ] **Yerel dosya sürükle-bırak** — YouTube dışı videolarla da çalışma (kapsam genişletir)
 
 ### Bilinçli olarak kapsam dışı
 - [ ] ~~Diğer platform kaynakları (X, Instagram vb.)~~ — teknik olarak kolay ama ayrı bir ürün yönü; şimdilik YouTube odağı korunuyor
@@ -58,4 +62,4 @@ Bu dosya, [TrimTube Özellik Yol Haritası](https://claude.ai/code/artifact/2fd1
 
 ---
 
-*Son güncelleme: v1.5.0 — 5 fazın tamamı yayında.*
+*Son güncelleme: Faz 8 kodu hazır (yerel dosya + kadraj önizlemesi). Faz 7 (Whisper) ile birlikte yayın bekliyor.*

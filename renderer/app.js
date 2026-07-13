@@ -5,6 +5,7 @@ let busy = false;
 let infoLoaded = false;
 let currentVideoId = null;
 let previewUrl = null;
+let currentLocalFile = null; // yerel dosya modu: seçili video dosyasının disk yolu (Faz 8)
 let trackPoint = null; // önizleme üzerinde normalize (0-1) işaret konumu
 let downloadPhase = 'download';
 
@@ -198,6 +199,7 @@ function updateFineVisual() {
 
 function computeZoomWindow() {
   if (videoDuration <= 0) return;
+  invalidateTrackPreview(); // aralık/kesme değişti → kadraj yolu yeniden üretilmeli
   const s = +$('rangeStart').value;
   const e = +$('rangeEnd').value;
   // Pencere: aralığın %25'i kadar (en az 15 sn) kenar payı
@@ -260,7 +262,7 @@ function requestWaveform() {
     if (duration <= 0 || duration > WAVEFORM_MAX_WINDOW) { img.classList.add('hidden'); return; }
     let data = null;
     try {
-      data = await window.api.getWaveform({ url: previewUrl, start: zoomWin.start, duration, videoId: currentVideoId });
+      data = await window.api.getWaveform({ url: previewUrl, start: zoomWin.start, duration, videoId: currentVideoId, localPath: currentLocalFile });
     } catch (err) {
       // dalga formu isteğe bağlı bir görsel — başarısız olursa gizlenir ama
       // sessiz kalmasın (F12 konsolunda teşhis edilebilsin)
@@ -387,7 +389,9 @@ function refreshFormatButtons() {
   if (!hasVertical) {
     $('trackEnable').checked = false;
     $('trackHint').classList.add('hidden');
+    $('trackPreviewRow').classList.add('hidden');
     clearTrackMarker();
+    invalidateTrackPreview();
   }
 }
 
@@ -411,7 +415,9 @@ $('quality').addEventListener('change', () => {
   if (isAudio) {
     $('trackCard').classList.add('hidden');
     $('trackEnable').checked = false;
+    $('trackPreviewRow').classList.add('hidden');
     clearTrackMarker();
+    invalidateTrackPreview();
     $('subEnable').checked = false;
     $('subStyles').classList.add('hidden');
     $('brandCard').classList.add('hidden');
@@ -451,38 +457,45 @@ $('titleEnable').addEventListener('change', () => {
 
 // ---- altyazı ----
 
-let subPick = null; // { lang, auto } — video için seçilen altyazı kaynağı
+let subPick = null; // { source, ... } — video için seçilen altyazı kaynağı
 let subStyleValue = 'klasik';
+let subModelValue = 'small'; // Whisper model boyutu (yalnızca source==='whisper')
 
-// Tercih sırası: manuel Türkçe > herhangi bir manuel > otomatik (ASR) Türkçe
+// Kaynak seçimi. Tercih: manuel Türkçe > herhangi bir manuel > otomatik (ASR)
+// Türkçe > (hiçbiri yoksa) Whisper ile sesten otomatik oluşturma.
 function pickSubtitle(info) {
   const manual = info.subLangs || [];
   const auto = info.autoLangs || [];
   const mTr = manual.find(l => l === 'tr' || l.startsWith('tr-'));
-  if (mTr) return { lang: mTr, auto: false };
-  if (manual.length) return { lang: manual[0], auto: false };
-  if (auto.length) return { lang: auto[0], auto: true };
-  return null;
+  if (mTr) return { source: 'youtube', lang: mTr, auto: false };
+  if (manual.length) return { source: 'youtube', lang: manual[0], auto: false };
+  if (auto.length) return { source: 'youtube', lang: auto[0], auto: true };
+  return { source: 'whisper' }; // altyazı yok → sesten üret
 }
 
 function updateSubCard(info) {
   subPick = pickSubtitle(info);
   $('subCard').classList.remove('hidden');
   $('subEnable').checked = false;
+  $('subEnable').disabled = false;
   $('subStyles').classList.add('hidden');
-  if (subPick) {
-    $('subEnable').disabled = false;
-    $('subCardSub').textContent = subPick.auto
-      ? `Otomatik ${subPick.lang.toUpperCase()} altyazısı gömülür (kalitesi değişken)`
-      : `${subPick.lang.toUpperCase()} altyazısı videoya gömülür`;
+  $('subModels').classList.add('hidden');
+  $('subHint').classList.add('hidden');
+  if (subPick.source === 'whisper') {
+    $('subCardSub').textContent = 'Altyazı yok — konuşmadan otomatik oluştur (Whisper)';
+  } else if (subPick.auto) {
+    $('subCardSub').textContent = `Otomatik ${subPick.lang.toUpperCase()} altyazısı gömülür (kalitesi değişken)`;
   } else {
-    $('subEnable').disabled = true;
-    $('subCardSub').textContent = 'Bu videoda altyazı bulunamadı';
+    $('subCardSub').textContent = `${subPick.lang.toUpperCase()} altyazısı videoya gömülür`;
   }
 }
 
 $('subEnable').addEventListener('change', () => {
-  $('subStyles').classList.toggle('hidden', !$('subEnable').checked);
+  const on = $('subEnable').checked;
+  const whisper = subPick && subPick.source === 'whisper';
+  $('subStyles').classList.toggle('hidden', !on);
+  $('subModels').classList.toggle('hidden', !on || !whisper);
+  $('subHint').classList.toggle('hidden', !on || !whisper);
 });
 
 for (const btn of document.querySelectorAll('#subStyles .seg')) {
@@ -490,6 +503,15 @@ for (const btn of document.querySelectorAll('#subStyles .seg')) {
     document.querySelectorAll('#subStyles .seg').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     subStyleValue = btn.dataset.substyle;
+  });
+}
+
+// Whisper model boyutu (hız/kalite dengesi)
+for (const btn of document.querySelectorAll('#subModels .seg')) {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#subModels .seg').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    subModelValue = btn.dataset.submodel;
   });
 }
 
@@ -503,6 +525,8 @@ function clearTrackMarker() {
 $('trackEnable').addEventListener('change', () => {
   const on = $('trackEnable').checked;
   $('trackHint').classList.toggle('hidden', !on);
+  $('trackPreviewRow').classList.toggle('hidden', !on);
+  invalidateTrackPreview(); // takip aç/kapa → varsa eski yol geçersiz
   if (!on) clearTrackMarker();
   else if ($('trimEnable').checked) seekPreview(+$('rangeStart').value); // işaretleme başlangıç karesinde yapılmalı
 });
@@ -520,10 +544,158 @@ $('preview').addEventListener('click', (e) => {
   m.style.left = (e.clientX - rect.left) + 'px';
   m.style.top = (e.clientY - rect.top) + 'px';
   m.classList.remove('hidden');
+  invalidateTrackPreview(); // işaret değişti → mevcut kadraj yolu geçersiz
   e.preventDefault();
 });
 
+// ---- kadraj yolu önizlemesi (Faz 8) ----
+// tracker.py'nin üreteceği 9:16 kırpma penceresini render'a girmeden,
+// önizleme videosunun üzerinde canlı bir maske olarak gösterir.
+// #preview object-fit varsayılanı (fill) videoyu kutuya yayar; yatay konum
+// kesirleri (0-1) doğrudan yüzdeye eşlenir — letterbox hesabı gerekmez.
+const tp = { path: null, cropW: 0, clipStart: 0, active: false, raf: 0, generating: false };
+
+function currentRange() {
+  if ($('trimEnable').checked) {
+    const s = +$('rangeStart').value, e = +$('rangeEnd').value;
+    return { start: s, duration: Math.max(1, e - s) };
+  }
+  return { start: 0, duration: videoDuration };
+}
+
+// Kesit-göreli t anındaki pencere sol-kenar kesirini (x) interpolasyonla bulur
+function xAt(arr, t) {
+  if (t <= arr[0].t) return arr[0].x;
+  for (let i = 1; i < arr.length; i++) {
+    if (t <= arr[i].t) {
+      const a = arr[i - 1], b = arr[i];
+      const f = (t - a.t) / ((b.t - a.t) || 1);
+      return a.x + (b.x - a.x) * f;
+    }
+  }
+  return arr[arr.length - 1].x;
+}
+
+function drawTrackFrame() {
+  if (!tp.active) return;
+  const v = $('preview');
+  const x = xAt(tp.path, v.currentTime - tp.clipStart);
+  const leftPct = Math.max(0, Math.min(1 - tp.cropW, x)) * 100;
+  const wPct = tp.cropW * 100;
+  const ov = $('trackPreviewOverlay');
+  ov.querySelector('.tp-left').style.width = leftPct + '%';
+  const frame = ov.querySelector('.tp-frame');
+  frame.style.left = leftPct + '%';
+  frame.style.width = wPct + '%';
+  const right = ov.querySelector('.tp-right');
+  right.style.left = (leftPct + wPct) + '%';
+  right.style.width = Math.max(0, 100 - leftPct - wPct) + '%';
+  tp.raf = requestAnimationFrame(drawTrackFrame);
+}
+
+function setTrackPreviewBtn(state, text) {
+  const btn = $('trackPreviewBtn'), st = $('trackPreviewStatus');
+  if (state === 'working') { btn.textContent = 'İptal'; st.textContent = text || ''; }
+  else if (state === 'active') { btn.textContent = 'Önizlemeyi durdur'; st.textContent = ''; }
+  else { btn.textContent = 'Kadrajı önizle'; st.textContent = ''; }
+}
+
+function startTrackOverlay() {
+  tp.active = true;
+  $('trackPreviewOverlay').classList.remove('hidden');
+  setTrackPreviewBtn('active');
+  seekPreview(tp.clipStart); // yol baştan izlensin
+  const v = $('preview');
+  if (v.paused) v.play().catch(() => {});
+  drawTrackFrame();
+}
+
+function stopTrackPreview() {
+  tp.active = false;
+  if (tp.raf) { cancelAnimationFrame(tp.raf); tp.raf = 0; }
+  $('trackPreviewOverlay').classList.add('hidden');
+}
+
+// Yeni kaynak / değişen aralık / değişen işaret → önceki yol artık geçerli değil
+function invalidateTrackPreview() {
+  stopTrackPreview();
+  tp.path = null;
+  if (tp.generating) { try { window.api.cancelTrackPreview(); } catch {} tp.generating = false; }
+  setTrackPreviewBtn('idle');
+}
+
+async function computeTrackPreview() {
+  if (busy || tp.generating) return;
+  if (tp.active) { stopTrackPreview(); setTrackPreviewBtn('idle'); return; } // aç/kapa
+  if (tp.path) { startTrackOverlay(); return; }                              // mevcut yolu yeniden göster
+  const r = currentRange();
+  tp.generating = true;
+  setTrackPreviewBtn('working', 'Hazırlanıyor…');
+  let res;
+  try {
+    res = await window.api.trackPreview({
+      url: previewUrl, videoId: currentVideoId, localFile: currentLocalFile,
+      start: r.start, duration: r.duration, trackPoint
+    });
+  } catch (err) {
+    tp.generating = false; setTrackPreviewBtn('idle');
+    setStatus('err', 'Kadraj önizlemesi başarısız: ' + (err.message || err));
+    return;
+  }
+  tp.generating = false;
+  if (res.cancelled) { setTrackPreviewBtn('idle'); return; }
+  if (res.error) { setTrackPreviewBtn('idle'); setStatus('err', res.error); return; }
+  tp.path = res.path; tp.cropW = res.cropW; tp.clipStart = r.start;
+  startTrackOverlay();
+}
+
+$('trackPreviewBtn').addEventListener('click', () => {
+  if (tp.generating) { window.api.cancelTrackPreview(); return; }
+  computeTrackPreview();
+});
+
+window.api.onTrackPreviewProgress((p) => {
+  if (!tp.generating) return;
+  if (p.stage === 'extract') setTrackPreviewBtn('working', 'Aralık hazırlanıyor…');
+  else if (p.stage === 'track') setTrackPreviewBtn('working', `Takip: %${p.pct}`);
+});
+
 // ---- video bilgisi ----
+
+// URL akışı ve yerel dosya akışı ortak durumu buradan doldurur
+function populateFromInfo(info) {
+  videoDuration = Math.floor(info.duration || 0);
+  currentVideoId = info.id;
+  previewUrl = info.previewUrl;
+  currentLocalFile = info.localFile || null; // yerel dosya modu (Faz 8)
+  infoLoaded = true;
+  invalidateTrackPreview(); // yeni kaynak → eski kadraj önizlemesi geçersiz
+  updateSubCard(info);
+  $('brandCard').classList.toggle('hidden', $('quality').value === 'audio');
+
+  $('title').textContent = info.title;
+  $('meta').textContent = currentLocalFile
+    ? `Yerel dosya · ${fmtTime(videoDuration)}`
+    : `${info.uploader} · ${fmtTime(videoDuration)}`;
+  $('videoInfo').classList.remove('hidden');
+  if (info.thumbnail) $('preview').poster = info.thumbnail; else $('preview').removeAttribute('poster');
+
+  $('rangeStart').max = videoDuration;
+  $('rangeEnd').max = videoDuration;
+  $('rangeStart').value = 0;
+  $('rangeEnd').value = videoDuration;
+  syncFromSlider();
+  $('waveform').classList.add('hidden'); // önceki videonun dalga formu kalmasın
+  computeZoomWindow();
+  loadPlayer();
+  clearTrackMarker();
+
+  $('downloadBtn').disabled = false;
+  $('addQueueBtn').disabled = false;
+  updateChapters(info); // yerel dosyada info.chapters yok → menü gizli
+  clearStatus();
+  $('progressWrap').classList.add('hidden');
+}
 
 async function fetchInfo() {
   const url = $('url').value.trim();
@@ -533,33 +705,7 @@ async function fetchInfo() {
   $('fetchBtn').textContent = 'Alınıyor…';
   try {
     const info = await window.api.getInfo(url);
-    videoDuration = Math.floor(info.duration || 0);
-    currentVideoId = info.id;
-    previewUrl = info.previewUrl;
-    infoLoaded = true;
-    updateSubCard(info);
-    $('brandCard').classList.toggle('hidden', $('quality').value === 'audio');
-
-    $('title').textContent = info.title;
-    $('meta').textContent = `${info.uploader} · ${fmtTime(videoDuration)}`;
-    $('videoInfo').classList.remove('hidden');
-    if (info.thumbnail) $('preview').poster = info.thumbnail;
-
-    $('rangeStart').max = videoDuration;
-    $('rangeEnd').max = videoDuration;
-    $('rangeStart').value = 0;
-    $('rangeEnd').value = videoDuration;
-    syncFromSlider();
-    $('waveform').classList.add('hidden'); // önceki videonun dalga formu kalmasın
-    computeZoomWindow();
-    loadPlayer();
-    clearTrackMarker();
-
-    $('downloadBtn').disabled = false;
-    $('addQueueBtn').disabled = false;
-    updateChapters(info);
-    clearStatus();
-    $('progressWrap').classList.add('hidden');
+    populateFromInfo(info);
   } catch (err) {
     $('urlError').textContent = err.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
     $('urlError').classList.remove('hidden');
@@ -571,6 +717,64 @@ async function fetchInfo() {
 
 $('fetchBtn').addEventListener('click', fetchInfo);
 $('url').addEventListener('keydown', (e) => { if (e.key === 'Enter') fetchInfo(); });
+
+// ---- yerel dosya kaynağı (Faz 8): sürükle-bırak + dosya seçici ----
+
+function isVideoFile(name) {
+  return /\.(mp4|mkv|mov|webm|m4v|avi)$/i.test(name);
+}
+
+async function loadLocalFile(filePath) {
+  clearStatus();
+  $('urlError').classList.add('hidden');
+  try {
+    const info = await window.api.localInfo(filePath);
+    if (info.error) { setStatus('err', info.error); return; }
+    $('url').value = ''; // yerel moda geçildi — URL alanı temizlenir
+    populateFromInfo(info);
+  } catch (err) {
+    setStatus('err', 'Dosya yüklenemedi: ' + (err.message || err));
+  }
+}
+
+$('openFileBtn').addEventListener('click', async () => {
+  if (busy) return;
+  const p = await window.api.chooseVideo();
+  if (p) loadLocalFile(p);
+});
+
+const dropOverlay = $('dropOverlay');
+let dragDepth = 0;
+window.addEventListener('dragenter', (e) => {
+  if (busy) return;
+  if (!Array.from(e.dataTransfer.types || []).includes('Files')) return;
+  e.preventDefault();
+  dragDepth++;
+  dropOverlay.classList.remove('hidden');
+});
+window.addEventListener('dragover', (e) => {
+  // 'drop' olayının tetiklenebilmesi için dragover mutlaka preventDefault etmeli;
+  // aksi halde tarayıcı dosyaya gitmeye çalışır ve bırakma hiç ateşlenmez
+  if (Array.from(e.dataTransfer.types || []).includes('Files')) e.preventDefault();
+});
+window.addEventListener('dragleave', () => {
+  dragDepth = Math.max(0, dragDepth - 1);
+  if (dragDepth === 0) dropOverlay.classList.add('hidden');
+});
+window.addEventListener('drop', (e) => {
+  e.preventDefault();
+  dragDepth = 0;
+  dropOverlay.classList.add('hidden');
+  if (busy) return;
+  const file = e.dataTransfer.files && e.dataTransfer.files[0];
+  if (!file) return;
+  if (!isVideoFile(file.name)) {
+    setStatus('err', 'Desteklenmeyen dosya türü. MP4, MKV, MOV, WEBM, M4V veya AVI bırakın.');
+    return;
+  }
+  const p = window.api.pathForFile(file);
+  if (p) loadLocalFile(p);
+});
 
 // ---- klasör seçimi (varsayılan: ayarlardaki son klasör, yoksa İndirilenler) ----
 
@@ -587,7 +791,8 @@ $('folderBtn').addEventListener('click', async () => {
 const PHASE_LABELS = {
   download: 'İndiriliyor…',
   convert: 'Kesiliyor / işleniyor…',
-  track: 'Kişi takip ediliyor…'
+  track: 'Kişi takip ediliyor…',
+  subtitle: 'Altyazı oluşturuluyor…'
 };
 
 let etaText = null;
@@ -606,6 +811,7 @@ window.api.onPhase((phase) => {
 
 function setBusy(on) {
   busy = on;
+  if (on && tp.active) { stopTrackPreview(); setTrackPreviewBtn('idle'); } // indirme sırasında overlay'i gizle
   const btn = $('downloadBtn');
   btn.textContent = on ? 'İptal' : 'İndir';
   btn.classList.toggle('cancel', on);
@@ -632,11 +838,14 @@ function buildOpts() {
     title: $('title').textContent,
     folder: $('folder').textContent,
     quality: $('quality').value,
+    localFile: currentLocalFile, // yerel dosya modunda indirme atlanır (Faz 8)
     formats: [...selectedFormats],
     vertical: selectedFormats.has('vertical'),
     track: selectedFormats.has('vertical') && $('trackEnable').checked,
     trackPoint,
-    subtitle: ($('subEnable').checked && subPick) ? { ...subPick, style: subStyleValue } : null,
+    subtitle: ($('subEnable').checked && subPick)
+      ? { ...subPick, style: subStyleValue, ...(subPick.source === 'whisper' ? { model: subModelValue } : {}) }
+      : null,
     watermark: ($('wmEnable').checked && watermarkFile) ? { file: watermarkFile, position: watermarkPos } : null,
     titleText: ($('titleEnable').checked && $('titleText').value.trim()) ? $('titleText').value.trim() : null,
     duration: videoDuration,
@@ -667,7 +876,7 @@ function queueBadges(opts) {
   const fmts = (opts.formats || []).map(f => f === 'vertical' ? '9:16' : f === 'square' ? '1:1' : 'orj').join('+');
   const extras = [
     opts.track ? 'takip' : null,
-    opts.subtitle ? 'altyazı' : null,
+    opts.subtitle ? (opts.subtitle.source === 'whisper' ? 'oto-altyazı' : 'altyazı') : null,
     opts.watermark ? 'logo' : null,
     opts.titleText ? 'başlık' : null
   ].filter(Boolean).join('·');

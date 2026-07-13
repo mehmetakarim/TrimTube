@@ -1,0 +1,11 @@
+# TrimTube — pakete dahil olmayan Python bağımlılıkları.
+# Yalnızca ilgili özellikler kullanıldığında gereklidir; diğer tüm işlevler
+# (indirme, kesme, format, marka, YouTube altyazısı) Python olmadan çalışır.
+
+# Kişiyi takip eden akıllı kadraj (tracker.py) — CSRT takip + YuNet/SFace.
+# DİKKAT: temel "opencv-python" DEĞİL; takip modülleri yalnızca contrib'te.
+opencv-contrib-python
+
+# Whisper ile otomatik altyazı (subtitle.py) — ses→metin.
+# Model ilk kullanımda indirilir (base ~140MB, small ~460MB, medium ~1.5GB).
+faster-whisper

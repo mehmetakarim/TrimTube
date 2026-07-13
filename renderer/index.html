@@ -2,12 +2,21 @@
 <html lang="tr">
 <head>
   <meta charset="UTF-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src https: data:; style-src 'self'; script-src 'self'; media-src https:">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src https: data:; style-src 'self'; script-src 'self'; media-src https: file:">
   <title>TrimTube</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <main class="app">
+
+    <!-- Sürükle-bırak katmanı: yerel video dosyası bırakılınca YouTube ile aynı boru hattına girer -->
+    <div id="dropOverlay" class="drop-overlay hidden">
+      <div class="drop-inner">
+        <svg width="52" height="52" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M12 3v13"/><path d="m7 8 5-5 5 5"/></svg>
+        <div class="drop-title">Videoyu buraya bırakın</div>
+        <div class="drop-sub">MP4 · MKV · MOV · WEBM · M4V · AVI</div>
+      </div>
+    </div>
 
     <!-- Otomatik güncelleme kartı: sağ üstte yüzer, kullanıcı onaylamadan hiçbir şey indirilmez/kurulmaz -->
     <div id="updateCard" class="update-card hidden">
@@ -32,6 +41,9 @@
         <input type="text" id="url" placeholder="YouTube video bağlantısını yapıştırın…" spellcheck="false">
       </div>
       <button id="fetchBtn" class="btn-primary">Bilgi Al</button>
+      <button id="openFileBtn" class="icon-btn" title="Yerel video aç" aria-label="Yerel video aç">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.5l-2-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2z"/><path d="m10 11 4 2.5-4 2.5z" fill="currentColor" stroke="none"/></svg>
+      </button>
       <button id="settingsBtn" class="icon-btn" title="Ayarlar" aria-label="Ayarlar">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
       </button>
@@ -91,9 +103,15 @@
       <!-- Sol: oynatıcı ve kesim -->
       <section class="stage">
         <div class="player-box" id="playerWrap">
-          <div id="playerEmpty" class="player-empty">Video önizlemesi</div>
+          <div id="playerEmpty" class="player-empty">Bağlantı yapıştırın ya da bir video dosyası sürükleyip bırakın</div>
           <video id="preview" preload="metadata" class="hidden"></video>
           <div id="trackMarker" class="track-marker hidden"></div>
+          <!-- Kadraj yolu önizlemesi: takibin üreteceği 9:16 pencereyi canlı gösterir -->
+          <div id="trackPreviewOverlay" class="track-prev-overlay hidden">
+            <div class="tp-dim tp-left"></div>
+            <div class="tp-dim tp-right"></div>
+            <div class="tp-frame"></div>
+          </div>
           <!-- Native kontrol çubuğu yerine ince özel şerit: sarma işi ana/ince çubuklarda -->
           <div id="playerChrome" class="player-chrome hidden">
             <button id="playBtn" class="chrome-btn" title="Oynat/Duraklat (Boşluk)">
@@ -227,6 +245,10 @@
           <div id="trackHint" class="track-hint hidden">
             Önizlemede, <b>kesitin başlangıç anındaki</b> konumunda kişiye tıklayın. İşaretlemezseniz en büyük yüz otomatik seçilir.
           </div>
+          <div id="trackPreviewRow" class="track-prev-row hidden">
+            <button id="trackPreviewBtn" class="btn-ghost small">Kadrajı önizle</button>
+            <span id="trackPreviewStatus" class="track-prev-status"></span>
+          </div>
         </div>
 
         <div id="subCard" class="hidden">
@@ -244,6 +266,15 @@
             <button class="seg active" data-substyle="klasik">Klasik</button>
             <button class="seg" data-substyle="kutulu">Kutulu</button>
             <button class="seg" data-substyle="dolgun">Dolgun</button>
+          </div>
+          <!-- Yalnızca Whisper (otomatik oluşturma) kaynağında görünür -->
+          <div id="subModels" class="segmented sub-styles hidden">
+            <button class="seg" data-submodel="base">Hızlı</button>
+            <button class="seg active" data-submodel="small">Dengeli</button>
+            <button class="seg" data-submodel="medium">En iyi</button>
+          </div>
+          <div id="subHint" class="track-hint hidden">
+            İlk kullanımda ses tanıma modeli indirilir. Süre, kliple orantılıdır; kısa kesitlerde önerilir.
           </div>
         </div>
 

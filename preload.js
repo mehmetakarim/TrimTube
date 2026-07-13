@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('api', {
   getInfo: (url) => ipcRenderer.invoke('get-info', url),
@@ -9,6 +9,16 @@ contextBridge.exposeInMainWorld('api', {
   openFolder: (folder) => ipcRenderer.invoke('open-folder', folder),
   getDefaultFolder: () => ipcRenderer.invoke('get-default-folder'),
   getWaveform: (opts) => ipcRenderer.invoke('waveform', opts),
+
+  // Faz 8: yerel dosya kaynağı + kadraj yolu önizlemesi
+  localInfo: (filePath) => ipcRenderer.invoke('local-info', filePath),
+  chooseVideo: () => ipcRenderer.invoke('choose-video'),
+  // Sürükle-bırakılan File nesnesinin gerçek disk yolunu güvenli şekilde verir
+  // (Electron'da File.path kaldırıldı; webUtils.getPathForFile onun yerini alır)
+  pathForFile: (file) => webUtils.getPathForFile(file),
+  trackPreview: (opts) => ipcRenderer.invoke('track-preview', opts),
+  cancelTrackPreview: () => ipcRenderer.invoke('track-preview-cancel'),
+  onTrackPreviewProgress: (cb) => ipcRenderer.on('track-preview-progress', (e, p) => cb(p)),
   onProgress: (cb) => ipcRenderer.on('progress', (e, p) => cb(p)),
   onLog: (cb) => ipcRenderer.on('log', (e, line) => cb(line)),
   onPhase: (cb) => ipcRenderer.on('phase', (e, phase) => cb(phase)),

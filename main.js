@@ -5,6 +5,8 @@ const { StringDecoder } = require('string_decoder');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const crypto = require('crypto');
+const { pathToFileURL } = require('url');
 
 // macOS'ta GUI/Finder üzerinden başlatıldığında Homebrew ve yerel bin yollarını PATH'e ekle
 if (process.platform === 'darwin') {
@@ -329,8 +331,10 @@ function findCachedMedia(videoId) {
   }
 }
 
-ipcMain.handle('waveform', async (e, { url, start, duration, videoId }) => {
-  const localFile = findCachedMedia(videoId);
+ipcMain.handle('waveform', async (e, { url, start, duration, videoId, localPath }) => {
+  // Yerel dosya modu: dalga formu doğrudan kaynak dosyadan (en hızlı yol);
+  // YouTube modu: önce önbellek, yoksa uzak önizleme akışı
+  const localFile = (localPath && fs.existsSync(localPath)) ? localPath : findCachedMedia(videoId);
   const input = localFile || url;
   if (!input) return null;
   // Yeni bir istek eskisinin yerini alıyor — bu normal/beklenen bir iptal,
@@ -447,6 +451,68 @@ function sanitizeName(name) {
   return name.replace(/[\\/:*?"<>|]/g, '').trim() || 'video';
 }
 
+// --- Faz 8: yerel dosya kaynağı ---
+// Sürükle-bırak (veya dosya seçici) ile alınan yerel video, YouTube akışıyla
+// aynı boru hattından geçer: önizleme file:// ile oynatılır; kesme, format,
+// kişi takibi, Whisper altyazısı ve marka aynen çalışır — yalnızca indirme
+// adımı atlanır (dosya doğrudan işlenir, önbelleğe kopyalanmaz).
+const LOCAL_VIDEO_EXTS = ['mp4', 'mkv', 'mov', 'webm', 'm4v', 'avi'];
+
+// ffmpeg -i stderr'inden süre + boyut okur (ffprobe pakete dahil değil)
+function probeMedia(file) {
+  return new Promise((resolve) => {
+    const proc = spawn(FFMPEG, ['-i', file], { windowsHide: true, env: procEnv });
+    let buf = '';
+    proc.stderr.on('data', (d) => { buf += d.toString('utf8'); });
+    proc.on('close', () => {
+      const dm = buf.match(/Duration:\s*(\d+):(\d+):(\d+)/);
+      const vm = buf.match(/Video:.*?(\d{2,5})x(\d{2,5})/);
+      resolve({
+        duration: dm ? (+dm[1]) * 3600 + (+dm[2]) * 60 + (+dm[3]) : 0,
+        w: vm ? +vm[1] : 0,
+        h: vm ? +vm[2] : 0
+      });
+    });
+    proc.on('error', () => resolve({ duration: 0, w: 0, h: 0 }));
+  });
+}
+
+ipcMain.handle('local-info', async (e, filePath) => {
+  try {
+    const st = fs.statSync(filePath);
+    if (!st.isFile()) return { error: 'Bu bir dosya değil.' };
+    const ext = path.extname(filePath).toLowerCase().slice(1);
+    if (!LOCAL_VIDEO_EXTS.includes(ext)) {
+      return { error: `Desteklenmeyen dosya türü (.${ext}). Desteklenenler: ${LOCAL_VIDEO_EXTS.join(', ')}` };
+    }
+    const meta = await probeMedia(filePath);
+    if (!meta.duration || !meta.w) {
+      return { error: 'Video okunamadı — dosya bozuk veya desteklenmeyen bir kodekte olabilir.' };
+    }
+    // Kararlı kısa kimlik (yol+boyut+değişim zamanı): dalga formu ve Whisper
+    // SRT önbelleği bu kimlikle çalışır; dosya değişirse kimlik de değişir
+    const id = 'local_' + crypto.createHash('md5')
+      .update(`${filePath}|${st.size}|${Math.round(st.mtimeMs)}`).digest('hex').slice(0, 12);
+    return {
+      id,
+      title: path.basename(filePath, path.extname(filePath)),
+      duration: meta.duration,
+      localFile: filePath,
+      previewUrl: pathToFileURL(filePath).href
+    };
+  } catch {
+    return { error: 'Dosya okunamadı.' };
+  }
+});
+
+ipcMain.handle('choose-video', async () => {
+  const res = await dialog.showOpenDialog(win, {
+    properties: ['openFile'],
+    filters: [{ name: 'Video', extensions: LOCAL_VIDEO_EXTS }]
+  });
+  return res.canceled ? null : res.filePaths[0];
+});
+
 // --- Altyazı gömme ---
 // Stiller libass force_style ile uygulanır; üçü de gerçek 1080x1920 çıktı
 // üzerinde görsel olarak doğrulandı. FontSize/MarginV değerleri libass'ın
@@ -512,6 +578,67 @@ async function fetchSubtitle(url, videoId, lang, isAuto) {
     if (alt) { fs.renameSync(path.join(cacheDir, alt), cached); return cached; }
   } catch {}
   return null;
+}
+
+// --- Faz 7: Whisper ile otomatik altyazı ---
+// Videoda gömülü/indirilebilir altyazı yoksa, kesim aralığının sesini
+// faster-whisper (subtitle.py) ile metne çevirip SRT üretir. Yalnızca gerekli
+// aralığın sesi çıkarıldığı için üretilen SRT doğrudan klip başlangıcına göre
+// (0'dan) zamanlanır — shiftSrt gerekmez. Sonuç, id+model+aralık anahtarıyla
+// önbelleğe alınır (aynı klip tekrar işlenirse yeniden çözümleme yapılmaz).
+async function transcribeSubtitle(mediaFile, videoId, model, trim, clipSec, tmpDir) {
+  const cacheDir = path.join(app.getPath('userData'), 'cache');
+  fs.mkdirSync(cacheDir, { recursive: true });
+  const rangeKey = trim ? `${Math.round(toSec(trim.start))}_${Math.round(clipSec)}` : 'full';
+  const cached = path.join(cacheDir, `${videoId}_sub_whisper_${model}_${rangeKey}.srt`);
+  if (fs.existsSync(cached)) {
+    win.webContents.send('log', 'Otomatik altyazı önbellekten alındı.');
+    return { path: cached };
+  }
+
+  // 1) Kesim aralığının sesini 16 kHz mono WAV'a çıkar (whisper'ın beklediği biçim;
+  //    ayrıca tüm videoyu değil yalnızca gerekli aralığı çözümleyerek süreyi kısaltır)
+  const audioFile = path.join(tmpDir, 'aud.wav');
+  const exArgs = ['-y'];
+  if (trim) exArgs.push('-ss', trim.start);
+  exArgs.push('-i', mediaFile);
+  if (trim) exArgs.push('-t', String(clipSec));
+  exArgs.push('-vn', '-ac', '1', '-ar', '16000', '-c:a', 'pcm_s16le', audioFile);
+  const ex = await runProc(FFMPEG, exArgs, () => {});
+  if (cancelRequested) return { cancelled: true };
+  if (ex.code !== 0 || !fs.existsSync(audioFile)) {
+    return { error: 'Altyazı için ses çıkarılamadı.' };
+  }
+
+  // 2) subtitle.py ile metne çevir. Model ilk kullanımda indirilir; indirme
+  //    konumu userData/whisper-models'a sabitlenir (önbellek temizliğinden bağımsız).
+  const modelDir = path.join(app.getPath('userData'), 'whisper-models');
+  fs.mkdirSync(modelDir, { recursive: true });
+  const outSrt = path.join(tmpDir, 'whisper.srt');
+  const args = [
+    path.join(__dirname, 'subtitle.py'), audioFile,
+    '--out', outSrt, '--model', model, '--model-dir', modelDir
+  ];
+  const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
+  let errLine = '';
+  const tr = await runProc(pythonCmd, args, (line) => {
+    const m = line.match(/^PROGRESS (\d+)/);
+    if (m) { win.webContents.send('progress', Math.min(99.9, +m[1])); return; }
+    if (line.startsWith('STATUS model')) win.webContents.send('log', 'Altyazı modeli hazırlanıyor (ilk kullanımda indirilir)…');
+    else if (line.startsWith('STATUS transcribe')) win.webContents.send('log', 'Konuşma metne çevriliyor…');
+    else if (line.startsWith('ERROR ')) errLine = line.slice(6).trim();
+  });
+  if (cancelRequested) return { cancelled: true };
+  if (tr.code !== 0 || !fs.existsSync(outSrt)) {
+    let msg = errLine;
+    if (!msg) {
+      if (/ENOENT/.test(tr.stderr)) msg = 'Python bulunamadı. Otomatik altyazı için Python 3 kurulu olmalı.';
+      else msg = tr.stderr.split(/\r?\n/).filter(Boolean).slice(-2).join('\n') || 'Bilinmeyen hata.';
+    }
+    return { error: 'Otomatik altyazı başarısız: ' + msg };
+  }
+  try { fs.copyFileSync(outSrt, cached); } catch {}
+  return { path: cached };
 }
 
 // yt-dlp indirme argümanları (kalite seçimine göre)
@@ -668,6 +795,8 @@ ipcMain.handle('download', async (e, opts) => {
   cancelRequested = false;
 
   const isAudio = quality === 'audio';
+  // Yerel dosya modu (Faz 8): indirme atlanır, dosya doğrudan işlenir
+  const localFile = (opts.localFile && fs.existsSync(opts.localFile)) ? opts.localFile : null;
   // Geriye uyumluluk: formats gelmezse eski tekil vertical bayrağından türet
   const formats = (!isAudio && Array.isArray(opts.formats) && opts.formats.length)
     ? opts.formats.filter(f => FORMAT_DEFS[f])
@@ -681,6 +810,15 @@ ipcMain.handle('download', async (e, opts) => {
 
   // --- Basit durum: kesme/dönüştürme yok → doğrudan hedef klasöre indir ---
   if (!needPost) {
+    if (localFile) {
+      // Yerel dosyada hiçbir işlem seçilmemişse dosya olduğu gibi kopyalanır
+      try {
+        fs.copyFileSync(localFile, path.join(folder, `${sanitizeName(title)}${path.extname(localFile)}`));
+        return { ok: true };
+      } catch (err) {
+        return { ok: false, error: 'Dosya kopyalanamadı: ' + err.message };
+      }
+    }
     win.webContents.send('phase', 'download');
     const dl = await runYtdlp([...qualityArgs(quality), '-o', path.join(folder, '%(title)s.%(ext)s'), url]);
     if (cancelRequested) return { ok: false, cancelled: true };
@@ -694,18 +832,23 @@ ipcMain.handle('download', async (e, opts) => {
   // videodan ikinci klip önbellekten anında kesilir.)
   const cacheDir = path.join(app.getPath('userData'), 'cache');
   fs.mkdirSync(cacheDir, { recursive: true });
-  const cacheName = `${id}_${quality}.${isAudio ? 'mp3' : 'mp4'}`;
-  const cacheFile = path.join(cacheDir, cacheName);
-
-  if (!fs.existsSync(cacheFile)) {
-    win.webContents.send('phase', 'download');
-    const dl = await runYtdlp([...qualityArgs(quality), '-o', path.join(cacheDir, `${id}_${quality}.%(ext)s`), url]);
-    if (cancelRequested) return { ok: false, cancelled: true };
-    if (dl.code !== 0) return { ok: false, error: extractError(dl.stderr) };
-    if (!fs.existsSync(cacheFile)) return { ok: false, error: 'İndirilen dosya bulunamadı.' };
-    pruneCache(cacheDir, cacheName);
+  let cacheFile;
+  if (localFile) {
+    cacheFile = localFile; // yerel kaynak: indirme yok, dosya doğrudan işlenir
   } else {
-    win.webContents.send('log', 'Video önbellekte bulundu, indirme atlandı.');
+    const cacheName = `${id}_${quality}.${isAudio ? 'mp3' : 'mp4'}`;
+    cacheFile = path.join(cacheDir, cacheName);
+
+    if (!fs.existsSync(cacheFile)) {
+      win.webContents.send('phase', 'download');
+      const dl = await runYtdlp([...qualityArgs(quality), '-o', path.join(cacheDir, `${id}_${quality}.%(ext)s`), url]);
+      if (cancelRequested) return { ok: false, cancelled: true };
+      if (dl.code !== 0) return { ok: false, error: extractError(dl.stderr) };
+      if (!fs.existsSync(cacheFile)) return { ok: false, error: 'İndirilen dosya bulunamadı.' };
+      pruneCache(cacheDir, cacheName);
+    } else {
+      win.webContents.send('log', 'Video önbellekte bulundu, indirme atlandı.');
+    }
   }
 
   const clipSec = trim ? (toSec(trim.end) - toSec(trim.start)) : (duration || 0);
@@ -720,17 +863,33 @@ ipcMain.handle('download', async (e, opts) => {
   let subStyleBase = null;
   if (wantSubs) {
     win.webContents.send('log', 'Altyazı hazırlanıyor…');
-    const srtPath = await fetchSubtitle(url, id, subtitle.lang, subtitle.auto);
-    if (cancelRequested) { cleanupTmp(); return { ok: false, cancelled: true }; }
-    if (srtPath) {
-      const content = fs.readFileSync(srtPath, 'utf8');
-      const shifted = trim ? shiftSrt(content, toSec(trim.start), clipSec) : content;
-      if (shifted.trim()) {
-        fs.writeFileSync(path.join(tmpDir, 'subs.srt'), shifted, 'utf8');
-        subStyleBase = SUBTITLE_STYLES[subtitle.style] || SUBTITLE_STYLES.klasik;
-      } else {
-        win.webContents.send('log', 'Seçilen aralıkta altyazı bulunmuyor.');
+    const isWhisper = subtitle.source === 'whisper';
+    // Whisper: kesim aralığının sesinden üretir; sonuç zaten klip başına göre
+    // zamanlıdır (kaydırma gerekmez). YouTube altyazısı: tam videonunkini indirip
+    // kesim penceresine kaydırır.
+    let content = null;
+    if (isWhisper) {
+      win.webContents.send('phase', 'subtitle');
+      win.webContents.send('progress', 0);
+      const res = await transcribeSubtitle(cacheFile, id, subtitle.model || 'small', trim, clipSec, tmpDir);
+      if (cancelRequested || res.cancelled) { cleanupTmp(); return { ok: false, cancelled: true }; }
+      if (res.error) { cleanupTmp(); return { ok: false, error: res.error }; }
+      content = fs.readFileSync(res.path, 'utf8'); // zaten klip-göreli
+    } else {
+      const srtPath = await fetchSubtitle(url, id, subtitle.lang, subtitle.auto);
+      if (cancelRequested) { cleanupTmp(); return { ok: false, cancelled: true }; }
+      if (srtPath) {
+        const raw = fs.readFileSync(srtPath, 'utf8');
+        content = trim ? shiftSrt(raw, toSec(trim.start), clipSec) : raw;
       }
+    }
+    if (content && content.trim()) {
+      fs.writeFileSync(path.join(tmpDir, 'subs.srt'), content, 'utf8');
+      subStyleBase = SUBTITLE_STYLES[subtitle.style] || SUBTITLE_STYLES.klasik;
+    } else if (isWhisper) {
+      win.webContents.send('log', 'Seçilen aralıkta konuşma bulunmuyor.');
+    } else if (content !== null) {
+      win.webContents.send('log', 'Seçilen aralıkta altyazı bulunmuyor.');
     } else {
       win.webContents.send('log', 'Altyazı indirilemedi, altyazısız devam ediliyor.');
     }
@@ -784,7 +943,10 @@ ipcMain.handle('download', async (e, opts) => {
     if (trim) inputArgs.push('-t', String(clipSec));
     win.webContents.send('phase', 'convert');
     win.webContents.send('progress', 0);
-    const ff = await runProc(FFMPEG, ['-y', ...inputArgs, '-c', 'copy', '-progress', 'pipe:1', '-nostats', target], ffProgress);
+    // Önbellekteki yt-dlp çıktısı zaten mp3 → kayıpsız kopya yeterli;
+    // yerel video kaynağından ise ses MP3'e kodlanmalı
+    const codecArgs = localFile ? ['-vn', '-c:a', 'libmp3lame', '-q:a', '2'] : ['-c', 'copy'];
+    const ff = await runProc(FFMPEG, ['-y', ...inputArgs, ...codecArgs, '-progress', 'pipe:1', '-nostats', target], ffProgress);
     cleanupTmp();
     if (cancelRequested) { try { fs.rmSync(target, { force: true }); } catch {} return { ok: false, cancelled: true }; }
     if (ff.code !== 0) return { ok: false, error: 'Kesme başarısız:\n' + ff.stderr.split(/\r?\n/).filter(Boolean).slice(-4).join('\n') };
@@ -911,5 +1073,106 @@ ipcMain.handle('cancel', () => {
   if (currentProc) {
     // Windows'ta ffmpeg gibi alt süreçlerin de kapanması için süreç ağacını öldür
     spawn('taskkill', ['/pid', String(currentProc.pid), '/T', '/F'], { windowsHide: true });
+  }
+});
+
+// --- Faz 8: kadraj yolu önizlemesi ---
+// Kişi takibinin üreteceği 9:16 kırpma penceresini render'a girmeden görmek
+// için: seçili aralık düşük çözünürlükte (480p) geçici bir klibe alınır,
+// tracker.py render'dakiyle AYNI sözleşmeyle çalıştırılır ve cmds.txt
+// normalize edilmiş {t, x} dizisi olarak renderer'a döner; renderer bunu
+// önizleme videosunun üzerine canlı bindirir.
+//
+// İndirme/kesme işlerinden bağımsız kendi süreç takibini kullanır (currentProc'a
+// dokunmaz — İptal butonu kadraj önizlemesini, önizleme iptali de indirmeyi öldürmesin).
+let trackPrevProc = null;
+let trackPrevCancelled = false;
+
+function runPreviewProc(cmd, args, onLine) {
+  return new Promise((resolve) => {
+    const proc = spawn(cmd, args, { windowsHide: true, env: procEnv });
+    trackPrevProc = proc;
+    const dec = new StringDecoder('utf8');
+    let buf = '';
+    let errBuf = '';
+    proc.stdout.on('data', (d) => {
+      buf += dec.write(d);
+      const lines = buf.split(/\r?\n/);
+      buf = lines.pop();
+      lines.forEach((l) => { if (l.trim()) onLine(l); });
+    });
+    proc.stderr.on('data', (d) => { errBuf += d.toString('utf8'); });
+    proc.on('close', (code) => { if (trackPrevProc === proc) trackPrevProc = null; resolve({ code, stderr: errBuf }); });
+    proc.on('error', (err) => { if (trackPrevProc === proc) trackPrevProc = null; resolve({ code: -1, stderr: err.message }); });
+  });
+}
+
+ipcMain.handle('track-preview-cancel', () => {
+  trackPrevCancelled = true;
+  if (trackPrevProc) {
+    if (process.platform === 'win32') {
+      spawn('taskkill', ['/pid', String(trackPrevProc.pid), '/T', '/F'], { windowsHide: true });
+    } else {
+      try { trackPrevProc.kill(); } catch {}
+    }
+  }
+});
+
+ipcMain.handle('track-preview', async (e, { url, videoId, localFile, start, duration, trackPoint }) => {
+  trackPrevCancelled = false;
+  // Kaynak önceliği: yerel dosya > önbellekteki tam video > 360p önizleme akışı
+  const local = (localFile && fs.existsSync(localFile)) ? localFile : findCachedMedia(videoId);
+  const input = local || url;
+  if (!input) return { error: 'Önizleme için kaynak bulunamadı.' };
+
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yt-trackprev-'));
+  const cleanup = () => { try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {} };
+  const send = (p) => { try { win.webContents.send('track-preview-progress', p); } catch {} };
+
+  try {
+    // 1) Aralığı 480p'ye küçültülmüş sessiz geçici klibe al — tracker zaten
+    //    480p üzerinde çalışır, tam çözünürlük yalnızca gereksiz yük olur
+    const clip = path.join(tmpDir, 'prev.mp4');
+    send({ stage: 'extract' });
+    const ex = await runPreviewProc(FFMPEG, [
+      '-y', '-ss', String(start), '-i', input, '-t', String(duration),
+      '-an', '-vf', 'scale=-2:480', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '28',
+      clip
+    ], () => {});
+    if (trackPrevCancelled) { cleanup(); return { cancelled: true }; }
+    if (ex.code !== 0 || !fs.existsSync(clip)) {
+      cleanup();
+      return { error: 'Aralık hazırlanamadı:\n' + ex.stderr.split(/\r?\n/).filter(Boolean).slice(-2).join('\n') };
+    }
+
+    // 2) tracker.py — render'daki takiple aynı kod, aynı parametreler
+    const cmds = path.join(tmpDir, 'cmds.txt');
+    const args = [path.join(__dirname, 'tracker.py'), clip, '--out', cmds];
+    if (trackPoint) args.push('--point', `${trackPoint.x.toFixed(4)},${trackPoint.y.toFixed(4)}`);
+    const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
+    const tr = await runPreviewProc(pythonCmd, args, (line) => {
+      const m = line.match(/^PROGRESS (\d+)/);
+      if (m) send({ stage: 'track', pct: +m[1] });
+    });
+    if (trackPrevCancelled) { cleanup(); return { cancelled: true }; }
+    if (tr.code !== 0 || !fs.existsSync(cmds)) {
+      cleanup();
+      return { error: 'Kişi takibi başarısız:\n' + tr.stderr.split(/\r?\n/).filter(Boolean).slice(-3).join('\n') };
+    }
+
+    // 3) cmds.txt → normalize yol: x = pencerenin SOL kenarı / kaynak genişliği,
+    //    cropW = pencere genişliği / kaynak genişliği (0-1; çözünürlükten bağımsız)
+    const dims = await probeDims(clip);
+    const pathArr = [];
+    for (const line of fs.readFileSync(cmds, 'utf8').split(/\r?\n/)) {
+      const m = line.match(/^([\d.]+)\s+crop\s+x\s+(\d+);/);
+      if (m) pathArr.push({ t: +m[1], x: (+m[2]) / dims.w });
+    }
+    cleanup();
+    if (!pathArr.length) return { error: 'Takip verisi üretilemedi.' };
+    return { path: pathArr, cropW: (dims.h * 9 / 16) / dims.w };
+  } catch (err) {
+    cleanup();
+    return { error: err.message };
   }
 });

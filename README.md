@@ -29,7 +29,7 @@ yt-dlp ve ffmpeg pakete gömülüdür, ayrıca bir şey kurmanıza gerek yoktur.
 > - **Windows:** "Windows bilgisayarınızı korudu" uyarısında **Diğer bilgiler → Yine de çalıştır**'a tıklayın.
 > - **macOS:** Uygulamayı Finder'da sağ tıklayıp **Aç**'ı seçin (Gatekeeper'ın "bilinmeyen geliştirici" uyarısını atlamak için).
 
-🎯 Kişiyi takip eden akıllı kadraj özelliği, pakete dahil olmayan Python 3 + `opencv-contrib-python` gerektirir (bkz. [Kaynaktan çalıştırma](#kaynaktan-çalıştırma-geliştirici)); diğer tüm özellikler kutudan çıktığı gibi çalışır.
+🎯 Kişiyi takip eden akıllı kadraj ve 📝 Whisper ile otomatik altyazı özellikleri, pakete dahil olmayan Python 3 gerektirir (`opencv-contrib-python` ve `faster-whisper` — bkz. [Kaynaktan çalıştırma](#kaynaktan-çalıştırma-geliştirici)); diğer tüm özellikler kutudan çıktığı gibi çalışır.
 
 ### Otomatik güncelleme
 
@@ -48,6 +48,9 @@ Bu akış yalnızca **Windows**'ta güvenilir çalışır. **macOS**'ta uygulama
 - **Kalite seçimi** — En iyi / 1080p / 720p video ya da sadece MP3 ses.
 - **Dikey 9:16 (Shorts) dönüşümü** — videoyu tek tıkla 1080×1920 dikey formata kırpar.
 - **🎯 Kişiyi takip eden akıllı kadraj** — dikey formata dönüştürürken kırpma penceresi sabit kalmaz; OpenCV tabanlı yüz tespiti + takip ile kişiyi sahne boyunca izler, sahne değişse bile kişiyi yeniden bulup takibe devam eder.
+- **📝 Otomatik altyazı (Whisper)** — videoda hazır altyazı yoksa, kesitin sesi `faster-whisper` ile metne çevrilip stilli olarak gömülür. Hız/kalite dengesi için model boyutu (Hızlı / Dengeli / En iyi) seçilebilir.
+- **📁 Yerel dosya desteği** — YouTube bağlantısı yerine bir video dosyasını (MP4, MKV, MOV, WEBM, M4V, AVI) pencereye sürükleyip bırakabilir ya da dosya seçiciyle açabilirsiniz; kesme, format, kişi takibi, altyazı ve marka özelliklerinin tümü aynen çalışır.
+- **🎯 Kadraj yolu önizlemesi** — kişi takibi açıkken, oluşacak 9:16 kırpma penceresini render'dan **önce** önizleme videosunun üzerinde canlı bir maske olarak görüp doğrulayabilirsiniz.
 - **Akıllı önbellek** — aynı videodan ikinci bir klip kesmek istediğinizde video yeniden indirilmez, saniyeler içinde sonuç alırsınız.
 
 ## Nasıl çalışır
@@ -67,7 +70,7 @@ Sistemde PATH üzerinde şunlar bulunmalı:
 
 - [Node.js](https://nodejs.org)
 - [yt-dlp](https://github.com/yt-dlp/yt-dlp) — `winget install yt-dlp` (403 hatalarına karşı güncel tutun: `yt-dlp -U`)
-- Python 3 + `pip install opencv-contrib-python` (kişi takibi özelliği için)
+- Python 3 + `pip install -r requirements.txt` (kişi takibi için `opencv-contrib-python`, otomatik altyazı için `faster-whisper`)
 
 ffmpeg ayrıca kurulmasına gerek yok — `ffmpeg-static` paketiyle otomatik gelir.
 

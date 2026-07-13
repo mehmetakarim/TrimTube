@@ -10,14 +10,15 @@ Bu dosya, farklı ortamlardaki (ev: macOS M-serisi, ofis: Windows 11) geliştirm
 **Yapılacaklar listesi (asıl kaynak):** proje kökündeki `YOL-HARITASI.md` (onay kutulu, faz faz).
 
 **Tamamlanan fazlar (detayları aşağıda):**
-- Faz 1 (v1.1.0) kesim deneyimi · Faz 2 (v1.2.0) GPU · Faz 3 (v1.3.0) altyazı · Faz 4 (v1.4.0) çoklu üretim · Faz 5 (v1.5.0) cila · Faz 6 (v1.6.0) marka & netlik · v1.6.1 macOS güncelleme geçişi
+- Faz 1 (v1.1.0) kesim deneyimi · Faz 2 (v1.2.0) GPU · Faz 3 (v1.3.0) altyazı · Faz 4 (v1.4.0) çoklu üretim · Faz 5 (v1.5.0) cila · Faz 6 (v1.6.0) marka & netlik · v1.6.1 macOS güncelleme geçişi · **Faz 7 (v1.7.0) Whisper altyazı + Faz 8 (v1.8.0) yerel dosya & kadraj önizlemesi — İKİSİ DE KOD HAZIR, henüz yayınlanmadı**
 
 **Kalan fazlar (öncelik sırası):**
-- **Faz 7 — Otomatik altyazı (Whisper):** altyazısı olmayan videolar için ses→metin. Not: faster-whisper + model indirme (~150MB-1GB), yavaş test döngüleri; `subtitle.py` yazılıp mevcut altyazı-gömme yoluna beslenir. Büyük/test-ağırlıklı iş.
-- **Faz 8 — Kaynak & önizleme:** yerel dosya sürükle-bırak + kişi-takip kadraj yolunun render öncesi önizlemesi.
+- **Faz 7 — Otomatik altyazı (Whisper):** ✅ KOD TAMAM (aşağıya bkz). Yayın bekliyor; kullanıcı arayüzden test etmedi.
+- **Faz 8 — Kaynak & önizleme:** ✅ KOD TAMAM (aşağıya bkz). Yerel dosya sürükle-bırak + kadraj yolu önizlemesi. Yayın bekliyor; kullanıcı arayüzden test etmedi (özellikle `file://` medya yüklemesi görsel doğrulanmalı).
 - **Faz 9 — Toplu işleme:** playlist toplu indirme + arka planda kuyruk (render sürerken yeni video hazırlama).
 - **Faz 10 (araştırma):** gömülü Python/WASM ile kurulumsuz takip + konuşmacı-değişimli çoklu kişi takibi.
 - **Bekleyen küçük iş:** Faz 6 (marka) arayüzünde kullanıcının belirteceği ufak rötuşlar (detay henüz verilmedi — sorulacak).
+- **Yayın kararı:** Faz 7+8 tek sürümde (v1.8.0) mü yoksa ayrı ayrı (v1.7.0 sonra v1.8.0) mı yayınlanacak — kullanıcıya sorulacak.
 
 **Release akışı (her faz sonu):** `package.json` sürümü artır → commit → `git tag -a vX.Y.Z` → `git push origin main && git push origin vX.Y.Z` → CI (create-release idempotent + 3 platform) → `gh` ile draft'ı doğrula → `gh api PATCH ... draft=false` ile başlık+not ekleyerek yayınla. gh yolu: `/c/Program Files/GitHub CLI/gh.exe`.
 
@@ -420,3 +421,67 @@ macOS'ta imzasız uygulamada oto-güncelleme kurulum aşamasında (Squirrel.Mac 
 - `main.js`: `open-release-page` IPC → `shell.openExternal('.../releases/latest')`.
 - `renderer`: `isMac` ise güncelleme kartı 'available' durumunda "Yeni sürümü indir" gösterir; tıklayınca release sayfasını tarayıcıda açar (indir→kur→imza-hatası çıkmazı yerine). Windows/Linux akışı değişmedi.
 - Apple Developer ID imzalama (~99$/yıl) alternatifi kullanıcıya sunuldu, "şimdilik" tercih edilmedi.
+
+---
+
+# Windows Oturumu — Faz 7: Whisper Otomatik Altyazı (v1.7.0, kod hazır)
+
+Videoda gömülü/indirilebilir altyazı yoksa, kesitin sesi `faster-whisper` ile metne çevrilip **mevcut stilli altyazı-gömme yoluna** (Faz 3) beslenir. Kutudan çıkmaz — Python 3 + `faster-whisper` gerektirir (tıpkı kişi takibi + opencv gibi).
+
+## Mimari
+
+- **`subtitle.py`** (yeni): `tracker.py` ile aynı çıktı sözleşmesi — `PROGRESS N` / `STATUS model|transcribe` / `DONE` / `ERROR <mesaj>` (exit 1). `WhisperModel(model, device="cpu", compute_type="int8", download_root=...)`, `transcribe(vad_filter=True, beam_size=5)`. Segmentler üzerinden SRT yazar, `info.duration` ile ilerleme. **CPU/int8 bilinçli seçim**: CUDA için ekstra cuBLAS/cuDNN DLL gerekir, dağıtımda garanti değil → güvenli taraf CPU.
+- **`main.js > transcribeSubtitle(mediaFile, videoId, model, trim, clipSec, tmpDir)`** (yeni): (1) ffmpeg ile **yalnızca kesim aralığının** sesini 16kHz mono WAV'a çıkarır (tüm 2 saatlik videoyu değil — kritik: CPU whisper yavaş, sadece gerekeni çözümle). (2) `subtitle.py`'yi çalıştırır. Üretilen SRT **zaten klip başına göre (0'dan) zamanlı** → `shiftSrt` GEREKMEZ. Sonuç `${id}_sub_whisper_${model}_${startSec}_${durSec}.srt` olarak önbelleğe alınır (pruneCache `_sub` atlar).
+- **`wantSubs` bloğu**: `subtitle.source === 'whisper'` ise transcribeSubtitle (hard-fail: hata → tüm iş durur, net mesaj), aksi halde eski `fetchSubtitle`+`shiftSrt` (soft-fail: altyazısız devam). Model dizini `userData/whisper-models`.
+- **Renderer**: `pickSubtitle` artık altyazı hiç yoksa `{source:'whisper'}` döner (eskiden `null` → kart kapalıydı). Kart artık her videoda açık. Whisper seçilince `#subModels` (Hızlı=base / Dengeli=small(vars.) / En iyi=medium) + `#subHint` görünür. `buildOpts` whisper'da `model: subModelValue` ekler. `subtitle.source` etiketiyle YouTube/whisper ayrılır (queueBadges 'oto-altyazı').
+- **Faz göstergesi**: `subtitle: 'Altyazı oluşturuluyor…'`.
+
+## Ortam / Bağımlılık
+
+- **Python 3.14.4** bu makinede kurulu. faster-whisper 1.2.1 + ctranslate2 4.8.1 + onnxruntime 1.27 → **cp314 tekerlekleri MEVCUT**, sorunsuz kuruldu (endişe edilen 3.14 uyumu doğrulandı). cv2 5.0.0 (contrib) aynı Python'da (tracker ile paylaşılıyor).
+- `requirements.txt` (yeni) eklendi: `opencv-contrib-python` + `faster-whisper`. README güncellendi (özellik maddesi + geliştirici bağımlılığı + `pip install -r requirements.txt`).
+- package.json değişmedi: `files:["**/*"]` + `asar:false` → `subtitle.py` otomatik paketlenir (tracker.py gibi).
+
+## Doğrulama (gerçek)
+
+- `subtitle.py` gerçek önbellek videosunun (nM5CrkX4lzc) 300-330sn aralığından çıkarılan sesle çalıştırıldı: PROGRESS akışı + DONE + exit 0, **klip-göreli** (00:00:00'dan) Türkçe SRT üretildi (`tiny` model; dil otomatik `tr` algılandı).
+- **Uçtan uca gömme**: transcribeSubtitle'ın birebir yaptığı gibi — aralık sesi çıkar → subtitle.py → uygulamanın gerçek dikey+altyazı ffmpeg komutu (NVENC/cuda, cwd=tmp, göreli subs.srt, kutulu stil MarginV=55). exit 0, **1080x1920** çıktı; kare yakalandı: yarı saydam kutu + Türkçe glifler (ç/ü/ş/ı) doğru, zamanlama klip başına oturuyor.
+- **App varsayılanı `small` de gerçek indirilip çalıştırıldı** (Python 3.14, exit 0): "…ne kadar güzeli yaşanmıştıklar bunlar." — `tiny`'den ("bir kadar") belirgin daha doğru, Türkçe glifler tam. Faz 3'te kanıtlanmış gömme yolu değişmedi.
+
+## Kalan / Sıradaki
+
+- **Kullanıcı arayüzden uçtan uca test etmedi** (native Electron programatik görülemiyor — Faz 5/6'daki gibi).
+- Yayın: `package.json` sürüm artır, commit, tag, push → CI → gh ile yayınla (başa bkz. release akışı). **Kullanıcı onayı bekleniyor** (Faz 7+8 birlikte v1.8.0 önerilir).
+- Bilinçli sınır: GPU (CUDA) whisper eklenmedi (cuDNN dağıtım riski). İleride hız için düşünülebilir. `medium` (~1.5GB) CPU'da uzun sürer — kullanıcı "En iyi"yi seçerse kısa kesit önerilir (arayüzde `#subHint` uyarısı var).
+
+---
+
+# Windows Oturumu — Faz 8: Kaynak & Önizleme (v1.8.0, kod hazır)
+
+İki özellik: (1) YouTube dışı **yerel video dosyalarıyla** çalışma, (2) kişi takibinin üreteceği 9:16 kadraj penceresini **render'dan önce** önizlemede canlı gösterme.
+
+## 1. Yerel dosya kaynağı
+
+- **Fikir:** Yerel dosya, YouTube akışıyla AYNI boru hattından geçer — yalnızca indirme adımı atlanır. Kesme, format, kişi takibi, Whisper altyazısı, marka aynen çalışır.
+- **`main.js`**: `probeMedia(file)` (ffmpeg -i stderr'inden süre+boyut — ffprobe pakette yok). `local-info` IPC: uzantı doğrula (mp4/mkv/mov/webm/m4v/avi), probe, **kararlı kimlik** `local_<md5(yol|boyut|mtime)[:12]>` (dosya değişirse kimlik değişir → dalga formu/Whisper önbelleği doğru ayrışır). `choose-video` IPC (dosya seçici). `previewUrl = pathToFileURL(file).href` (file://).
+- **download handler**: `localFile = opts.localFile` varsa: `cacheFile = localFile` (indirme yok, dosya doğrudan işlenir; önbelleğe KOPYALANMAZ). needPost yoksa dosya olduğu gibi hedefe `copyFileSync`. MP3'te yerel kaynak `-vn -c:a libmp3lame -q:a 2` (yt-dlp mp3 çıktısı ise eskisi gibi `-c copy`). `waveform` handler'ı `localPath` alıyor (dalga formu doğrudan dosyadan).
+- **preload**: `localInfo`, `chooseVideo`, **`pathForFile(file)` = `webUtils.getPathForFile(file)`** (Electron'da `File.path` kaldırıldı; sürükle-bırakta gerçek disk yolunu bu verir).
+- **renderer**: `fetchInfo` ortak `populateFromInfo(info)`'ya bölündü; hem URL hem yerel akış onu doldurur. `currentLocalFile` durumu; buildOpts'a `localFile` eklendi. Sürükle-bırak: tam ekran `#dropOverlay`, `dragenter/over/leave` sayaçlı (dragDepth), `drop`'ta `pathForFile` ile yol → `loadLocalFile`. Toolbar'a "Yerel video aç" ikon butonu. **KRİTİK:** `dragover` mutlaka `preventDefault` (Files tipinde) yoksa `drop` hiç ateşlenmez, tarayıcı dosyaya gider.
+- **CSP**: `media-src https:` → `media-src https: file:` (yerel önizleme file:// ile oynatılır). **RİSK:** `file://` medya yüklemesi görsel doğrulanmadı (native Electron). loadFile→file:// sayfadan file:// medya Electron'da standart çalışır; olmazsa çözüm özel protokol (`protocol.handle` + `net.fetch(pathToFileURL)` — range/seek destekli).
+
+## 2. Kadraj yolu önizlemesi
+
+- **`main.js` `track-preview` IPC**: kaynak seç (yerel > önbellek > 360p preview akışı) → aralığı **480p sessiz** geçici klibe al (`scale=-2:480`, tracker zaten 480p'de çalışır) → **tracker.py render'la AYNI** çağrılır → `cmds.txt` normalize edilir: her satır `{t, x}` (x = pencere sol kenarı / kaynak genişliği, 0-1) + `cropW = (h*9/16)/w`. Ayrı süreç takibi (`trackPrevProc`, `runPreviewProc`) — `currentProc`'a dokunmaz (İptal butonları karışmasın). `track-preview-cancel` IPC.
+- **renderer**: trackCard'a "Kadrajı önizle" butonu (`#trackPreviewRow`, takip açıkken görünür). Overlay `#trackPreviewOverlay` = 2 karartma paneli (tp-left/tp-right) + çerçeve (tp-frame). **object-fit varsayılanı `fill`** (mevcut işaretleme kodu da tüm elemanı video sayıyor) → yatay kesir doğrudan yüzdeye eşlenir, **letterbox hesabı gerekmez**. `xAt(path, t)` interpolasyon + rAF döngüsü ile currentTime'a göre pencere kayar. `invalidateTrackPreview()` yeni kaynak / değişen aralık (`computeZoomWindow` başında) / işaret (preview click) / format-dikey-kaldırma / ses / takip-kapatmada çağrılır; indirme başlarken (`setBusy`) overlay durur.
+
+## Doğrulama (gerçek, CLI)
+
+- `probeMedia`: önbellek mp4'ünde (AV1 1280x720, 02:15:36) süre+boyut doğru ayrıştırıldı.
+- **track-preview pipeline birebir**: 300-330sn → 480p klip (854x480, exit 0) → tracker.py (DONE, exit 0) → cmds parse: **375 kayıt**, cropW=0.3162, x∈[0.406, 0.448], hepsi `[0, 1-cropW]` içinde. Overlay matematiği (leftPct=x·100, wPct=cropW·100) tutuyor.
+- Yerel MP3 çıkarma (`-vn -c:a libmp3lame -q:a 2`): AV1 mp4'ten exit 0, geçerli mp3.
+- Yerel video → dikey/format dönüşümü ayrıca test edilmedi ama YouTube "best" zaten AV1 → aynı kod yolu (Faz 2'de kanıtlı, probe+CPU fallback var).
+
+## Kalan / Sıradaki
+
+- **Görsel test (kullanıcı):** file:// önizleme oynuyor mu? Sürükle-bırak akışı, kadraj maskesi doğru mu? (native Electron programatik görülemiyor.)
+- Yerel dosyada bölüm (chapter) yok, altyazı YouTube'dan gelmiyor → Whisper otomatik devreye giriyor (pickSubtitle `whisper` döner). Beklenen davranış.
