@@ -451,6 +451,36 @@ function sanitizeName(name) {
   return name.replace(/[\\/:*?"<>|]/g, '').trim() || 'video';
 }
 
+// --- Faz 9: oynatma listesi (playlist) toplu indirme ---
+// --flat-playlist ile videoları indirmeden yalnızca listeyi (id/başlık/süre)
+// alır; kullanıcı seçtiklerini kuyruğa ekler.
+ipcMain.handle('get-playlist', (e, url) => {
+  return new Promise((resolve, reject) => {
+    execFile(
+      YTDLP,
+      ['--flat-playlist', '-J', '--no-warnings', url],
+      { maxBuffer: 200 * 1024 * 1024, env: procEnv },
+      (err, stdout, stderr) => {
+        if (err) return reject(new Error(extractError(stderr)));
+        try {
+          const j = JSON.parse(stdout);
+          const entries = (j.entries || [])
+            .filter(en => en && en.id && en.ie_key !== 'YoutubeTab') // alt-liste değil, video
+            .map(en => ({
+              id: en.id,
+              title: en.title || en.id,
+              url: en.url || `https://www.youtube.com/watch?v=${en.id}`,
+              duration: Math.floor(en.duration || 0)
+            }));
+          resolve({ title: j.title || 'Oynatma listesi', count: entries.length, entries });
+        } catch {
+          reject(new Error('Oynatma listesi çözümlenemedi.'));
+        }
+      }
+    );
+  });
+});
+
 // --- Faz 8: yerel dosya kaynağı ---
 // Sürükle-bırak (veya dosya seçici) ile alınan yerel video, YouTube akışıyla
 // aynı boru hattından geçer: önizleme file:// ile oynatılır; kesme, format,

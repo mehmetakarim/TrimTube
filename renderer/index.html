@@ -129,6 +129,27 @@
       </div>
     </div>
 
+    <!-- Oynatma listesi modalı (Faz 9): videoları seçip kuyruğa ekle -->
+    <div id="playlistModal" class="modal-overlay hidden">
+      <div class="modal pl-modal">
+        <div class="modal-head">
+          <span class="modal-title" id="plTitle">Oynatma listesi</span>
+          <button id="plClose" class="icon-btn" aria-label="Kapat">✕</button>
+        </div>
+        <div class="pl-modal-body">
+          <div class="pl-toolbar">
+            <label class="pl-selectall"><input type="checkbox" id="plSelectAll" checked> Tümünü seç</label>
+            <span id="plCount" class="pl-count"></span>
+          </div>
+          <div id="plList" class="pl-list"></div>
+        </div>
+        <div class="pl-modal-foot">
+          <span class="pl-foot-hint">Seçilenler geçerli kalite/format ve marka ayarlarıyla tam video olarak kuyruğa eklenir.</span>
+          <button id="plAddBtn" class="btn-primary small">Kuyruğa ekle</button>
+        </div>
+      </div>
+    </div>
+
     <div class="body">
 
       <!-- Sol: oynatıcı ve kesim -->

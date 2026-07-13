@@ -462,6 +462,36 @@ button:disabled { opacity: 0.45; cursor: default; }
   .tp-foot-hint { display: none; }
 }
 
+/* ---- Oynatma listesi modalı (Faz 9) ---- */
+.pl-modal { width: 520px; max-width: calc(100vw - 40px); }
+.pl-modal-body { padding: 14px 18px; }
+.pl-toolbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.pl-selectall { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text); cursor: pointer; }
+.pl-count { font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.pl-list {
+  display: flex; flex-direction: column; gap: 2px;
+  max-height: 46vh; overflow-y: auto;
+  border: 1px solid var(--hairline); border-radius: 10px; padding: 4px;
+}
+.pl-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px; border-radius: 8px;
+  cursor: pointer;
+}
+.pl-item:hover { background: var(--fill); }
+.pl-item input { flex: none; }
+.pl-item-title {
+  flex: 1; min-width: 0;
+  font-size: 12.5px; color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.pl-item-dur { flex: none; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.pl-modal-foot {
+  display: flex; align-items: center; gap: 12px;
+  padding: 14px 18px; border-top: 1px solid var(--hairline);
+}
+.pl-foot-hint { flex: 1; font-size: 11.5px; color: var(--muted); line-height: 1.4; }
+
 /* ---- Kesim alanı ---- */
 .trim-area { flex: none; display: flex; flex-direction: column; gap: 12px; transition: opacity 0.2s; }
 .trim-area.disabled { opacity: 0.35; pointer-events: none; }
@@ -872,14 +902,22 @@ button:disabled { opacity: 0.45; cursor: default; }
 }
 .queue-item.active { border-color: var(--accent); background: var(--accent-soft, rgba(10,132,255,0.06)); }
 .queue-item .q-label {
+  flex: none;
+  white-space: nowrap;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.queue-item .q-title {
   flex: 1;
   min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-variant-numeric: tabular-nums;
+  color: var(--muted);
 }
+.queue-item .q-title:empty { display: none; }
 .queue-item .q-badges { color: var(--muted); font-size: 10.5px; flex: none; }
+.queue-item .q-remove:disabled { opacity: 0.4; cursor: default; }
 .queue-item .q-remove {
   flex: none;
   width: 18px; height: 18px;

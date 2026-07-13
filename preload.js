@@ -2,6 +2,7 @@ const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('api', {
   getInfo: (url) => ipcRenderer.invoke('get-info', url),
+  getPlaylist: (url) => ipcRenderer.invoke('get-playlist', url),
   download: (opts) => ipcRenderer.invoke('download', opts),
   cancel: () => ipcRenderer.invoke('cancel'),
   chooseFolder: () => ipcRenderer.invoke('choose-folder'),

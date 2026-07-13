@@ -6,19 +6,20 @@ Bu dosya, farklı ortamlardaki (ev: macOS M-serisi, ofis: Windows 11) geliştirm
 
 ## 📍 GÜNCEL DURUM & SIRADAKİ İŞLER (yeni oturum buradan başlasın)
 
-**Yayındaki sürüm:** `v1.8.1` · Windows/macOS(arm64)/Linux · GitHub: mehmetakarim/TrimTube
+**Yayındaki sürüm:** `v1.8.2` · Windows/macOS(arm64)/Linux · GitHub: mehmetakarim/TrimTube
 **Yapılacaklar listesi (asıl kaynak):** proje kökündeki `YOL-HARITASI.md` (onay kutulu, faz faz).
 
 **Tamamlanan fazlar (detayları aşağıda):**
 - Faz 1 (v1.1.0) kesim deneyimi · Faz 2 (v1.2.0) GPU · Faz 3 (v1.3.0) altyazı · Faz 4 (v1.4.0) çoklu üretim · Faz 5 (v1.5.0) cila · Faz 6 (v1.6.0) marka & netlik · v1.6.1 macOS güncelleme geçişi · **Faz 7 + Faz 8 (v1.8.0) Whisper altyazı + yerel dosya & kadraj önizlemesi** · **v1.8.1 kadraj önizleme MODAL revizyonu** — YAYINLANDI
 
-**⚠️ Yayınlanmamış (v1.8.1 SONRASI, v1.8.2):** Kullanıcı geri bildirimiyle kadraj önizleme modalında 2 iyileştirme — (1) önizlemede **SES** (klip `-an`'siz `-c:a aac`, video unmuted + mute butonu), (2) **tasarım tutarlılığı** (modal ayarlar modalıyla aynı dile getirildi: 18px iç boşluk, hairline ayraçlı baş/gövde/ayak, `.label` uppercase başlıklar, token renkler, hizalı 264px medya kutuları). Kod hazır + doğrulandı, yayın bekliyor.
+v1.8.2 (YAYINLANDI): kadraj önizleme modalında önizleme **sesi** + **tasarım tutarlılığı** (ayarlar modalıyla aynı dil).
+
+**⏳ KOD HAZIR (v1.9.0), yayın bekliyor: Faz 9 — Toplu işleme** (playlist toplu indirme + arka planda kuyruk). Kod + başsız Electron doğrulaması tamam, aşağıya bkz.
 
 **Kalan fazlar (öncelik sırası):**
-- **Faz 9 — Toplu işleme:** playlist toplu indirme + arka planda kuyruk (render sürerken yeni video hazırlama).
-- **Faz 10 (araştırma):** gömülü Python/WASM ile kurulumsuz takip + konuşmacı-değişimli çoklu kişi takibi.
+- **Faz 10 (araştırma):** gömülü Python/WASM ile kurulumsuz takip + konuşmacı-değişimli çoklu kişi takibi. (Yol haritasının son "büyük iş" kalemi — Faz 9 sonrası ana plan bitiyor.)
 - **Bekleyen küçük iş:** Faz 6 (marka) arayüzünde kullanıcının belirteceği ufak rötuşlar (detay henüz verilmedi — sorulacak).
-- **Faz 7+8 saha testi:** kullanıcı henüz uygulama arayüzünden uçtan uca test etmedi (kod + CLI + başsız Electron file:// testi geçti). Sorun çıkarsa buradan devam.
+- **Saha testi:** kullanıcı v1.8.1 modalını onayladı; v1.8.2 (ses/tasarım) ve v1.9.0 (playlist/kuyruk) arayüzden uçtan uca test edilmedi (kod + CLI + başsız Electron testleri geçti).
 
 **Release akışı (her faz sonu):** `package.json` sürümü artır → commit → `git tag -a vX.Y.Z` → `git push origin main && git push origin vX.Y.Z` → CI (create-release idempotent + 3 platform) → `gh` ile draft'ı doğrula → `gh api PATCH ... draft=false` ile başlık+not ekleyerek yayınla. gh yolu: `/c/Program Files/GitHub CLI/gh.exe`.
 
@@ -496,3 +497,39 @@ Videoda gömülü/indirilebilir altyazı yoksa, kesitin sesi `faster-whisper` il
 
 - **Görsel test (kullanıcı):** file:// önizleme oynuyor mu? Sürükle-bırak akışı, kadraj maskesi doğru mu? (native Electron programatik görülemiyor.)
 - Yerel dosyada bölüm (chapter) yok, altyazı YouTube'dan gelmiyor → Whisper otomatik devreye giriyor (pickSubtitle `whisper` döner). Beklenen davranış.
+
+---
+
+# Windows Oturumu — Faz 9: Toplu İşleme (v1.9.0, kod hazır)
+
+İki özellik: (1) **oynatma listesi** toplu indirme, (2) **arka planda kuyruk** (render sürerken yeni video hazırlama, arayüz kilitlenmesin).
+
+## 1. Playlist toplu indirme
+
+- **`main.js` `get-playlist` IPC**: `yt-dlp --flat-playlist -J` (indirmeden liste) → `{title, count, entries:[{id,title,url,duration}]}`. `ie_key==='YoutubeTab'` (alt-liste) filtrelenir. preload `getPlaylist`.
+- **renderer**: `isPlaylistUrl(u)` = `list=` var **ve** `v=` yok (saf playlist; watch?v=…&list=… tekil video sayılır). `fetchInfo` başında algılanır → `loadPlaylist` → `#playlistModal` (checkbox'lı liste, "Tümünü seç", "Kuyruğa ekle (N)"). Seçilenler `buildBatchOpts(entry)` ile **tam-video** kuyruk öğesine dönüşür: global kalite/format/klasör/marka uygulanır; kesim/kişi-takip/altyazı per-video etkileşim gerektirdiği için toplu işte atlanır (`trim:null, track:false, subtitle:null`).
+
+## 2. Arka planda kuyruk (worker modeli)
+
+**Eski:** `downloadBtn` bloklayan bir döngü çalıştırıyor, `setBusy(true)` `addQueueBtn`'i kapatıyordu → çalışırken kuyruğa iş eklenemiyordu.
+**Yeni:** `runQueueWorker()` — **canlı** kuyruktan (`while(queue.length && !stopRequested){ job=queue[0]; await download; ... }`) tek tek işler. Çalışırken eklenen işler otomatik işlenir.
+- `busy` değişkeni **tamamen kaldırıldı**; yerine `queueRunning` (worker aktif) + `stopRequested`. `setBusy` → `showJobProgress`/`hideJobProgress` (yalnız ilerleme; formu kilitlemez).
+- **Form kilitlenmez:** `openFileBtn`/`dragenter`/`drop`'tan `busy` guard'ları kaldırıldı → render sürerken yeni video yüklenebilir. `addQueueBtn.disabled = !infoLoaded` (çalışırken de aktif). Track preview `queueRunning` iken bloklu (GPU çakışması).
+- **downloadBtn:** çalışmıyorsa "İndir"/"Kuyruğu indir (N)" → başlat (kuyruk boşsa mevcut seçimi ekle). Çalışıyorsa "Durdur" → `stopRequested=true`+`cancel()` (mevcut işi kesip worker'ı bitirir; kalan işler kuyrukta durur).
+- **Hata-devam:** bir iş `ok:false` (iptal değil) → kuyruktan düşer, `failed++`, sonrakiyle devam (bir kötü video tüm batch'i durdurmasın). İptal → aktif iş kuyrukta kalır, worker durur. Sonda özet: "N tamamlandı, M başarısız/kuyrukta kaldı".
+- **renderQueue:** aktif iş (queue[0], çalışırken) `.active` vurgulu + `×` (kaldır) devre dışı. `.q-title` (video başlığı, ellipsis) eklendi — playlist işlerinde hangi video olduğu görünür.
+
+## Doğrulama (başsız Electron, gerçek renderer + sahte window.api)
+
+- **Yükleme temiz** (JSERROR yok), `runQueueWorker` mevcut.
+- **Drenaj:** 3 iş → hepsi işlendi, kuyruk boşaldı, "3 iş tamamlandı".
+- **Canlı ekleme:** worker çalışırken eklenen "LIVE" işi işlendi (`calls=[A,B,LIVE]`) — arka plan kuyruğun asıl özelliği çalışıyor.
+- **Hata-devam:** ilk iş fail → iki iş de çağrıldı, kuyruk boşaldı.
+- **İptal-durma:** cancel → yalnız ilk iş çağrıldı, 3 iş kuyrukta kaldı, `queueRunning=false`.
+- **Playlist modalı:** `getComputedStyle` ile doğrulandı — overlay `grid/z-200/fixed`, panel opak `rgb(28,29,34)`, 520px, ortalı. (Başsız `capturePage` fixed-overlay'i şeffaf yakalıyor = artefakt; ayarlar/kadraj modallarıyla aynı `.modal` iskeleti.)
+- `get-playlist` mantığı `ytsearch3` ile: title + 3 entry (id/başlık/süre/url) doğru ayrıştı.
+
+## Kalan / Sıradaki
+
+- **Ana plan bitti** (Faz 1-9). Geriye yalnızca Faz 10 (araştırma: gömülü Python/WASM, konuşmacı-değişimli takip) kaldı.
+- Playlist batch'te altyazı/kişi-takip yok (bilinçli — per-video etkileşim gerekir). İstenirse ileride "her videoya Whisper" seçeneği eklenebilir.

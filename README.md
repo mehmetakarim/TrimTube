@@ -50,7 +50,9 @@ Bu akış yalnızca **Windows**'ta güvenilir çalışır. **macOS**'ta uygulama
 - **🎯 Kişiyi takip eden akıllı kadraj** — dikey formata dönüştürürken kırpma penceresi sabit kalmaz; OpenCV tabanlı yüz tespiti + takip ile kişiyi sahne boyunca izler, sahne değişse bile kişiyi yeniden bulup takibe devam eder.
 - **📝 Otomatik altyazı (Whisper)** — videoda hazır altyazı yoksa, kesitin sesi `faster-whisper` ile metne çevrilip stilli olarak gömülür. Hız/kalite dengesi için model boyutu (Hızlı / Dengeli / En iyi) seçilebilir.
 - **📁 Yerel dosya desteği** — YouTube bağlantısı yerine bir video dosyasını (MP4, MKV, MOV, WEBM, M4V, AVI) pencereye sürükleyip bırakabilir ya da dosya seçiciyle açabilirsiniz; kesme, format, kişi takibi, altyazı ve marka özelliklerinin tümü aynen çalışır.
-- **🎯 Kadraj yolu önizlemesi** — kişi takibi açıkken, oluşacak 9:16 kırpma penceresini render'dan **önce** önizleme videosunun üzerinde canlı bir maske olarak görüp doğrulayabilirsiniz.
+- **🎯 Kadraj yolu önizlemesi** — kişi takibi açıkken, oluşacak 9:16 kırpma penceresini render'dan **önce** ayrı bir pencerede görebilirsiniz; takip edilen kişi renkli maskeyle vurgulanır, yanında canlı 9:16 çıktı ve ses.
+- **📚 Oynatma listesi toplu indirme** — bir playlist bağlantısı yapıştırıp açtığınızda videoları seçip toplu olarak kuyruğa alabilirsiniz.
+- **⏳ Arka planda kuyruk** — kuyruk işlenirken uygulama kilitlenmez; sıradaki videoyu hazırlayıp kuyruğa eklemeye devam edebilirsiniz.
 - **Akıllı önbellek** — aynı videodan ikinci bir klip kesmek istediğinizde video yeniden indirilmez, saniyeler içinde sonuç alırsınız.
 
 ## Nasıl çalışır

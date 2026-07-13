@@ -1,7 +1,6 @@
 const $ = (id) => document.getElementById(id);
 
 let videoDuration = 0;
-let busy = false;
 let infoLoaded = false;
 let currentVideoId = null;
 let previewUrl = null;
@@ -670,7 +669,7 @@ function invalidateTrackPreview() {
 }
 
 async function computeTrackPreview() {
-  if (busy || tp.generating) return;
+  if (queueRunning || tp.generating) return; // render sürerken kaynak çakışmasını önle
   if (tp.clipUrl) { openTrackModal(); return; } // mevcut önizlemeyi yeniden aç
   const r = currentRange();
   tp.generating = true;
@@ -759,6 +758,8 @@ function populateFromInfo(info) {
 async function fetchInfo() {
   const url = $('url').value.trim();
   if (!url) return;
+  // Faz 9: saf oynatma listesi bağlantısı (list= var, v= yok) → playlist akışı
+  if (isPlaylistUrl(url)) { loadPlaylist(url); return; }
   $('urlError').classList.add('hidden');
   $('fetchBtn').disabled = true;
   $('fetchBtn').textContent = 'Alınıyor…';
@@ -776,6 +777,112 @@ async function fetchInfo() {
 
 $('fetchBtn').addEventListener('click', fetchInfo);
 $('url').addEventListener('keydown', (e) => { if (e.key === 'Enter') fetchInfo(); });
+
+// ---- oynatma listesi toplu indirme (Faz 9) ----
+
+// Saf playlist bağlantısı: list= içerir ama tekil video (v=) içermez. Bir videonun
+// çalma listesi içindeki bağlantısı (watch?v=…&list=…) tekil video sayılır.
+function isPlaylistUrl(u) {
+  return /[?&]list=/.test(u) && !/[?&]v=/.test(u);
+}
+
+let playlistEntries = [];
+
+async function loadPlaylist(url) {
+  $('urlError').classList.add('hidden');
+  clearStatus();
+  $('fetchBtn').disabled = true;
+  $('fetchBtn').textContent = 'Liste alınıyor…';
+  try {
+    const pl = await window.api.getPlaylist(url);
+    if (!pl.entries || !pl.entries.length) {
+      setStatus('err', 'Oynatma listesinde video bulunamadı.');
+      return;
+    }
+    playlistEntries = pl.entries;
+    openPlaylistModal(pl);
+  } catch (err) {
+    $('urlError').textContent = err.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
+    $('urlError').classList.remove('hidden');
+  } finally {
+    $('fetchBtn').disabled = false;
+    $('fetchBtn').textContent = 'Bilgi Al';
+  }
+}
+
+function openPlaylistModal(pl) {
+  $('plTitle').textContent = pl.title || 'Oynatma listesi';
+  const list = $('plList');
+  list.innerHTML = '';
+  pl.entries.forEach((en, i) => {
+    const row = document.createElement('label');
+    row.className = 'pl-item';
+    row.innerHTML = '<input type="checkbox" checked><span class="pl-item-title"></span><span class="pl-item-dur"></span>';
+    row.querySelector('input').dataset.i = String(i);
+    row.querySelector('.pl-item-title').textContent = en.title;
+    row.querySelector('.pl-item-dur').textContent = en.duration ? fmtTime(en.duration) : '';
+    list.appendChild(row);
+  });
+  $('plSelectAll').checked = true;
+  updatePlCount();
+  $('playlistModal').classList.remove('hidden');
+}
+
+function updatePlCount() {
+  const checks = Array.from($('plList').querySelectorAll('input[type=checkbox]'));
+  const n = checks.filter(c => c.checked).length;
+  $('plCount').textContent = `${n}/${checks.length} seçili`;
+  $('plAddBtn').textContent = n ? `Kuyruğa ekle (${n})` : 'Kuyruğa ekle';
+  $('plAddBtn').disabled = n === 0;
+  $('plSelectAll').checked = n === checks.length;
+  $('plSelectAll').indeterminate = n > 0 && n < checks.length;
+}
+
+// Playlist videosu → global ayarlarla (kalite/format/klasör/marka) tam-video kuyruk
+// öğesi. Kesim/kişi takibi/altyazı per-video etkileşim gerektirir; toplu işte atlanır.
+function buildBatchOpts(entry) {
+  const isAudio = $('quality').value === 'audio';
+  return {
+    url: entry.url,
+    id: entry.id,
+    title: entry.title,
+    folder: $('folder').textContent,
+    quality: $('quality').value,
+    localFile: null,
+    formats: isAudio ? ['original'] : [...selectedFormats],
+    vertical: selectedFormats.has('vertical'),
+    track: false,
+    trackPoint: null,
+    subtitle: null,
+    watermark: (!isAudio && $('wmEnable').checked && watermarkFile) ? { file: watermarkFile, position: watermarkPos } : null,
+    titleText: (!isAudio && $('titleEnable').checked && $('titleText').value.trim()) ? $('titleText').value.trim() : null,
+    duration: entry.duration,
+    trim: null
+  };
+}
+
+function closePlaylistModal() { $('playlistModal').classList.add('hidden'); }
+
+$('plList').addEventListener('change', updatePlCount);
+$('plSelectAll').addEventListener('change', () => {
+  const on = $('plSelectAll').checked;
+  $('plList').querySelectorAll('input[type=checkbox]').forEach(c => { c.checked = on; });
+  updatePlCount();
+});
+$('plClose').addEventListener('click', closePlaylistModal);
+$('playlistModal').addEventListener('click', (e) => {
+  if (e.target === $('playlistModal')) closePlaylistModal();
+});
+$('plAddBtn').addEventListener('click', () => {
+  const checks = Array.from($('plList').querySelectorAll('input[type=checkbox]'));
+  const chosen = checks.filter(c => c.checked).map(c => playlistEntries[+c.dataset.i]).filter(Boolean);
+  if (!chosen.length) return;
+  chosen.forEach(en => queue.push({ opts: buildBatchOpts(en) }));
+  closePlaylistModal();
+  renderQueue();
+  updateDownloadBtn();
+  setStatus('ok', `${chosen.length} video kuyruğa eklendi. İndirmek için "Kuyruğu indir".`);
+});
 
 // ---- yerel dosya kaynağı (Faz 8): sürükle-bırak + dosya seçici ----
 
@@ -797,7 +904,6 @@ async function loadLocalFile(filePath) {
 }
 
 $('openFileBtn').addEventListener('click', async () => {
-  if (busy) return;
   const p = await window.api.chooseVideo();
   if (p) loadLocalFile(p);
 });
@@ -805,7 +911,6 @@ $('openFileBtn').addEventListener('click', async () => {
 const dropOverlay = $('dropOverlay');
 let dragDepth = 0;
 window.addEventListener('dragenter', (e) => {
-  if (busy) return;
   if (!Array.from(e.dataTransfer.types || []).includes('Files')) return;
   e.preventDefault();
   dragDepth++;
@@ -824,7 +929,6 @@ window.addEventListener('drop', (e) => {
   e.preventDefault();
   dragDepth = 0;
   dropOverlay.classList.add('hidden');
-  if (busy) return;
   const file = e.dataTransfer.files && e.dataTransfer.files[0];
   if (!file) return;
   if (!isVideoFile(file.name)) {
@@ -868,23 +972,22 @@ window.api.onPhase((phase) => {
   $('phaseLabel').textContent = PHASE_LABELS[phase] || 'İşleniyor…';
 });
 
-function setBusy(on) {
-  busy = on;
-  if (on && tp.open) closeTrackModal(); // indirme başlarken önizleme modalını kapat
-  const btn = $('downloadBtn');
-  btn.textContent = on ? 'İptal' : 'İndir';
-  btn.classList.toggle('cancel', on);
-  $('addQueueBtn').disabled = on || !infoLoaded;
-  $('progressWrap').classList.toggle('hidden', !on);
-  if (on) {
-    etaText = null;
-    $('progressFill').style.width = '0%';
-    $('progressText').textContent = '%0';
-    $('phaseLabel').textContent = 'Başlatılıyor…';
-    $('logLine').textContent = '';
-  } else if ($('waveform').classList.contains('hidden')) {
-    // Ağır bir iş (indirme/takip/kodlama) CPU'yu meşgul edip dalga formu
-    // isteğini zaman aşımına uğratmış olabilir — iş bitince sessizce yeniden dene
+// Faz 9: arka planda kuyruk — bir iş işlenirken form kilitlenmez; kullanıcı yeni
+// video hazırlayıp kuyruğa ekleyebilir. progressWrap yalnızca ilerlemeyi gösterir.
+function showJobProgress() {
+  if (tp.open) closeTrackModal(); // önizleme modalı açıksa kapat (kaynak çakışmasın)
+  etaText = null;
+  $('progressFill').style.width = '0%';
+  $('progressText').textContent = '%0';
+  $('phaseLabel').textContent = 'Başlatılıyor…';
+  $('logLine').textContent = '';
+  $('progressWrap').classList.remove('hidden');
+}
+function hideJobProgress() {
+  $('progressWrap').classList.add('hidden');
+  if ($('waveform').classList.contains('hidden')) {
+    // Ağır iş CPU'yu meşgul edip dalga formu isteğini zaman aşımına uğratmış
+    // olabilir — iş bitince sessizce yeniden dene
     requestWaveform();
   }
 }
@@ -942,36 +1045,57 @@ function queueBadges(opts) {
   return [opts.quality === 'audio' ? 'mp3' : fmts, extras].filter(Boolean).join(' · ');
 }
 
-function renderQueue(activeIndex = -1) {
+let queueRunning = false;   // worker aktif mi
+let stopRequested = false;  // "Durdur" istendi mi (mevcut işten sonra dur)
+
+// İşlenmekte olan iş her zaman kuyruğun başıdır (queue[0]); worker çalışırken
+// baştaki öğe "active" olarak vurgulanır ve kaldırılamaz.
+function renderQueue() {
   $('queueCount').textContent = queue.length;
   $('queueSection').classList.toggle('hidden', !queue.length);
   const list = $('queueList');
   list.innerHTML = '';
   queue.forEach((item, i) => {
+    const isActive = queueRunning && i === 0;
     const div = document.createElement('div');
-    div.className = 'queue-item' + (i === activeIndex ? ' active' : '');
-    div.innerHTML = '<span class="q-label"></span><span class="q-badges"></span><button class="q-remove" title="Kaldır">×</button>';
+    div.className = 'queue-item' + (isActive ? ' active' : '');
+    div.innerHTML = '<span class="q-label"></span><span class="q-title"></span><span class="q-badges"></span><button class="q-remove" title="Kaldır">×</button>';
     div.querySelector('.q-label').textContent = item.opts.trim
       ? `${item.opts.trim.start} – ${item.opts.trim.end}`
       : 'Tam video';
+    // Hangi video olduğu görünsün (playlist/çoklu işlerde önemli)
+    div.querySelector('.q-title').textContent = item.opts.title || '';
     div.querySelector('.q-badges').textContent = queueBadges(item.opts);
-    div.querySelector('.q-remove').addEventListener('click', () => {
-      if (busy) return;
-      queue.splice(i, 1);
-      renderQueue();
-      updateDownloadBtn();
-    });
+    const rm = div.querySelector('.q-remove');
+    if (isActive) {
+      rm.disabled = true; // işlenen iş kaldırılamaz (Durdur ile iptal edilir)
+    } else {
+      rm.addEventListener('click', () => {
+        queue.splice(i, 1);
+        renderQueue();
+        updateDownloadBtn();
+      });
+    }
     list.appendChild(div);
   });
 }
 
 function updateDownloadBtn() {
-  if (busy) return;
-  $('downloadBtn').textContent = queue.length ? `Kuyruğu indir (${queue.length})` : 'İndir';
+  const btn = $('downloadBtn');
+  $('addQueueBtn').disabled = !infoLoaded; // çalışırken de yeni iş eklenebilir
+  if (queueRunning) {
+    btn.textContent = 'Durdur';
+    btn.classList.add('cancel');
+    btn.disabled = false;
+  } else {
+    btn.classList.remove('cancel');
+    btn.textContent = queue.length ? `Kuyruğu indir (${queue.length})` : 'İndir';
+    btn.disabled = !infoLoaded && !queue.length;
+  }
 }
 
 $('addQueueBtn').addEventListener('click', () => {
-  if (busy || !infoLoaded) return;
+  if (!infoLoaded) return;
   const r = buildOpts();
   if (r.error) { setStatus('err', r.error); return; }
   queue.push({ opts: r.opts });
@@ -980,67 +1104,72 @@ $('addQueueBtn').addEventListener('click', () => {
   updateDownloadBtn();
 });
 
-$('downloadBtn').addEventListener('click', async () => {
-  if (busy) { window.api.cancel(); return; }
-  if (!infoLoaded && !queue.length) return;
+const okSvg = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#34C759" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
 
-  // Kuyruk doluysa kuyruğu işle; boşsa mevcut seçim tek iş olarak çalışır
-  let jobs;
-  if (queue.length) {
-    jobs = queue.slice();
-  } else {
-    const r = buildOpts();
-    if (r.error) { setStatus('err', r.error); return; }
-    jobs = [{ opts: r.opts }];
-  }
-  const isQueueRun = queue.length > 0;
-  const total = jobs.length;
-
+// Arka planda kuyruk worker'ı: canlı kuyruktan (queue[0]) tek tek işler; çalışırken
+// eklenen işler de işlenir. Bir iş başarısız olursa atlanıp devam edilir (bir kötü
+// video tüm kuyruğu durdurmasın); "Durdur"/iptal mevcut işi kesip worker'ı bitirir.
+async function runQueueWorker() {
+  if (queueRunning || !queue.length) return;
+  queueRunning = true;
+  stopRequested = false;
   clearStatus();
-  setBusy(true);
+  showJobProgress();
+  updateDownloadBtn();
 
-  let doneCount = 0;
-  let failure = null; // { cancelled } | { message }
-  for (let i = 0; i < total; i++) {
-    if (isQueueRun) renderQueue(0); // işlenen her zaman kuyruğun başı
-    if (total > 1) $('logLine').textContent = `Kuyruk: ${i + 1}/${total}`;
+  let done = 0, failed = 0;
+  const failures = [];
+  let cancelledMid = false;
+
+  while (queue.length && !stopRequested) {
+    const job = queue[0];
+    renderQueue();               // baştaki iş "active" görünür
+    showJobProgress();
+    $('logLine').textContent = job.opts.title ? `İşleniyor: ${job.opts.title}` : 'İşleniyor…';
 
     let result;
     try {
-      result = await window.api.download(jobs[i].opts);
+      result = await window.api.download(job.opts);
     } catch (err) {
-      // Ana süreçte beklenmeyen bir hata IPC üzerinden reddedilirse arayüz
-      // sonsuza dek "İndiriliyor…" durumunda donmasın — her zaman geri dönülsün
-      failure = { message: 'Beklenmeyen bir hata oluştu: ' + (err.message || String(err)) };
-      break;
+      result = { ok: false, error: 'Beklenmeyen hata: ' + (err.message || String(err)) };
     }
-    if (result.cancelled) { failure = { cancelled: true }; break; }
-    if (!result.ok) { failure = { message: result.error || 'İndirme başarısız oldu.' }; break; }
 
-    doneCount++;
-    if (isQueueRun) { queue.shift(); renderQueue(); } // başarılı iş kuyruktan düşer
+    if (result.cancelled) { cancelledMid = true; break; } // aktif iş kuyrukta kalır
+
+    queue.shift(); // başarılı/başarısız — işlenen iş kuyruktan düşer
+    if (result.ok) done++;
+    else { failed++; failures.push(`${job.opts.title || 'video'}: ${result.error || 'hata'}`); }
+    renderQueue();
+    updateDownloadBtn();
   }
 
-  setBusy(false);
+  queueRunning = false;
+  hideJobProgress();
   renderQueue();
   updateDownloadBtn();
 
-  if (!failure) {
-    // Not: inline style özniteliği CSP (style-src 'self') tarafından engelleniyor —
-    // svg genişliği #statusMsg svg CSS kuralıyla sabitlenir
-    setStatus('ok',
-      '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#34C759" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>' +
-      `<span>${total > 1 ? total + ' iş tamamlandı' : 'İndirme tamamlandı'}</span><a id="openFolderLink">Klasörü aç</a>`);
-    document.getElementById('openFolderLink').addEventListener('click', () => {
-      window.api.openFolder($('folder').textContent);
-    });
-  } else if (failure.cancelled) {
-    setStatus('err', doneCount > 0
-      ? `İptal edildi — ${doneCount}/${total} iş tamamlanmıştı, kalanlar kuyrukta duruyor.`
-      : 'İndirme iptal edildi.');
+  if (cancelledMid || stopRequested) {
+    setStatus('err', `Durduruldu — ${done} iş tamamlandı, ${queue.length} kuyrukta kaldı.`);
+  } else if (failed === 0) {
+    setStatus('ok', `${okSvg}<span>${done > 1 ? done + ' iş tamamlandı' : 'İndirme tamamlandı'}</span><a id="openFolderLink">Klasörü aç</a>`);
+    const link = document.getElementById('openFolderLink');
+    if (link) link.addEventListener('click', () => window.api.openFolder($('folder').textContent));
   } else {
-    setStatus('err', (total > 1 ? `İş ${doneCount + 1}/${total} başarısız: ` : '') + failure.message);
+    setStatus('err', `${done} tamamlandı, ${failed} başarısız:\n` + failures.slice(0, 3).join('\n'));
   }
+}
+
+$('downloadBtn').addEventListener('click', () => {
+  if (queueRunning) { stopRequested = true; window.api.cancel(); return; } // Durdur
+  // Başlat: kuyruk boşsa mevcut seçimi tek iş olarak ekle
+  if (!queue.length) {
+    if (!infoLoaded) return;
+    const r = buildOpts();
+    if (r.error) { setStatus('err', r.error); return; }
+    queue.push({ opts: r.opts });
+    renderQueue();
+  }
+  runQueueWorker();
 });
 
 // ---- otomatik güncelleme kartı ----
