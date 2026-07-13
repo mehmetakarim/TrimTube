@@ -87,6 +87,10 @@ def main():
     ap.add_argument("video")
     ap.add_argument("--out", required=True)
     ap.add_argument("--point", default=None)
+    # Yalnizca kadraj onizlemesi (Faz 8) icin: her ornekte takip edilen kisinin
+    # kutusunu normalize (0-1) yazar. Render bu bayragi vermez; --out (cmds.txt)
+    # formati degismez.
+    ap.add_argument("--boxes-out", default=None, dest="boxes_out")
     args = ap.parse_args()
 
     cap = cv2.VideoCapture(args.video)
@@ -114,6 +118,8 @@ def main():
         init_point = (px * sw, py * sh)
 
     centers = []            # (saniye, kaynak cx, segment no)
+    boxes = []              # (saniye, normalize kutu (x,y,w,h) veya None) — yalniz onizleme
+    last_box = None         # son bilinen takip kutusu (small koordinatlarinda)
     last_cx = src_w / 2.0
     segment = 0
     prev_tiny = None
@@ -138,6 +144,8 @@ def main():
             segment += 1
             tracker = None
             lost = True
+
+        cur_box = None  # bu karede gecerli takip kutusu (small koordinatlari)
 
         if first:
             # Ilk kare: isaretli noktaya en yakin yuz, yoksa en buyuk yuz
@@ -175,11 +183,13 @@ def main():
                 tracker.init(small, box)
                 last_cx = (box[0] + box[2] / 2.0) / scale
                 lost = False
+                cur_box = box
             first = False
         elif tracker is not None and not lost:
             ok2, box = tracker.update(small)
             if ok2:
                 last_cx = (box[0] + box[2] / 2.0) / scale
+                cur_box = box
             else:
                 tracker = None
                 lost = True
@@ -197,6 +207,7 @@ def main():
                     tracker.init(small, box)
                     last_cx = fcx
                     lost = False
+                    cur_box = box
                 if score > 0.45 and len(ref_feats) < MAX_REF_FEATS:
                     feat = engine.embed(small, face)
                     if feat is not None:
@@ -213,6 +224,20 @@ def main():
         # Kisi bulunamadiysa son konumda bekle (last_cx degismez)
 
         centers.append((frame_idx / fps, last_cx, segment))
+        # Takip kutusunu kaydet (yalniz onizleme): bu karede kutu varsa guncelle,
+        # yoksa son bilineni koru (kisi gecici gorunmezken kutu titremesin)
+        if cur_box is not None:
+            last_box = cur_box
+        if last_box is not None:
+            bx, by, bw, bh = (float(v) for v in last_box[:4])
+            boxes.append((frame_idx / fps, (
+                min(max(bx / sw, 0.0), 1.0),
+                min(max(by / sh, 0.0), 1.0),
+                min(max(bw / sw, 0.0), 1.0),
+                min(max(bh / sh, 0.0), 1.0),
+            )))
+        else:
+            boxes.append((frame_idx / fps, None))
         if sample_idx % 20 == 0:
             print(f"PROGRESS {int(frame_idx * 100 / total)}", flush=True)
         frame_idx += 1
@@ -259,6 +284,15 @@ def main():
         for (t, _, _), cx in zip(centers, smoothed):
             x = min(max(cx - crop_w / 2.0, 0.0), max_x)
             f.write(f"{t:.2f} crop x {x:.0f};\n")
+
+    # Onizleme icin takip kutusu yolu (normalize) — istenmisse
+    if args.boxes_out:
+        with open(args.boxes_out, "w") as f:
+            for t, b in boxes:
+                if b is None:
+                    f.write(f"{t:.2f} -\n")
+                else:
+                    f.write(f"{t:.2f} {b[0]:.4f} {b[1]:.4f} {b[2]:.4f} {b[3]:.4f}\n")
 
     print("PROGRESS 100", flush=True)
     print("DONE", flush=True)

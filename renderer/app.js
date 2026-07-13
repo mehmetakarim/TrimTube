@@ -549,11 +549,13 @@ $('preview').addEventListener('click', (e) => {
 });
 
 // ---- kadraj yolu önizlemesi (Faz 8) ----
-// tracker.py'nin üreteceği 9:16 kırpma penceresini render'a girmeden,
-// önizleme videosunun üzerinde canlı bir maske olarak gösterir.
-// #preview object-fit varsayılanı (fill) videoyu kutuya yayar; yatay konum
-// kesirleri (0-1) doğrudan yüzdeye eşlenir — letterbox hesabı gerekmez.
-const tp = { path: null, cropW: 0, clipStart: 0, active: false, raf: 0, generating: false };
+// tracker.py'nin üreteceği 9:16 kırpma penceresini render'a girmeden ayrı bir
+// pencerede (modal) gösterir: solda kaynak klip + takip edilen kişiyi vurgulayan
+// yeşil maske + 9:16 kadraj çerçevesi, sağda canlı kırpılmış 9:16 çıktı (canvas).
+const tp = {
+  path: null, cropW: 0, boxes: null, clipUrl: null,
+  open: false, raf: 0, generating: false
+};
 
 function currentRange() {
   if ($('trimEnable').checked) {
@@ -563,7 +565,7 @@ function currentRange() {
   return { start: 0, duration: videoDuration };
 }
 
-// Kesit-göreli t anındaki pencere sol-kenar kesirini (x) interpolasyonla bulur
+// t anındaki kadraj penceresi sol-kenar kesirini (x) interpolasyonla bulur
 function xAt(arr, t) {
   if (t <= arr[0].t) return arr[0].x;
   for (let i = 1; i < arr.length; i++) {
@@ -576,58 +578,98 @@ function xAt(arr, t) {
   return arr[arr.length - 1].x;
 }
 
-function drawTrackFrame() {
-  if (!tp.active) return;
-  const v = $('preview');
-  const x = xAt(tp.path, v.currentTime - tp.clipStart);
-  const leftPct = Math.max(0, Math.min(1 - tp.cropW, x)) * 100;
-  const wPct = tp.cropW * 100;
-  const ov = $('trackPreviewOverlay');
-  ov.querySelector('.tp-left').style.width = leftPct + '%';
-  const frame = ov.querySelector('.tp-frame');
-  frame.style.left = leftPct + '%';
-  frame.style.width = wPct + '%';
-  const right = ov.querySelector('.tp-right');
+// t anındaki takip kutusunu (basamak-tut: t'den küçük/eşit son örnek) döndürür
+function boxAt(arr, t) {
+  let hit = arr[0];
+  for (let i = 0; i < arr.length; i++) {
+    if (arr[i].t <= t) hit = arr[i]; else break;
+  }
+  return hit;
+}
+
+function tpDrawFrame() {
+  if (!tp.open) return;
+  const v = $('tpVideo');
+  const t = v.currentTime;
+  const x = Math.max(0, Math.min(1 - tp.cropW, xAt(tp.path, t)));
+  const leftPct = x * 100, wPct = tp.cropW * 100;
+
+  // Kaynak panel: kadraj çerçevesi + iki yan karartma
+  $('tpFrame').style.left = leftPct + '%';
+  $('tpFrame').style.width = wPct + '%';
+  $('tpSourceBox').querySelector('.tp-left').style.width = leftPct + '%';
+  const right = $('tpSourceBox').querySelector('.tp-right');
   right.style.left = (leftPct + wPct) + '%';
   right.style.width = Math.max(0, 100 - leftPct - wPct) + '%';
-  tp.raf = requestAnimationFrame(drawTrackFrame);
+
+  // Takip edilen kişi maskesi
+  const mask = $('tpMask');
+  const b = tp.boxes && tp.boxes.length ? boxAt(tp.boxes, t) : null;
+  if (b && b.x !== null && b.w > 0) {
+    mask.style.display = 'block';
+    mask.style.left = (b.x * 100) + '%';
+    mask.style.top = (b.y * 100) + '%';
+    mask.style.width = (b.w * 100) + '%';
+    mask.style.height = (b.h * 100) + '%';
+  } else {
+    mask.style.display = 'none';
+  }
+
+  // Sağ panel: canlı kırpılmış 9:16 çıktı (video karesinin pencere bölgesini çiz)
+  const cv = $('tpCanvas');
+  const vw = v.videoWidth, vh = v.videoHeight;
+  if (vw && vh && cv.width) {
+    const ctx = cv._ctx || (cv._ctx = cv.getContext('2d'));
+    const sx = x * vw, sw = tp.cropW * vw;
+    try { ctx.drawImage(v, sx, 0, sw, vh, 0, 0, cv.width, cv.height); } catch {}
+  }
+  tp.raf = requestAnimationFrame(tpDrawFrame);
 }
 
 function setTrackPreviewBtn(state, text) {
   const btn = $('trackPreviewBtn'), st = $('trackPreviewStatus');
   if (state === 'working') { btn.textContent = 'İptal'; st.textContent = text || ''; }
-  else if (state === 'active') { btn.textContent = 'Önizlemeyi durdur'; st.textContent = ''; }
   else { btn.textContent = 'Kadrajı önizle'; st.textContent = ''; }
 }
 
-function startTrackOverlay() {
-  tp.active = true;
-  $('trackPreviewOverlay').classList.remove('hidden');
-  setTrackPreviewBtn('active');
-  seekPreview(tp.clipStart); // yol baştan izlensin
-  const v = $('preview');
-  if (v.paused) v.play().catch(() => {});
-  drawTrackFrame();
+function openTrackModal() {
+  tp.open = true;
+  const v = $('tpVideo');
+  const cv = $('tpCanvas');
+  $('trackPreviewModal').classList.remove('hidden');
+  $('tpPlayBtn').textContent = 'Duraklat';
+  v.src = tp.clipUrl;
+  v.onloadedmetadata = () => {
+    // Canvas tamponu, kırpılan çıktının doğal çözünürlüğü (net çizim)
+    cv.width = Math.max(2, Math.round(tp.cropW * v.videoWidth));
+    cv.height = v.videoHeight;
+    v.play().catch(() => {});
+    tpDrawFrame();
+  };
 }
 
-function stopTrackPreview() {
-  tp.active = false;
+function closeTrackModal() {
+  tp.open = false;
   if (tp.raf) { cancelAnimationFrame(tp.raf); tp.raf = 0; }
-  $('trackPreviewOverlay').classList.add('hidden');
+  const v = $('tpVideo');
+  try { v.pause(); } catch {}
+  v.removeAttribute('src'); v.onloadedmetadata = null; try { v.load(); } catch {}
+  $('trackPreviewModal').classList.add('hidden');
+  try { window.api.cleanupTrackPreview(); } catch {}
+  tp.path = null; tp.boxes = null; tp.clipUrl = null; // klip silindi, yeniden üretilmeli
 }
 
 // Yeni kaynak / değişen aralık / değişen işaret → önceki yol artık geçerli değil
 function invalidateTrackPreview() {
-  stopTrackPreview();
-  tp.path = null;
+  if (tp.open) closeTrackModal();
+  tp.path = null; tp.boxes = null; tp.clipUrl = null;
   if (tp.generating) { try { window.api.cancelTrackPreview(); } catch {} tp.generating = false; }
   setTrackPreviewBtn('idle');
 }
 
 async function computeTrackPreview() {
   if (busy || tp.generating) return;
-  if (tp.active) { stopTrackPreview(); setTrackPreviewBtn('idle'); return; } // aç/kapa
-  if (tp.path) { startTrackOverlay(); return; }                              // mevcut yolu yeniden göster
+  if (tp.clipUrl) { openTrackModal(); return; } // mevcut önizlemeyi yeniden aç
   const r = currentRange();
   tp.generating = true;
   setTrackPreviewBtn('working', 'Hazırlanıyor…');
@@ -643,15 +685,25 @@ async function computeTrackPreview() {
     return;
   }
   tp.generating = false;
-  if (res.cancelled) { setTrackPreviewBtn('idle'); return; }
-  if (res.error) { setTrackPreviewBtn('idle'); setStatus('err', res.error); return; }
-  tp.path = res.path; tp.cropW = res.cropW; tp.clipStart = r.start;
-  startTrackOverlay();
+  setTrackPreviewBtn('idle');
+  if (res.cancelled) return;
+  if (res.error) { setStatus('err', res.error); return; }
+  tp.path = res.path; tp.cropW = res.cropW; tp.boxes = res.boxes || []; tp.clipUrl = res.clipUrl;
+  openTrackModal();
 }
 
 $('trackPreviewBtn').addEventListener('click', () => {
   if (tp.generating) { window.api.cancelTrackPreview(); return; }
   computeTrackPreview();
+});
+$('tpModalClose').addEventListener('click', closeTrackModal);
+$('trackPreviewModal').addEventListener('click', (e) => {
+  if (e.target === $('trackPreviewModal')) closeTrackModal(); // dışına tıkla = kapat
+});
+$('tpPlayBtn').addEventListener('click', () => {
+  const v = $('tpVideo');
+  if (v.paused) { v.play().catch(() => {}); $('tpPlayBtn').textContent = 'Duraklat'; }
+  else { v.pause(); $('tpPlayBtn').textContent = 'Oynat'; }
 });
 
 window.api.onTrackPreviewProgress((p) => {
@@ -811,7 +863,7 @@ window.api.onPhase((phase) => {
 
 function setBusy(on) {
   busy = on;
-  if (on && tp.active) { stopTrackPreview(); setTrackPreviewBtn('idle'); } // indirme sırasında overlay'i gizle
+  if (on && tp.open) closeTrackModal(); // indirme başlarken önizleme modalını kapat
   const btn = $('downloadBtn');
   btn.textContent = on ? 'İptal' : 'İndir';
   btn.classList.toggle('cancel', on);

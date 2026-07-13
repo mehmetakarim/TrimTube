@@ -10,7 +10,9 @@ Bu dosya, farklı ortamlardaki (ev: macOS M-serisi, ofis: Windows 11) geliştirm
 **Yapılacaklar listesi (asıl kaynak):** proje kökündeki `YOL-HARITASI.md` (onay kutulu, faz faz).
 
 **Tamamlanan fazlar (detayları aşağıda):**
-- Faz 1 (v1.1.0) kesim deneyimi · Faz 2 (v1.2.0) GPU · Faz 3 (v1.3.0) altyazı · Faz 4 (v1.4.0) çoklu üretim · Faz 5 (v1.5.0) cila · Faz 6 (v1.6.0) marka & netlik · v1.6.1 macOS güncelleme geçişi · **Faz 7 + Faz 8 (v1.8.0) Whisper altyazı + yerel dosya & kadraj önizlemesi — YAYINLANDI (tek sürüm)**
+- Faz 1 (v1.1.0) kesim deneyimi · Faz 2 (v1.2.0) GPU · Faz 3 (v1.3.0) altyazı · Faz 4 (v1.4.0) çoklu üretim · Faz 5 (v1.5.0) cila · Faz 6 (v1.6.0) marka & netlik · v1.6.1 macOS güncelleme geçişi · **Faz 7 + Faz 8 (v1.8.0) Whisper altyazı + yerel dosya & kadraj önizlemesi — YAYINLANDI**
+
+**⚠️ Yayınlanmamış değişiklik (v1.8.0 SONRASI):** Kadraj önizlemesi kullanıcı geri bildirimiyle revize edildi — ana oynatıcı üstü overlay yerine **ayrı modal pencere** (takip edilen kişi yeşil maske + canlı 9:16 çıktı canvas). Kod hazır + görsel doğrulandı (başsız Electron screenshot), **yeni sürüm (v1.8.1 önerilir) bekliyor.** Detay: aşağıda "Faz 8 · Kadraj önizleme modalı".
 
 **Kalan fazlar (öncelik sırası):**
 - **Faz 9 — Toplu işleme:** playlist toplu indirme + arka planda kuyruk (render sürerken yeni video hazırlama).
@@ -467,10 +469,21 @@ Videoda gömülü/indirilebilir altyazı yoksa, kesitin sesi `faster-whisper` il
 - **renderer**: `fetchInfo` ortak `populateFromInfo(info)`'ya bölündü; hem URL hem yerel akış onu doldurur. `currentLocalFile` durumu; buildOpts'a `localFile` eklendi. Sürükle-bırak: tam ekran `#dropOverlay`, `dragenter/over/leave` sayaçlı (dragDepth), `drop`'ta `pathForFile` ile yol → `loadLocalFile`. Toolbar'a "Yerel video aç" ikon butonu. **KRİTİK:** `dragover` mutlaka `preventDefault` (Files tipinde) yoksa `drop` hiç ateşlenmez, tarayıcı dosyaya gider.
 - **CSP**: `media-src https:` → `media-src https: file:` (yerel önizleme file:// ile oynatılır). **DOĞRULANDI:** başsız Electron testiyle (uygulamanın gerçek CSP'si + varsayılan webSecurity) file:// video yüklendi (1280x720, dur 8137 okundu). Olmasaydı çözüm özel protokol (`protocol.handle` + `net.fetch(pathToFileURL)` — range/seek destekli) idi; gerekmedi.
 
-## 2. Kadraj yolu önizlemesi
+## 2. Kadraj yolu önizlemesi (MODAL — kullanıcı geri bildirimiyle revize edildi)
 
-- **`main.js` `track-preview` IPC**: kaynak seç (yerel > önbellek > 360p preview akışı) → aralığı **480p sessiz** geçici klibe al (`scale=-2:480`, tracker zaten 480p'de çalışır) → **tracker.py render'la AYNI** çağrılır → `cmds.txt` normalize edilir: her satır `{t, x}` (x = pencere sol kenarı / kaynak genişliği, 0-1) + `cropW = (h*9/16)/w`. Ayrı süreç takibi (`trackPrevProc`, `runPreviewProc`) — `currentProc`'a dokunmaz (İptal butonları karışmasın). `track-preview-cancel` IPC.
-- **renderer**: trackCard'a "Kadrajı önizle" butonu (`#trackPreviewRow`, takip açıkken görünür). Overlay `#trackPreviewOverlay` = 2 karartma paneli (tp-left/tp-right) + çerçeve (tp-frame). **object-fit varsayılanı `fill`** (mevcut işaretleme kodu da tüm elemanı video sayıyor) → yatay kesir doğrudan yüzdeye eşlenir, **letterbox hesabı gerekmez**. `xAt(path, t)` interpolasyon + rAF döngüsü ile currentTime'a göre pencere kayar. `invalidateTrackPreview()` yeni kaynak / değişen aralık (`computeZoomWindow` başında) / işaret (preview click) / format-dikey-kaldırma / ses / takip-kapatmada çağrılır; indirme başlarken (`setBusy`) overlay durur.
+**İlk sürüm ana oynatıcı üzerine maske bindiriyordu; kullanıcı "ayrı pencere + takip edilen kişiyi boyalı maske ile göster" istedi.** Yeni tasarım: ayrı **modal** pencere, iki panel — solda kaynak (takip kutusu yeşil maske + 9:16 kadraj çerçevesi + yan karartma), sağda **canlı kırpılmış 9:16 çıktı** (canvas).
+
+- **`tracker.py`**: opsiyonel `--boxes-out FILE` eklendi → her örnekte takip edilen kişinin **normalize kutusu** (`t x y w h`, 0-1) veya `t -` (görünmüyor). `--out` (cmds.txt) formatı DEĞİŞMEDİ → render güvenli. `cur_box`/`last_box` ile izlenir (kutu varsa güncelle, yoksa son bilineni tut).
+- **`main.js` `track-preview`**: 480p klip artık `-pix_fmt yuv420p -movflags +faststart` ile (tarayıcı file:// oynatması için). `--boxes-out` geçilir, boxes parse edilir. Klip **silinmez** — `trackPrevTmpDir`'de tutulur, `clipUrl = pathToFileURL(clip).href` döner. `track-preview-cleanup` IPC (modal kapanınca siler); yeni istekte üstte `cleanupTrackPrevTmp`. Dönen: `{ path, cropW, boxes, clipUrl }`.
+- **renderer**: `#trackPreviewModal` (`.modal-overlay` yeniden kullanılır, tema-uyumlu). `#tpVideo` klibi file:// ile döngüde oynatır. rAF `tpDrawFrame`: sol panelde `xAt(path,t)` ile kadraj çerçevesi + yan karartma, `boxAt(boxes,t)` (basamak-tut) ile yeşil maske; sağ panelde `ctx.drawImage(video, x·vw,0, cropW·vw,vh, 0,0, canvas)` ile canlı 9:16 çıktı. Canvas tamponu `onloadedmetadata`'da `cropW·vw × vh` (net). `invalidateTrackPreview` modalı kapatır + clipUrl'ı sıfırlar (klip silinmiş olur); tetikleyiciler öncekiyle aynı (aralık/işaret/format/ses/takip + setBusy).
+
+## Doğrulama (kadraj önizleme modalı)
+
+- `tracker.py --boxes-out`: 12s/480p klipte cmds=150 & boxes=150 satır (eşit); cmds.txt formatı bit-bit değişmedi (render güvenli).
+- `boxAt`/`xAt` gerçek veriyle: kutu zamanla doğru kayıyor (x 0.42→0.09, kişi sola gidiyor).
+- **Başsız Electron**: file:// klip oynadı (854x480, t ilerledi), `drawImage`→canvas hatasız (270x480 çıktı).
+- **Başsız Electron ekran görüntüsü** (t=6, gerçek klip+veri): yeşil maske takip edilen kişinin (kadın) tam üzerinde, mavi 9:16 çerçeve ona ortalı, yanlar kararmış, sağ canvas doğru kırpılmış dikey çıktıyı gösteriyor. **Görsel kanıtlandı.**
+- TUZAK (test): CSP `style-src 'self'` inline `<style>`'ı engeller → test HTML'inde harici stylesheet kullanılmalı (gerçek app zaten `style.css` kullanıyor, sorun yok).
 
 ## Doğrulama (gerçek, CLI)
 

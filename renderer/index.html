@@ -98,6 +98,36 @@
       </div>
     </div>
 
+    <!-- Kadraj önizleme modalı (Faz 8): sol=kaynak (kadraj çerçevesi + takip maskesi), sağ=canlı 9:16 çıktı -->
+    <div id="trackPreviewModal" class="modal-overlay hidden">
+      <div class="modal tp-modal">
+        <div class="modal-head">
+          <span class="modal-title">Kadraj önizleme</span>
+          <button id="tpModalClose" class="icon-btn" aria-label="Kapat">✕</button>
+        </div>
+        <div class="tp-modal-body">
+          <div class="tp-pane">
+            <div class="tp-pane-label">Kaynak · takip edilen kişi</div>
+            <div id="tpSourceBox" class="tp-source-box">
+              <video id="tpVideo" class="tp-video" loop muted playsinline></video>
+              <div id="tpMask" class="tp-mask"></div>
+              <div id="tpFrame" class="tp-cropframe"></div>
+              <div class="tp-dim tp-left"></div>
+              <div class="tp-dim tp-right"></div>
+            </div>
+          </div>
+          <div class="tp-pane tp-pane-out">
+            <div class="tp-pane-label">Çıktı · 9:16</div>
+            <canvas id="tpCanvas" class="tp-canvas"></canvas>
+          </div>
+        </div>
+        <div class="tp-modal-foot">
+          <button id="tpPlayBtn" class="btn-ghost small">Duraklat</button>
+          <span class="tp-foot-hint">Kutu, takibin izlediği kişiyi gösterir. Beğenmezseniz önizlemede kişiye tıklayıp yeniden oluşturun.</span>
+        </div>
+      </div>
+    </div>
+
     <div class="body">
 
       <!-- Sol: oynatıcı ve kesim -->
@@ -106,12 +136,6 @@
           <div id="playerEmpty" class="player-empty">Bağlantı yapıştırın ya da bir video dosyası sürükleyip bırakın</div>
           <video id="preview" preload="metadata" class="hidden"></video>
           <div id="trackMarker" class="track-marker hidden"></div>
-          <!-- Kadraj yolu önizlemesi: takibin üreteceği 9:16 pencereyi canlı gösterir -->
-          <div id="trackPreviewOverlay" class="track-prev-overlay hidden">
-            <div class="tp-dim tp-left"></div>
-            <div class="tp-dim tp-right"></div>
-            <div class="tp-frame"></div>
-          </div>
           <!-- Native kontrol çubuğu yerine ince özel şerit: sarma işi ana/ince çubuklarda -->
           <div id="playerChrome" class="player-chrome hidden">
             <button id="playBtn" class="chrome-btn" title="Oynat/Duraklat (Boşluk)">

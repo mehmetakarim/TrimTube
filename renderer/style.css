@@ -394,21 +394,66 @@ button:disabled { opacity: 0.45; cursor: default; }
 }
 
 /* ---- Kadraj yolu önizlemesi (Faz 8) ---- */
-.track-prev-overlay { position: absolute; inset: 0; pointer-events: none; z-index: 3; }
-.track-prev-overlay .tp-dim {
-  position: absolute; top: 0; bottom: 0;
-  background: rgba(0, 0, 0, 0.55);
-  transition: left 0.05s linear, width 0.05s linear;
-}
-.track-prev-overlay .tp-left { left: 0; }
-.track-prev-overlay .tp-frame {
-  position: absolute; top: 0; bottom: 0;
-  border: 2px solid var(--accent); /* çerçeve dışı karartma tp-left/tp-right ile yapılır */
-  box-sizing: border-box;
-  transition: left 0.05s linear, width 0.05s linear;
-}
 .track-prev-row { display: flex; align-items: center; gap: 10px; margin-top: 8px; padding: 0 4px; }
 .track-prev-status { font-size: 11.5px; color: var(--muted); }
+
+/* Kadraj önizleme modalı */
+.tp-modal { max-width: 720px; width: calc(100% - 48px); }
+.tp-modal-body { display: flex; gap: 16px; align-items: flex-start; }
+.tp-pane { display: flex; flex-direction: column; gap: 8px; }
+.tp-pane:first-child { flex: 1; min-width: 0; }
+.tp-pane-label { font-size: 11.5px; color: var(--muted); font-weight: 600; }
+
+.tp-source-box {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #000;
+  border-radius: 10px;
+  overflow: hidden;
+}
+.tp-video { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.tp-dim {
+  position: absolute; top: 0; bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+}
+.tp-dim.tp-left { left: 0; }
+/* Takip edilen kişiyi vurgulayan maske */
+.tp-mask {
+  position: absolute;
+  border: 2px solid #34C759;
+  background: rgba(52, 199, 89, 0.18);
+  border-radius: 4px;
+  pointer-events: none;
+  z-index: 2;
+  transition: left 0.06s linear, top 0.06s linear, width 0.06s linear, height 0.06s linear;
+}
+/* 9:16 kadraj penceresi çerçevesi */
+.tp-cropframe {
+  position: absolute; top: 0; bottom: 0;
+  border: 2px solid var(--accent);
+  box-sizing: border-box;
+  pointer-events: none;
+  z-index: 3;
+  transition: left 0.06s linear, width 0.06s linear;
+}
+
+.tp-pane-out { flex: none; align-items: center; }
+.tp-canvas {
+  height: 300px;
+  aspect-ratio: 9 / 16;
+  background: #000;
+  border-radius: 10px;
+  display: block;
+}
+.tp-modal-foot { display: flex; align-items: center; gap: 12px; margin-top: 16px; }
+.tp-foot-hint { font-size: 11.5px; color: var(--muted); line-height: 1.4; }
+
+@media (max-width: 620px) {
+  .tp-modal-body { flex-direction: column; align-items: stretch; }
+  .tp-pane-out { align-items: flex-start; }
+}
 
 /* ---- Kesim alanı ---- */
 .trim-area { flex: none; display: flex; flex-direction: column; gap: 12px; transition: opacity 0.2s; }

@@ -1087,6 +1087,16 @@ ipcMain.handle('cancel', () => {
 // dokunmaz — İptal butonu kadraj önizlemesini, önizleme iptali de indirmeyi öldürmesin).
 let trackPrevProc = null;
 let trackPrevCancelled = false;
+// Üretilen 480p klip + veri klasörü modal kapanana kadar tutulur (modal onu
+// file:// ile oynatır); yeni istekte ve kapanışta temizlenir.
+let trackPrevTmpDir = null;
+
+function cleanupTrackPrevTmp() {
+  if (trackPrevTmpDir) {
+    try { fs.rmSync(trackPrevTmpDir, { recursive: true, force: true }); } catch {}
+    trackPrevTmpDir = null;
+  }
+}
 
 function runPreviewProc(cmd, args, onLine) {
   return new Promise((resolve) => {
@@ -1118,8 +1128,12 @@ ipcMain.handle('track-preview-cancel', () => {
   }
 });
 
+// Modal kapanınca tutulan geçici klip/veri klasörünü sil
+ipcMain.handle('track-preview-cleanup', () => { cleanupTrackPrevTmp(); });
+
 ipcMain.handle('track-preview', async (e, { url, videoId, localFile, start, duration, trackPoint }) => {
   trackPrevCancelled = false;
+  cleanupTrackPrevTmp(); // önceki önizlemenin klibini bırak
   // Kaynak önceliği: yerel dosya > önbellekteki tam video > 360p önizleme akışı
   const local = (localFile && fs.existsSync(localFile)) ? localFile : findCachedMedia(videoId);
   const input = local || url;
@@ -1131,12 +1145,15 @@ ipcMain.handle('track-preview', async (e, { url, videoId, localFile, start, dura
 
   try {
     // 1) Aralığı 480p'ye küçültülmüş sessiz geçici klibe al — tracker zaten
-    //    480p üzerinde çalışır, tam çözünürlük yalnızca gereksiz yük olur
+    //    480p üzerinde çalışır, tam çözünürlük yalnızca gereksiz yük olur.
+    //    Modal bu klibi file:// ile oynatacağı için tarayıcının çözebildiği
+    //    yuv420p + faststart ile yazılır.
     const clip = path.join(tmpDir, 'prev.mp4');
     send({ stage: 'extract' });
     const ex = await runPreviewProc(FFMPEG, [
       '-y', '-ss', String(start), '-i', input, '-t', String(duration),
       '-an', '-vf', 'scale=-2:480', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '28',
+      '-pix_fmt', 'yuv420p', '-movflags', '+faststart',
       clip
     ], () => {});
     if (trackPrevCancelled) { cleanup(); return { cancelled: true }; }
@@ -1145,9 +1162,10 @@ ipcMain.handle('track-preview', async (e, { url, videoId, localFile, start, dura
       return { error: 'Aralık hazırlanamadı:\n' + ex.stderr.split(/\r?\n/).filter(Boolean).slice(-2).join('\n') };
     }
 
-    // 2) tracker.py — render'daki takiple aynı kod, aynı parametreler
+    // 2) tracker.py — render'daki takiple aynı kod; ek olarak takip kutusu yolu
     const cmds = path.join(tmpDir, 'cmds.txt');
-    const args = [path.join(__dirname, 'tracker.py'), clip, '--out', cmds];
+    const boxesFile = path.join(tmpDir, 'boxes.txt');
+    const args = [path.join(__dirname, 'tracker.py'), clip, '--out', cmds, '--boxes-out', boxesFile];
     if (trackPoint) args.push('--point', `${trackPoint.x.toFixed(4)},${trackPoint.y.toFixed(4)}`);
     const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
     const tr = await runPreviewProc(pythonCmd, args, (line) => {
@@ -1160,17 +1178,38 @@ ipcMain.handle('track-preview', async (e, { url, videoId, localFile, start, dura
       return { error: 'Kişi takibi başarısız:\n' + tr.stderr.split(/\r?\n/).filter(Boolean).slice(-3).join('\n') };
     }
 
-    // 3) cmds.txt → normalize yol: x = pencerenin SOL kenarı / kaynak genişliği,
-    //    cropW = pencere genişliği / kaynak genişliği (0-1; çözünürlükten bağımsız)
+    // 3) cmds.txt → normalize kadraj yolu: x = pencerenin SOL kenarı / kaynak
+    //    genişliği; cropW = pencere genişliği / kaynak genişliği (0-1)
     const dims = await probeDims(clip);
     const pathArr = [];
     for (const line of fs.readFileSync(cmds, 'utf8').split(/\r?\n/)) {
       const m = line.match(/^([\d.]+)\s+crop\s+x\s+(\d+);/);
       if (m) pathArr.push({ t: +m[1], x: (+m[2]) / dims.w });
     }
-    cleanup();
-    if (!pathArr.length) return { error: 'Takip verisi üretilemedi.' };
-    return { path: pathArr, cropW: (dims.h * 9 / 16) / dims.w };
+    if (!pathArr.length) { cleanup(); return { error: 'Takip verisi üretilemedi.' }; }
+
+    // 4) boxes.txt → takip edilen kişinin normalize kutu yolu (maske için)
+    const boxes = [];
+    try {
+      for (const line of fs.readFileSync(boxesFile, 'utf8').split(/\r?\n/)) {
+        const parts = line.trim().split(/\s+/);
+        if (parts.length === 5) {
+          boxes.push({ t: +parts[0], x: +parts[1], y: +parts[2], w: +parts[3], h: +parts[4] });
+        } else if (parts.length === 2 && parts[1] === '-') {
+          boxes.push({ t: +parts[0], x: null }); // bu anda kişi görünmüyor
+        }
+      }
+    } catch {}
+
+    // Klibi (ve veriyi) tut: modal file:// ile oynatacak. Modal kapanınca
+    // track-preview-cleanup ile silinir; yeni istekte de üstte temizlenir.
+    trackPrevTmpDir = tmpDir;
+    return {
+      path: pathArr,
+      cropW: (dims.h * 9 / 16) / dims.w,
+      boxes,
+      clipUrl: pathToFileURL(clip).href
+    };
   } catch (err) {
     cleanup();
     return { error: err.message };

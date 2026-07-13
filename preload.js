@@ -18,6 +18,7 @@ contextBridge.exposeInMainWorld('api', {
   pathForFile: (file) => webUtils.getPathForFile(file),
   trackPreview: (opts) => ipcRenderer.invoke('track-preview', opts),
   cancelTrackPreview: () => ipcRenderer.invoke('track-preview-cancel'),
+  cleanupTrackPreview: () => ipcRenderer.invoke('track-preview-cleanup'),
   onTrackPreviewProgress: (cb) => ipcRenderer.on('track-preview-progress', (e, p) => cb(p)),
   onProgress: (cb) => ipcRenderer.on('progress', (e, p) => cb(p)),
   onLog: (cb) => ipcRenderer.on('log', (e, line) => cb(line)),
