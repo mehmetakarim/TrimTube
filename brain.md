@@ -6,13 +6,11 @@ Bu dosya, farklı ortamlardaki (ev: macOS M-serisi, ofis: Windows 11) geliştirm
 
 ## 📍 GÜNCEL DURUM & SIRADAKİ İŞLER (yeni oturum buradan başlasın)
 
-**Yayındaki sürüm:** `v1.8.0` · Windows/macOS(arm64)/Linux · GitHub: mehmetakarim/TrimTube
+**Yayındaki sürüm:** `v1.8.1` · Windows/macOS(arm64)/Linux · GitHub: mehmetakarim/TrimTube
 **Yapılacaklar listesi (asıl kaynak):** proje kökündeki `YOL-HARITASI.md` (onay kutulu, faz faz).
 
 **Tamamlanan fazlar (detayları aşağıda):**
-- Faz 1 (v1.1.0) kesim deneyimi · Faz 2 (v1.2.0) GPU · Faz 3 (v1.3.0) altyazı · Faz 4 (v1.4.0) çoklu üretim · Faz 5 (v1.5.0) cila · Faz 6 (v1.6.0) marka & netlik · v1.6.1 macOS güncelleme geçişi · **Faz 7 + Faz 8 (v1.8.0) Whisper altyazı + yerel dosya & kadraj önizlemesi — YAYINLANDI**
-
-**⚠️ Yayınlanmamış değişiklik (v1.8.0 SONRASI):** Kadraj önizlemesi kullanıcı geri bildirimiyle revize edildi — ana oynatıcı üstü overlay yerine **ayrı modal pencere** (takip edilen kişi yeşil maske + canlı 9:16 çıktı canvas). Kod hazır + görsel doğrulandı (başsız Electron screenshot), **yeni sürüm (v1.8.1 önerilir) bekliyor.** Detay: aşağıda "Faz 8 · Kadraj önizleme modalı".
+- Faz 1 (v1.1.0) kesim deneyimi · Faz 2 (v1.2.0) GPU · Faz 3 (v1.3.0) altyazı · Faz 4 (v1.4.0) çoklu üretim · Faz 5 (v1.5.0) cila · Faz 6 (v1.6.0) marka & netlik · v1.6.1 macOS güncelleme geçişi · **Faz 7 + Faz 8 (v1.8.0) Whisper altyazı + yerel dosya & kadraj önizlemesi** · **v1.8.1 kadraj önizleme MODAL revizyonu (takip edilen kişi maskesi + canlı 9:16 çıktı)** — HEPSİ YAYINLANDI
 
 **Kalan fazlar (öncelik sırası):**
 - **Faz 9 — Toplu işleme:** playlist toplu indirme + arka planda kuyruk (render sürerken yeni video hazırlama).
