@@ -1150,9 +1150,12 @@ ipcMain.handle('track-preview', async (e, { url, videoId, localFile, start, dura
     //    yuv420p + faststart ile yazılır.
     const clip = path.join(tmpDir, 'prev.mp4');
     send({ stage: 'extract' });
+    // Ses de dahil edilir: modal önizlemesinde kullanıcı sesi duyar (daha doğru
+    // kesim/kadraj kontrolü). Takip (tracker.py) sesi kullanmaz; ekstra yük düşük.
     const ex = await runPreviewProc(FFMPEG, [
       '-y', '-ss', String(start), '-i', input, '-t', String(duration),
-      '-an', '-vf', 'scale=-2:480', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '28',
+      '-vf', 'scale=-2:480', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '28',
+      '-c:a', 'aac', '-b:a', '128k',
       '-pix_fmt', 'yuv420p', '-movflags', '+faststart',
       clip
     ], () => {});

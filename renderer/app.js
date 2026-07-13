@@ -554,7 +554,7 @@ $('preview').addEventListener('click', (e) => {
 // yeşil maske + 9:16 kadraj çerçevesi, sağda canlı kırpılmış 9:16 çıktı (canvas).
 const tp = {
   path: null, cropW: 0, boxes: null, clipUrl: null,
-  open: false, raf: 0, generating: false
+  open: false, raf: 0, generating: false, muted: false
 };
 
 function currentRange() {
@@ -638,6 +638,8 @@ function openTrackModal() {
   const cv = $('tpCanvas');
   $('trackPreviewModal').classList.remove('hidden');
   $('tpPlayBtn').textContent = 'Duraklat';
+  v.muted = tp.muted;
+  $('tpMuteBtn').textContent = tp.muted ? 'Sesi aç' : 'Sesi kapat';
   v.src = tp.clipUrl;
   v.onloadedmetadata = () => {
     // Canvas tamponu, kırpılan çıktının doğal çözünürlüğü (net çizim)
@@ -704,6 +706,11 @@ $('tpPlayBtn').addEventListener('click', () => {
   const v = $('tpVideo');
   if (v.paused) { v.play().catch(() => {}); $('tpPlayBtn').textContent = 'Duraklat'; }
   else { v.pause(); $('tpPlayBtn').textContent = 'Oynat'; }
+});
+$('tpMuteBtn').addEventListener('click', () => {
+  tp.muted = !tp.muted;
+  $('tpVideo').muted = tp.muted;
+  $('tpMuteBtn').textContent = tp.muted ? 'Sesi aç' : 'Sesi kapat';
 });
 
 window.api.onTrackPreviewProgress((p) => {

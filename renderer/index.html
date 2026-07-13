@@ -106,10 +106,10 @@
           <button id="tpModalClose" class="icon-btn" aria-label="Kapat">✕</button>
         </div>
         <div class="tp-modal-body">
-          <div class="tp-pane">
-            <div class="tp-pane-label">Kaynak · takip edilen kişi</div>
+          <div class="tp-pane tp-pane-src">
+            <span class="label">Kaynak · takip edilen kişi</span>
             <div id="tpSourceBox" class="tp-source-box">
-              <video id="tpVideo" class="tp-video" loop muted playsinline></video>
+              <video id="tpVideo" class="tp-video" loop playsinline></video>
               <div id="tpMask" class="tp-mask"></div>
               <div id="tpFrame" class="tp-cropframe"></div>
               <div class="tp-dim tp-left"></div>
@@ -117,13 +117,14 @@
             </div>
           </div>
           <div class="tp-pane tp-pane-out">
-            <div class="tp-pane-label">Çıktı · 9:16</div>
+            <span class="label">Çıktı · 9:16</span>
             <canvas id="tpCanvas" class="tp-canvas"></canvas>
           </div>
         </div>
         <div class="tp-modal-foot">
           <button id="tpPlayBtn" class="btn-ghost small">Duraklat</button>
-          <span class="tp-foot-hint">Kutu, takibin izlediği kişiyi gösterir. Beğenmezseniz önizlemede kişiye tıklayıp yeniden oluşturun.</span>
+          <button id="tpMuteBtn" class="btn-ghost small">Sesi kapat</button>
+          <span class="tp-foot-hint">Yeşil kutu takibin izlediği kişiyi gösterir.</span>
         </div>
       </div>
     </div>
