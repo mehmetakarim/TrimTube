@@ -39,7 +39,8 @@ function clearStatus() { $('statusMsg').classList.add('hidden'); }
 const TOAST_OK_SVG = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#34C759" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
 let toastTimer = null;
 
-function showToast(msg, action) {
+function showToast(msg, action, opts) {
+  opts = opts || {};
   $('toastIcon').innerHTML = TOAST_OK_SVG;
   $('toastMsg').textContent = msg;
   const a = $('toastAction');
@@ -53,7 +54,9 @@ function showToast(msg, action) {
   }
   $('toast').classList.remove('hidden');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(hideToast, 8000); // birkaç saniye sonra kendiliğinden kapanır
+  // sticky: yalnızca ✕ ile kapanır (ör. indirme tamamlandı). Aksi halde birkaç
+  // saniye sonra kendiliğinden kapanır (kısa bilgi mesajları için).
+  if (!opts.sticky) toastTimer = setTimeout(hideToast, 8000);
 }
 
 function hideToast() {
@@ -1210,7 +1213,7 @@ async function runQueueWorker() {
     showToast(done > 1 ? `${done} iş tamamlandı` : 'İndirme tamamlandı', {
       label: 'Klasörü aç',
       onClick: () => window.api.openFolder($('folder').textContent)
-    });
+    }, { sticky: true }); // indirme bildirimi kendiliğinden kapanmaz, elle kapatılır
   } else {
     setStatus('err', `${done} tamamlandı, ${failed} başarısız:\n` + failures.slice(0, 3).join('\n'));
   }
