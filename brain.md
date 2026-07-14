@@ -6,7 +6,7 @@ Bu dosya, farklı ortamlardaki (ev: macOS M-serisi, ofis: Windows 11) geliştirm
 
 ## 📍 GÜNCEL DURUM & SIRADAKİ İŞLER (yeni oturum buradan başlasın)
 
-**Yayındaki sürüm:** `v1.10.1` · Windows/macOS(arm64)/Linux · GitHub: mehmetakarim/TrimTube
+**Yayındaki sürüm:** `v1.11.0` · Windows/macOS(arm64)/Linux · GitHub: mehmetakarim/TrimTube
 **Yapılacaklar listesi (asıl kaynak):** proje kökündeki `YOL-HARITASI.md` (onay kutulu, faz faz).
 
 **Tamamlanan fazlar (detayları aşağıda):**
@@ -18,7 +18,7 @@ v1.8.2 (YAYINLANDI): kadraj önizleme modalında önizleme **sesi** + **tasarım
 
 **Faz 10-A (v1.10.0) YAYINLANDI:** konuşmacı-değişimli takip (aktif konuşana kadraj). Kullanıcı "mükemmel sonuç" dedi; ince ayar sonrası yayınlandı.
 
-**⏳ KOD HAZIR (v1.11.0), yayın bekliyor: Faz 10-B — kurulumsuz takip** (PyInstaller). `tracker.py` platforma özel tek dosyaya dondurulup pakete gömülür → son kullanıcı Python kurmadan takibi kullanır. Windows'ta yerel build doğrulandı (frozen exe çıktısı python ile BİREBİR aynı). mac/Linux yalnız CI'de görülecek. Aşağıya bkz.
+**Faz 10-B (v1.11.0) YAYINLANDI:** kurulumsuz takip (PyInstaller). `tracker.py` platforma özel tek dosyaya dondurulup pakete gömüldü → son kullanıcı Python kurmadan takibi kullanır. **CI 3 platformda da (Win/mac-arm64/Linux) freeze + build başarılı** (en büyük risk olan mac/Linux freeze sorunsuz geçti). Kurulum boyutları: Win 233MB / macOS 259MB / Linux 270MB. **Yol haritasının ana planı (Faz 1–10) tamamen tamamlandı.**
 
 **Faz 6 marka arayüzü rötuşları (v1.10.1) YAYINLANDI:** (1) "İndirme tamamlandı · Klasörü aç" kalıcı satır yerine **yüzer toast** — indirme bildirimi `sticky` (yalnız ✕ ile kapanır, kullanıcı isteğiyle 8s otomatik-kapanma kaldırıldı); kısa bilgi mesajları (playlist) otomatik kapanır. (2) Sağ panel boşluk düzeni: **KRİTİK bulgu** — Logo/filigran + Başlık kartları arasındaki `style="margin-top:10px"` inline'ı **CSP `style-src 'self'` tarafından engellenmiş** → yapışıktı. brandCard `.brand-unit` sarmalayıcılarıyla yeniden yapılandırıldı (birimler arası 16px, birim içi 10px). Kullanıcı "kusursuz" dedi. **Ders: inline `style=` her zaman CSP'ye takılır — daima CSS sınıfı kullan.**
 
