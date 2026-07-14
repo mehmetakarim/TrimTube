@@ -35,6 +35,8 @@ MOTION_MIN = 1.8        # aday konusanin en az agiz hareketi (0-255 gri fark)
 SWITCH_RATIO = 1.4      # yeni aday, mevcut konusandan bu kadar cok hareket etmeli
 SWITCH_HOLD = 2         # gecis icin gereken ardisik ornek sayisi (~0.2 sn)
 TRACK_STALE = 3         # bir yuz kaç ornek görünmezse "track" düşürülür
+MISSING_GRACE = 5       # aktif konusanin yuzu kaybolunca kaç ornek beklenir (~0.5 sn)
+                        # — arkasi donuk/gecici kayiplarda yalpalanmayi onler
 
 
 class FaceEngine:
@@ -273,6 +275,7 @@ def run_speaker(cap, engine, scale, sw, sh, src_w, src_h, fps, step, total, audi
     active = None        # o an secili konusan track
     active_cx = src_w / 2.0
     active_box_norm = None
+    active_missing = 0   # aktif konusanin yuzu kaç ornektir görünmüyor
     pending = None
     pending_n = 0
     segment = 0
@@ -294,6 +297,7 @@ def run_speaker(cap, engine, scale, sw, sh, src_w, src_h, fps, step, total, audi
             segment += 1
             tracks = []
             active = None
+            active_missing = 0
             pending = None
             pending_n = 0
 
@@ -327,17 +331,15 @@ def run_speaker(cap, engine, scale, sw, sh, src_w, src_h, fps, step, total, audi
         visible = [t for t in tracks if t["seen"] == sample_idx]
         speaking = True if audio_env is None else (audio_env(frame_idx / fps) > SPEECH_THRESH)
 
-        if visible:
-            best = max(visible, key=lambda t: t["motion"])
-            # kimlik (is) ile kontrol: track dict'leri numpy dizisi icerdiginden
-            # 'in'/'==' belirsizlik hatasi verir
-            active_visible = any(active is t for t in visible)
-            if active is None or not active_visible:
-                # konusan yoksa/kayboldu: en cok hareket edene (yoksa tek yuze) geç
-                active = best
-                pending, pending_n = None, 0
-            elif speaking and best is not active and best["motion"] > active["motion"] * SWITCH_RATIO and best["motion"] > MOTION_MIN:
-                # aday baskin: birkac ornek sürerse geç (histerezis, titremeyi önler)
+        # kimlik (is) ile kontrol: track dict'leri numpy dizisi icerdiginden
+        # 'in'/'==' belirsizlik hatasi verir
+        best = max(visible, key=lambda t: t["motion"]) if visible else None
+        active_visible = active is not None and any(active is t for t in visible)
+
+        if active_visible:
+            active_missing = 0
+            # aktif konusan gorunur: baskin bir aday konusuyorsa histerezisle gec
+            if speaking and best is not active and best["motion"] > active["motion"] * SWITCH_RATIO and best["motion"] > MOTION_MIN:
                 pending_n = pending_n + 1 if pending is best else 1
                 pending = best
                 if pending_n >= SWITCH_HOLD:
@@ -345,10 +347,27 @@ def run_speaker(cap, engine, scale, sw, sh, src_w, src_h, fps, step, total, audi
                     pending, pending_n = None, 0
             else:
                 pending, pending_n = None, 0
+        else:
+            # aktif konusan bu karede gorunmuyor (arkasi donuk / gecici kayip / sahne)
+            pending, pending_n = None, 0
+            if active is None:
+                # ilk seciM: konusan (hareketli) yuz varsa onu, yoksa en buyugu
+                if best is not None:
+                    active = best if best["motion"] > MOTION_MIN else max(visible, key=lambda t: t["w"])
+                    active_missing = 0
+            else:
+                active_missing += 1
+                # kisa sure son konumda BEKLE (yalpalanmayi onler); ancak gercekten
+                # konusan baska bir yuz belirdi ve grace doldu ise yeniden sec
+                if active_missing > MISSING_GRACE and best is not None and best["motion"] > MOTION_MIN:
+                    active = best
+                    active_missing = 0
 
+        # Kadraji yalnizca aktif konusan bu karede gorunurken guncelle; degilse
+        # son konumda bekle (active_cx / active_box_norm korunur)
+        if active is not None and any(active is t for t in visible):
             active_cx = active["cx"] / scale
             active_box_norm = _norm_box(body_box(active["f"], sw, sh), sw, sh)
-        # gorunur yuz yoksa: son konumda bekle (active_cx degismez)
 
         centers.append((frame_idx / fps, active_cx, segment))
         boxes.append((frame_idx / fps, active_box_norm))
@@ -375,7 +394,7 @@ def _norm_box(box, sw, sh):
 # ----------------------------------------------------------------------------
 # Ortak cikti: kamera yumusatma + sendcmd/boxes yazma
 # ----------------------------------------------------------------------------
-def write_output(centers, boxes, out_path, boxes_out, src_w, src_h):
+def write_output(centers, boxes, out_path, boxes_out, src_w, src_h, dead_frac=0.10, ease=0.18):
     crop_w = src_h * 9.0 / 16.0
     max_x = max(0.0, src_w - crop_w)
     if not centers:
@@ -394,9 +413,9 @@ def write_output(centers, boxes, out_path, boxes_out, src_w, src_h):
             hi += 1
         med.append(sorted(xs[lo:hi])[(hi - lo) // 2])
 
-    # 2) Olu bolge + yumusak izleme: kucuk sapmada kamera kimildamaz, buyukte yetisir
-    dead = crop_w * 0.10
-    ease = 0.18
+    # 2) Olu bolge + yumusak izleme: kucuk sapmada kamera kimildamaz, buyukte yetisir.
+    #    Konusmaci modu daha genis olu bolge (titreme az) + biraz hizli ease (geciş) kullanir.
+    dead = crop_w * dead_frac
     smoothed = []
     cam = med[0]
     for i in range(len(med)):
@@ -461,7 +480,11 @@ def main():
         centers, boxes = run_single(cap, engine, scale, sw, sh, src_w, src_h, fps, step, total, init_point)
 
     cap.release()
-    write_output(centers, boxes, args.out, args.boxes_out, src_w, src_h)
+    if args.speaker:
+        # Konusmaci modu: biraz genis olu bolge (titreme az) + biraz hizli ease (geciş)
+        write_output(centers, boxes, args.out, args.boxes_out, src_w, src_h, dead_frac=0.13, ease=0.22)
+    else:
+        write_output(centers, boxes, args.out, args.boxes_out, src_w, src_h)
     print("PROGRESS 100", flush=True)
     print("DONE", flush=True)
 

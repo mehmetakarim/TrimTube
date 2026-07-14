@@ -557,7 +557,15 @@ Sahnede birden fazla yüz varsa o an **konuşanı** otomatik seçip kadrajı ona
 - **UI wiring (başsız Electron + mock):** yükleme temiz, mod seçici görünür, speaker seçince doğru ipucu, `buildOpts → {track:true, speakerMode:true}`.
 - **Sınır:** "tam DOĞRU konuşanı mı seçiyor" — ses+izleme gerektirir, kullanıcı arayüzde yargılayacak (tek-kişi takibindeki gibi). Heuristik; eşikler (SPEECH_THRESH/MOTION_MIN/SWITCH_*) tracker.py başında ayarlanabilir.
 
+## İnce ayar (kullanıcı ilk testi sonrası)
+
+Kullanıcı "mükemmel sonuç" dedi; 3 iyileştirme noktası bildirdi → hepsi **yalnızca konuşmacı modunda** (tek-kişi bozulmadan) yapıldı:
+- **Yalpalanma (herkes arkası dönükken):** `run_speaker` seçim mantığına **HOLD** eklendi — aktif konuşanın yüzü kaybolunca `MISSING_GRACE=5` örnek (~0.5s) son konumda beklenir; yeniden seçim ancak gerçekten konuşan (motion>MOTION_MIN) yüz belirince. Yüz yoksa/hareketsizse hiç atlamaz. İlk seçim de hareketli yüzü (yoksa en büyüğü) tercih eder.
+- **Titreme:** konuşmacı modunda `write_output(dead_frac=0.13)` (0.10 yerine daha geniş ölü bölge). `write_output` parametrik yapıldı; tek-kişi çağrısı varsayılanlarla (0.10/0.18) **birebir aynı**.
+- **Geçişler:** konuşmacı modunda `ease=0.22` (0.18 yerine biraz daha hızlı yetişme).
+- Doğrulama: regresyon (tek-kişi 375 satır özdeş) + konuşmacı görsel (6 karenin 5'i doğru konuşan yüzde, kadraj oturmuş; takılmıyor, 5 gerçek pan).
+
 ## Kalan / Sıradaki
 
-- Yayın: v1.10.0 (kullanıcı onayı bekleniyor).
-- İyileştirme fikirleri (gerekirse): dudak hareketi için YuNet 5-nokta yerine gerçek ağız-açıklık; ses-dudak korelasyonu (şu an ayrı sinyaller); çoklu-yüz aynı anda görünürken pan yerine bölünmüş ekran.
+- Yayın: v1.10.0 (ince ayar sonrası; kullanıcı onayı bekleniyor).
+- İleride (gerekirse): dudak hareketi için gerçek ağız-açıklık; ses-dudak korelasyonu; eşikler `tracker.py` başında (SPEECH_THRESH/MOTION_MIN/SWITCH_*/MISSING_GRACE).
