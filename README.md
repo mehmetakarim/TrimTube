@@ -5,8 +5,8 @@
 <h1 align="center">TrimTube</h1>
 
 <p align="center">
-  YouTube videolarını URL ile indirip istediğiniz aralığı kesen, Shorts için dikey formata dönüştüren ve<br>
-  yapay zeka ile <b>kişiyi takip eden akıllı kadraj</b> uygulayabilen masaüstü uygulaması.
+  YouTube videolarını (veya yerel dosyaları) indirip istediğiniz aralığı kesen, Shorts için dikey formata dönüştüren,<br>
+  yapay zeka ile <b>konuşana/kişiye kilitlenen akıllı kadraj</b> ve <b>otomatik altyazı</b> uygulayabilen masaüstü uygulaması.
 </p>
 
 ---
@@ -58,14 +58,18 @@ Bu akış yalnızca **Windows**'ta güvenilir çalışır. **macOS**'ta uygulama
 
 ## Nasıl çalışır
 
-1. YouTube bağlantısını yapıştırıp **Bilgi Al**'a basın.
-2. "Belirli aralığı kes" açıksa uygulama içi oynatıcıdan kesim noktalarını seçin.
-3. Format olarak **Orijinal** veya **Dikey 9:16**'yı seçin; dikeyde isterseniz **Kişiyi takip et**'i açıp önizlemede kişiye tıklayarak işaretleyin.
-4. Kalite ve kayıt klasörünü ayarlayıp **İndir**'e basın.
+1. YouTube bağlantısını yapıştırıp **Bilgi Al**'a basın — ya da bir video dosyasını pencereye **sürükleyip bırakın**. (Playlist bağlantısında videoları seçip toplu kuyruğa alabilirsiniz.)
+2. "Belirli aralığı kes" açıksa uygulama içi oynatıcıdan (dalga formu destekli ince ayar şeridiyle) kesim noktalarını seçin.
+3. Format olarak **Orijinal / 9:16 / 1:1** (birden fazla) seçin. Dikeyde **Kişiyi takip et**'i açıp:
+   - **İşaretlenen kişi** — önizlemede takip edilecek kişiye tıklayın, veya
+   - **Aktif konuşan** — sahnede o an konuşana kadrajı otomatik kaydırır (işaret gerekmez).
+   İsterseniz **Kadrajı önizle** ile takibi render'dan önce ayrı pencerede izleyin.
+4. İsteğe bağlı: **altyazı** (YouTube'dan veya Whisper ile sesten), **logo/filigran**, **başlık metni** ekleyin.
+5. Kalite ve kayıt klasörünü ayarlayıp **İndir** (veya **+ Kuyruk**) deyin. Kuyruk arka planda işlenirken yeni video hazırlamaya devam edebilirsiniz.
 
-Video, `yt-dlp`'nin paralel indiricisiyle tam olarak indirilir; kesme ve dönüştürme yerelde `ffmpeg` ile yapılır. Bu sayede uzun videolarda bile indirme hızlı olur ve aynı videodan alınan ek klipler önbellekten anında kesilir.
+Video, `yt-dlp`'nin paralel indiricisiyle tam olarak indirilir; kesme ve dönüştürme yerelde `ffmpeg` ile (uygun donanımda GPU hızlandırmalı: NVENC/QuickSync/AMF/VideoToolbox) yapılır. Bu sayede uzun videolarda bile indirme hızlı olur ve aynı videodan alınan ek klipler önbellekten anında kesilir.
 
-Kişi takibi açıkken `tracker.py` (OpenCV CSRT takip + YuNet yüz tespiti + SFace yüz kimliği eşleştirme) videoyu analiz ederek kırpma penceresinin konumlarını üretir; `ffmpeg` bu verilerle dinamik `crop` uygular. Sahne kesmeleri otomatik tespit edilip takip sıfırlanır, kişi yüz kimliğiyle yeniden bulunur ve kamera hareketi titremeyi önlemek için yumuşatılır.
+Kişi takibi açıkken `tracker.py` (OpenCV YuNet yüz tespiti + SFace yüz kimliği + CSRT takip) videoyu analiz ederek 9:16 kırpma penceresinin konumlarını üretir; `ffmpeg` bu verilerle dinamik `crop` uygular. Sahne kesmeleri otomatik tespit edilip takip sıfırlanır, kişi yüz kimliğiyle yeniden bulunur ve kamera hareketi titremeyi önlemek için yumuşatılır. **Aktif konuşan** modunda ise sahnedeki yüzler arasından, ses enerjisi + ağız hareketi birleşimiyle o an konuşan seçilir (histerezisle gereksiz geçişler önlenir). Yayınlanan kurulum paketlerinde bu motor PyInstaller ile platforma özel tek dosyaya **dondurulup gömülüdür**, yani son kullanıcı Python kurmaz.
 
 ## Kaynaktan çalıştırma (geliştirici)
 
@@ -96,11 +100,12 @@ Bu komutlar önce ilgili platform için `yt-dlp` ikilisini indirir, sonra `elect
 
 ## Teknik notlar
 
-- Kesme/dönüştürme gereken indirmelerde tam video önbelleğe alınır (`%APPDATA%/trimtube/cache`, son 2 video tutulur).
+- Kesme/dönüştürme gereken indirmelerde tam video önbelleğe alınır (`%APPDATA%/trimtube/cache`); tutulacak video sayısı Ayarlar'dan yapılandırılır (varsayılan 2, 1–10).
 - Kesim `-ss <başlangıç> -i` + yeniden kodlama ile kare hassasiyetindedir; MP3'te yeniden kodlamasız (`-c copy`) kesilir.
-- Önizleme, yt-dlp'den alınan 360p doğrudan akışla yerel `<video>` etiketinde oynar — YouTube embed kısıtlarından bağımsız çalışır.
+- Önizleme, yt-dlp'den alınan düşük çözünürlüklü (≤480p) doğrudan akışla yerel `<video>` etiketinde oynar — YouTube embed kısıtlarından bağımsız çalışır. Yerel dosyalar `file://` ile oynatılır.
+- Altyazı (YouTube SRT veya Whisper), logo/filigran ve başlık metni libass/`filter_complex` ile gömülür; ayarlar ve karanlık/açık tema `userData/settings.json`'da saklanır.
 - Kesit indirme için `yt-dlp --download-sections` denendi; uzun videolarda yavaş ve HTTP 403'e açık olduğu için terk edildi.
 
 ## Kullanılan araçlar
 
-[Electron](https://www.electronjs.org/) · [electron-builder](https://www.electron.build/) · [electron-updater](https://www.electron.build/auto-update) · [yt-dlp](https://github.com/yt-dlp/yt-dlp) · [ffmpeg](https://ffmpeg.org) · [OpenCV](https://opencv.org/) (CSRT, YuNet, SFace)
+[Electron](https://www.electronjs.org/) · [electron-builder](https://www.electron.build/) · [electron-updater](https://www.electron.build/auto-update) · [yt-dlp](https://github.com/yt-dlp/yt-dlp) · [ffmpeg](https://ffmpeg.org) · [OpenCV](https://opencv.org/) (YuNet, SFace, CSRT) · [faster-whisper](https://github.com/SYSTRAN/faster-whisper) · [PyInstaller](https://pyinstaller.org/)
