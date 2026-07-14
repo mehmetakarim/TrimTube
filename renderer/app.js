@@ -34,6 +34,35 @@ function setStatus(type, html) {
 
 function clearStatus() { $('statusMsg').classList.add('hidden'); }
 
+// ---- bildirim toast'u (başarı mesajları) ----
+// Kalıcı satır yerine yüzer, kendiliğinden kapanan, elle kapatılabilir bildirim.
+const TOAST_OK_SVG = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#34C759" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
+let toastTimer = null;
+
+function showToast(msg, action) {
+  $('toastIcon').innerHTML = TOAST_OK_SVG;
+  $('toastMsg').textContent = msg;
+  const a = $('toastAction');
+  if (action) {
+    a.textContent = action.label;
+    a.classList.remove('hidden');
+    a.onclick = () => { action.onClick(); hideToast(); };
+  } else {
+    a.classList.add('hidden');
+    a.onclick = null;
+  }
+  $('toast').classList.remove('hidden');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(hideToast, 8000); // birkaç saniye sonra kendiliğinden kapanır
+}
+
+function hideToast() {
+  clearTimeout(toastTimer);
+  $('toast').classList.add('hidden');
+}
+
+$('toastClose').addEventListener('click', hideToast);
+
 // ---- önizleme oynatıcısı (yt-dlp'den alınan doğrudan stream URL'si) ----
 
 let previewRetried = false;
@@ -909,7 +938,7 @@ $('plAddBtn').addEventListener('click', () => {
   closePlaylistModal();
   renderQueue();
   updateDownloadBtn();
-  setStatus('ok', `${chosen.length} video kuyruğa eklendi. İndirmek için "Kuyruğu indir".`);
+  showToast(`${chosen.length} video kuyruğa eklendi — "Kuyruğu indir" ile başlatın`);
 });
 
 // ---- yerel dosya kaynağı (Faz 8): sürükle-bırak + dosya seçici ----
@@ -1133,8 +1162,6 @@ $('addQueueBtn').addEventListener('click', () => {
   updateDownloadBtn();
 });
 
-const okSvg = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#34C759" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
-
 // Arka planda kuyruk worker'ı: canlı kuyruktan (queue[0]) tek tek işler; çalışırken
 // eklenen işler de işlenir. Bir iş başarısız olursa atlanıp devam edilir (bir kötü
 // video tüm kuyruğu durdurmasın); "Durdur"/iptal mevcut işi kesip worker'ı bitirir.
@@ -1180,9 +1207,10 @@ async function runQueueWorker() {
   if (cancelledMid || stopRequested) {
     setStatus('err', `Durduruldu — ${done} iş tamamlandı, ${queue.length} kuyrukta kaldı.`);
   } else if (failed === 0) {
-    setStatus('ok', `${okSvg}<span>${done > 1 ? done + ' iş tamamlandı' : 'İndirme tamamlandı'}</span><a id="openFolderLink">Klasörü aç</a>`);
-    const link = document.getElementById('openFolderLink');
-    if (link) link.addEventListener('click', () => window.api.openFolder($('folder').textContent));
+    showToast(done > 1 ? `${done} iş tamamlandı` : 'İndirme tamamlandı', {
+      label: 'Klasörü aç',
+      onClick: () => window.api.openFolder($('folder').textContent)
+    });
   } else {
     setStatus('err', `${done} tamamlandı, ${failed} başarısız:\n` + failures.slice(0, 3).join('\n'));
   }

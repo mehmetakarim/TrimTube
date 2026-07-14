@@ -16,7 +16,9 @@ v1.8.2 (YAYINLANDI): kadraj önizleme modalında önizleme **sesi** + **tasarım
 
 **Faz 9 (v1.9.0) YAYINLANDI:** playlist toplu indirme + arka planda kuyruk.
 
-**Faz 10-A (v1.10.0) YAYINLANDI:** konuşmacı-değişimli takip (aktif konuşana kadraj). Kullanıcı arayüzden test edip "mükemmel sonuç" dedi; ince ayar sonrası bu haliyle yayınlandı.
+**Faz 10-A (v1.10.0) YAYINLANDI:** konuşmacı-değişimli takip (aktif konuşana kadraj). Kullanıcı "mükemmel sonuç" dedi; ince ayar sonrası yayınlandı.
+
+**⏳ KOD HAZIR (v1.10.1), yayın bekliyor: Faz 6 marka arayüzü rötuşları** (kullanıcının ertelediği ufak işler). (1) "İndirme tamamlandı · Klasörü aç" kalıcı satır yerine **yüzer toast** (kendiliğinden kapanır ~8s + elle kapatma). (2) Sağ panel boşluk düzeni: **KRİTİK bulgu** — Logo/filigran + Başlık kartlarının arasındaki `style="margin-top:10px"` inline'ı **CSP `style-src 'self'` tarafından engellenmiş** → yapışıklardı. brandCard `.brand-unit` sarmalayıcılarıyla yeniden yapılandırıldı (birimler arası 16px, birim içi 10px). NOT: bu oturumda komut sınıflandırıcısı geçici kapandı; syntax/görsel test + commit/yayın araç dönünce yapılacak (statik doğrulama: ID'ler, brand-unit×2, dangling referans yok tamam).
 
 **Kalan fazlar (öncelik sırası):**
 - **Faz 10-B (araştırma):** gömülü Python/WASM ile **kurulumsuz takip** (Python bağımlılığını kaldır). Kullanıcı önce A'yı seçti; B daha çok dağıtım/altyapı işi (PyInstaller ~100MB veya onnxruntime-node port), yerelde tam test edilemez. **Yol haritasının kalan tek kalemi.**

@@ -334,40 +334,46 @@
 
         <!-- Marka: logo/watermark + başlık metni (yalnızca video çıktılarında) -->
         <div id="brandCard" class="hidden">
-          <div class="card-toggle">
-            <div class="card-text">
-              <span class="card-title">Logo / filigran</span>
-              <span class="card-sub" id="wmSub">Köşeye logo bindir</span>
+          <!-- Her marka birimi: anahtar + (açıkken) kontrolleri; birimler arası
+               daha geniş, birim içi daha dar boşluk (bkz. #brandCard/.brand-unit) -->
+          <div class="brand-unit">
+            <div class="card-toggle">
+              <div class="card-text">
+                <span class="card-title">Logo / filigran</span>
+                <span class="card-sub" id="wmSub">Köşeye logo bindir</span>
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="wmEnable">
+                <span class="knob"></span>
+              </label>
             </div>
-            <label class="switch">
-              <input type="checkbox" id="wmEnable">
-              <span class="knob"></span>
-            </label>
-          </div>
-          <div id="wmControls" class="hidden">
-            <div class="wm-row">
-              <button id="wmChooseBtn" class="btn-ghost">Logo seç…</button>
-              <span id="wmFile" class="wm-file">Dosya seçilmedi</span>
-            </div>
-            <div class="wm-pos-grid" id="wmPos">
-              <button class="wm-pos" data-pos="sol-ust" title="Sol üst">◤</button>
-              <button class="wm-pos active" data-pos="sag-ust" title="Sağ üst">◥</button>
-              <button class="wm-pos" data-pos="sol-alt" title="Sol alt">◣</button>
-              <button class="wm-pos" data-pos="sag-alt" title="Sağ alt">◢</button>
+            <div id="wmControls" class="hidden">
+              <div class="wm-row">
+                <button id="wmChooseBtn" class="btn-ghost">Logo seç…</button>
+                <span id="wmFile" class="wm-file">Dosya seçilmedi</span>
+              </div>
+              <div class="wm-pos-grid" id="wmPos">
+                <button class="wm-pos" data-pos="sol-ust" title="Sol üst">◤</button>
+                <button class="wm-pos active" data-pos="sag-ust" title="Sağ üst">◥</button>
+                <button class="wm-pos" data-pos="sol-alt" title="Sol alt">◣</button>
+                <button class="wm-pos" data-pos="sag-alt" title="Sağ alt">◢</button>
+              </div>
             </div>
           </div>
 
-          <div class="card-toggle" style="margin-top:10px">
-            <div class="card-text">
-              <span class="card-title">Başlık metni</span>
-              <span class="card-sub">İlk 3 saniyede üstte gösterilir</span>
+          <div class="brand-unit">
+            <div class="card-toggle">
+              <div class="card-text">
+                <span class="card-title">Başlık metni</span>
+                <span class="card-sub">İlk 3 saniyede üstte gösterilir</span>
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="titleEnable">
+                <span class="knob"></span>
+              </label>
             </div>
-            <label class="switch">
-              <input type="checkbox" id="titleEnable">
-              <span class="knob"></span>
-            </label>
+            <input type="text" id="titleText" class="title-input hidden" placeholder="Örn. Aile Saadeti — Bölüm 8" maxlength="80" spellcheck="false">
           </div>
-          <input type="text" id="titleText" class="title-input hidden" placeholder="Örn. Aile Saadeti — Bölüm 8" maxlength="80" spellcheck="false">
         </div>
 
         <div class="field">
@@ -402,6 +408,14 @@
           <button id="downloadBtn" class="btn-download" disabled>İndir</button>
         </div>
       </aside>
+    </div>
+
+    <!-- Bildirim toast'u (Faz 6 rötuş): iş bitince yüzer, kendiliğinden kapanır, elle kapatılabilir -->
+    <div id="toast" class="toast hidden">
+      <span id="toastIcon" class="toast-icon"></span>
+      <span id="toastMsg" class="toast-msg"></span>
+      <a id="toastAction" class="toast-action hidden"></a>
+      <button id="toastClose" class="toast-close" aria-label="Kapat">✕</button>
     </div>
   </main>
   <script src="app.js"></script>
