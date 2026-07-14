@@ -48,13 +48,15 @@ Bu dosya, [TrimTube Özellik Yol Haritası](https://claude.ai/code/artifact/2fd1
 - [x] **Playlist / çoklu URL toplu indirme** — oynatma listesi bağlantısını açıp videoları seçerek kuyruğa alma (modal seçici)
 - [x] **Arka planda kuyruk** — render sürerken yeni video hazırlayıp kuyruğa ekleyebilme; canlı kuyruktan işleme, hata olan işi atlayıp devam, "Durdur" ile mevcut işi kesme
 
+### Faz 10 — İleri Takip (araştırma) · `v1.10.0`
+- [x] **Konuşmacı değişimli çoklu kişi takibi** — sahnedeki yüzler arasından o an konuşanı (ses enerjisi + ağız hareketi + histerezis) otomatik seçip kadrajı ona kaydırma; takip kartında "Aktif konuşan" modu
+
 ---
 
 ## 🔲 Kalanlar
 
 ### Uzun vadeli (araştırma / büyük iş)
 - [ ] **Gömülü Python veya WASM takip** — kişi takibini kurulumsuz hale getirme (Python bağımlılığını kaldırma)
-- [ ] **Konuşmacı değişimli çoklu kişi takibi** — sahnede aktif konuşana kadrajı kaydırma (ses + dudak hareketi)
 
 ### Bilinçli olarak kapsam dışı
 - [ ] ~~Diğer platform kaynakları (X, Instagram vb.)~~ — teknik olarak kolay ama ayrı bir ürün yönü; şimdilik YouTube odağı korunuyor
@@ -62,4 +64,4 @@ Bu dosya, [TrimTube Özellik Yol Haritası](https://claude.ai/code/artifact/2fd1
 
 ---
 
-*Son güncelleme: Faz 9 (v1.9.0) — playlist toplu indirme + arka planda kuyruk. Geriye yalnızca uzun vadeli araştırma işleri kaldı.*
+*Son güncelleme: Faz 10 (v1.10.0) — konuşmacı-değişimli takip. Geriye yalnızca "kurulumsuz takip (Python'ı kaldır)" araştırma kalemi kaldı.*

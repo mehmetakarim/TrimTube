@@ -1007,7 +1007,15 @@ ipcMain.handle('download', async (e, opts) => {
       win.webContents.send('phase', 'track');
       win.webContents.send('progress', 0);
       const trackArgs = [path.join(__dirname, 'tracker.py'), trackClipFile, '--out', path.join(tmpDir, 'cmds.txt')];
-      if (trackPoint) trackArgs.push('--point', `${trackPoint.x.toFixed(4)},${trackPoint.y.toFixed(4)}`);
+      if (opts.speakerMode) {
+        // Aktif konuşanı takip (Faz 10): sesi mono wav'a çıkarıp konuşmacı moduna ver
+        const wav = path.join(tmpDir, 'track.wav');
+        await runProc(FFMPEG, ['-y', '-i', trackClipFile, '-vn', '-ac', '1', '-ar', '16000', '-c:a', 'pcm_s16le', wav], () => {});
+        trackArgs.push('--speaker');
+        if (fs.existsSync(wav)) trackArgs.push('--audio', wav);
+      } else if (trackPoint) {
+        trackArgs.push('--point', `${trackPoint.x.toFixed(4)},${trackPoint.y.toFixed(4)}`);
+      }
       // macOS/Linux'ta python3, Windows'ta python çalıştır
       const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
       const tr = await runProc(pythonCmd, trackArgs, (line) => {
@@ -1161,7 +1169,7 @@ ipcMain.handle('track-preview-cancel', () => {
 // Modal kapanınca tutulan geçici klip/veri klasörünü sil
 ipcMain.handle('track-preview-cleanup', () => { cleanupTrackPrevTmp(); });
 
-ipcMain.handle('track-preview', async (e, { url, videoId, localFile, start, duration, trackPoint }) => {
+ipcMain.handle('track-preview', async (e, { url, videoId, localFile, start, duration, trackPoint, speakerMode }) => {
   trackPrevCancelled = false;
   cleanupTrackPrevTmp(); // önceki önizlemenin klibini bırak
   // Kaynak önceliği: yerel dosya > önbellekteki tam video > 360p önizleme akışı
@@ -1199,7 +1207,15 @@ ipcMain.handle('track-preview', async (e, { url, videoId, localFile, start, dura
     const cmds = path.join(tmpDir, 'cmds.txt');
     const boxesFile = path.join(tmpDir, 'boxes.txt');
     const args = [path.join(__dirname, 'tracker.py'), clip, '--out', cmds, '--boxes-out', boxesFile];
-    if (trackPoint) args.push('--point', `${trackPoint.x.toFixed(4)},${trackPoint.y.toFixed(4)}`);
+    if (speakerMode) {
+      // Aktif konuşanı takip: 480p klibin sesini wav'a çıkarıp ver
+      const wav = path.join(tmpDir, 'prev.wav');
+      await runPreviewProc(FFMPEG, ['-y', '-i', clip, '-vn', '-ac', '1', '-ar', '16000', '-c:a', 'pcm_s16le', wav], () => {});
+      args.push('--speaker');
+      if (fs.existsSync(wav)) args.push('--audio', wav);
+    } else if (trackPoint) {
+      args.push('--point', `${trackPoint.x.toFixed(4)},${trackPoint.y.toFixed(4)}`);
+    }
     const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
     const tr = await runPreviewProc(pythonCmd, args, (line) => {
       const m = line.match(/^PROGRESS (\d+)/);

@@ -288,8 +288,16 @@
               <span class="knob"></span>
             </label>
           </div>
+          <!-- Takip modu (Faz 10): işaretlenen tek kişi veya sahnede aktif konuşan -->
+          <div id="trackMode" class="segmented sub-styles hidden">
+            <button class="seg active" data-trackmode="single">İşaretlenen kişi</button>
+            <button class="seg" data-trackmode="speaker">Aktif konuşan</button>
+          </div>
           <div id="trackHint" class="track-hint hidden">
             Önizlemede, <b>kesitin başlangıç anındaki</b> konumunda kişiye tıklayın. İşaretlemezseniz en büyük yüz otomatik seçilir.
+          </div>
+          <div id="trackHintSpeaker" class="track-hint hidden">
+            Sahnedeki yüzler arasından o an <b>konuşanı</b> (ses + dudak hareketi) otomatik seçip kadrajı ona kaydırır — işaretlemeye gerek yok. Röportaj/diyalog kliplerinde idealdir.
           </div>
           <div id="trackPreviewRow" class="track-prev-row hidden">
             <button id="trackPreviewBtn" class="btn-ghost small">Kadrajı önizle</button>

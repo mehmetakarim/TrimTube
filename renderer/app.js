@@ -388,6 +388,8 @@ function refreshFormatButtons() {
   if (!hasVertical) {
     $('trackEnable').checked = false;
     $('trackHint').classList.add('hidden');
+    $('trackHintSpeaker').classList.add('hidden');
+    $('trackMode').classList.add('hidden');
     $('trackPreviewRow').classList.add('hidden');
     clearTrackMarker();
     invalidateTrackPreview();
@@ -414,6 +416,9 @@ $('quality').addEventListener('change', () => {
   if (isAudio) {
     $('trackCard').classList.add('hidden');
     $('trackEnable').checked = false;
+    $('trackMode').classList.add('hidden');
+    $('trackHint').classList.add('hidden');
+    $('trackHintSpeaker').classList.add('hidden');
     $('trackPreviewRow').classList.add('hidden');
     clearTrackMarker();
     invalidateTrackPreview();
@@ -516,23 +521,45 @@ for (const btn of document.querySelectorAll('#subModels .seg')) {
 
 // ---- kişi takibi (akıllı kadraj) ----
 
+let trackModeValue = 'single'; // 'single' (işaretlenen kişi) | 'speaker' (aktif konuşan)
+
 function clearTrackMarker() {
   trackPoint = null;
   $('trackMarker').classList.add('hidden');
 }
 
+// Takip açıkken moda göre ipuçlarını/işaretleme durumunu düzenler
+function refreshTrackMode() {
+  const on = $('trackEnable').checked;
+  const speaker = trackModeValue === 'speaker';
+  $('trackMode').classList.toggle('hidden', !on);
+  $('trackPreviewRow').classList.toggle('hidden', !on);
+  $('trackHint').classList.toggle('hidden', !on || speaker);
+  $('trackHintSpeaker').classList.toggle('hidden', !on || !speaker);
+  if (speaker) clearTrackMarker(); // konuşmacı modunda işaretleme kullanılmaz
+}
+
 $('trackEnable').addEventListener('change', () => {
   const on = $('trackEnable').checked;
-  $('trackHint').classList.toggle('hidden', !on);
-  $('trackPreviewRow').classList.toggle('hidden', !on);
+  refreshTrackMode();
   invalidateTrackPreview(); // takip aç/kapa → varsa eski yol geçersiz
   if (!on) clearTrackMarker();
-  else if ($('trimEnable').checked) seekPreview(+$('rangeStart').value); // işaretleme başlangıç karesinde yapılmalı
+  else if (trackModeValue === 'single' && $('trimEnable').checked) seekPreview(+$('rangeStart').value);
 });
 
+for (const btn of document.querySelectorAll('#trackMode .seg')) {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#trackMode .seg').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    trackModeValue = btn.dataset.trackmode;
+    refreshTrackMode();
+    invalidateTrackPreview(); // mod değişti → kadraj yolu yeniden üretilmeli
+  });
+}
+
 $('preview').addEventListener('click', (e) => {
-  // Kişi takibi işaretleme modu kapalıyken tıklama = oynat/duraklat
-  if (!$('trackEnable').checked) { togglePlay(); return; }
+  // Kişi takibi işaretleme modu kapalıyken (veya konuşmacı modunda) tıklama = oynat/duraklat
+  if (!$('trackEnable').checked || trackModeValue === 'speaker') { togglePlay(); return; }
   const v = $('preview');
   const rect = v.getBoundingClientRect();
   const x = (e.clientX - rect.left) / rect.width;
@@ -678,7 +705,8 @@ async function computeTrackPreview() {
   try {
     res = await window.api.trackPreview({
       url: previewUrl, videoId: currentVideoId, localFile: currentLocalFile,
-      start: r.start, duration: r.duration, trackPoint
+      start: r.start, duration: r.duration, trackPoint,
+      speakerMode: trackModeValue === 'speaker'
     });
   } catch (err) {
     tp.generating = false; setTrackPreviewBtn('idle');
@@ -1004,6 +1032,7 @@ function buildOpts() {
     formats: [...selectedFormats],
     vertical: selectedFormats.has('vertical'),
     track: selectedFormats.has('vertical') && $('trackEnable').checked,
+    speakerMode: selectedFormats.has('vertical') && $('trackEnable').checked && trackModeValue === 'speaker',
     trackPoint,
     subtitle: ($('subEnable').checked && subPick)
       ? { ...subPick, style: subStyleValue, ...(subPick.source === 'whisper' ? { model: subModelValue } : {}) }
@@ -1037,7 +1066,7 @@ const queue = [];
 function queueBadges(opts) {
   const fmts = (opts.formats || []).map(f => f === 'vertical' ? '9:16' : f === 'square' ? '1:1' : 'orj').join('+');
   const extras = [
-    opts.track ? 'takip' : null,
+    opts.track ? (opts.speakerMode ? 'konuşan takip' : 'takip') : null,
     opts.subtitle ? (opts.subtitle.source === 'whisper' ? 'oto-altyazı' : 'altyazı') : null,
     opts.watermark ? 'logo' : null,
     opts.titleText ? 'başlık' : null

@@ -14,12 +14,14 @@ Bu dosya, farklı ortamlardaki (ev: macOS M-serisi, ofis: Windows 11) geliştirm
 
 v1.8.2 (YAYINLANDI): kadraj önizleme modalında önizleme **sesi** + **tasarım tutarlılığı** (ayarlar modalıyla aynı dil).
 
-**Faz 9 (v1.9.0) YAYINLANDI:** playlist toplu indirme + arka planda kuyruk. Kullanıcı arayüzden test edip "sorunsuz çalışıyor" onayı verdi. Böylece **ana plan (Faz 1-9) tamamen bitti.**
+**Faz 9 (v1.9.0) YAYINLANDI:** playlist toplu indirme + arka planda kuyruk.
+
+**⏳ KOD HAZIR (v1.10.0), yayın bekliyor: Faz 10-A — konuşmacı-değişimli takip** (aktif konuşana kadraj). Kod + gerçek videoyla görsel doğrulama tamam, aşağıya bkz.
 
 **Kalan fazlar (öncelik sırası):**
-- **Faz 10 (araştırma):** gömülü Python/WASM ile kurulumsuz takip + konuşmacı-değişimli çoklu kişi takibi. (Yol haritasının son "büyük iş" kalemi — Faz 9 sonrası ana plan bitiyor.)
+- **Faz 10-B (araştırma):** gömülü Python/WASM ile **kurulumsuz takip** (Python bağımlılığını kaldır). Kullanıcı önce A'yı seçti; B daha çok dağıtım/altyapı işi (PyInstaller ~100MB veya onnxruntime-node port), yerelde tam test edilemez.
 - **Bekleyen küçük iş:** Faz 6 (marka) arayüzünde kullanıcının belirteceği ufak rötuşlar (detay henüz verilmedi — sorulacak).
-- **Saha testi:** kullanıcı v1.8.1 modalını onayladı; v1.8.2 (ses/tasarım) ve v1.9.0 (playlist/kuyruk) arayüzden uçtan uca test edilmedi (kod + CLI + başsız Electron testleri geçti).
+- **Saha testi:** kullanıcı v1.8.1/v1.9.0'ı onayladı; v1.10.0 (konuşmacı takip) arayüzden test edilmedi (kod + gerçek video görsel doğrulaması geçti — kutu doğru yüzlere oturdu, kadraj kişiler arası kaydı).
 
 **Release akışı (her faz sonu):** `package.json` sürümü artır → commit → `git tag -a vX.Y.Z` → `git push origin main && git push origin vX.Y.Z` → CI (create-release idempotent + 3 platform) → `gh` ile draft'ı doğrula → `gh api PATCH ... draft=false` ile başlık+not ekleyerek yayınla. gh yolu: `/c/Program Files/GitHub CLI/gh.exe`.
 
@@ -533,3 +535,29 @@ Videoda gömülü/indirilebilir altyazı yoksa, kesitin sesi `faster-whisper` il
 
 - **Ana plan bitti** (Faz 1-9). Geriye yalnızca Faz 10 (araştırma: gömülü Python/WASM, konuşmacı-değişimli takip) kaldı.
 - Playlist batch'te altyazı/kişi-takip yok (bilinçli — per-video etkileşim gerekir). İstenirse ileride "her videoya Whisper" seçeneği eklenebilir.
+
+---
+
+# Windows Oturumu — Faz 10-A: Konuşmacı-Değişimli Takip (v1.10.0, kod hazır)
+
+Sahnede birden fazla yüz varsa o an **konuşanı** otomatik seçip kadrajı ona kaydırır. Kullanıcı Faz 10'un iki kaleminden **A**'yı seçti (B = kurulumsuz/Python-kaldır ertelendi).
+
+## Mimari
+
+- **`tracker.py` yeniden yapılandırıldı** (tek-kişi mantığı BİREBİR korundu): ortak `write_output` (kamera yumuşatma + sendcmd/boxes yazma), `run_single` (mevcut kanıtlı yol), yeni `run_speaker`. `main()` `--speaker` ile dallanır. **Regresyon:** tek-kişi çıktısı bit-bit aynı (aynı klipte 375 satır, önceki testlerle özdeş).
+- **`run_speaker`**: her örnekte (~10/s) tüm yüzler (YuNet) → kareler arası **nearest-center eşleme** (kalıcı "track"ler). Her track için **ağız bölgesi hareketi** = ardışık örneklerde 24x16 gri ağız yaması `mean-abs-diff` (EMA ile yumuşatılır). Aktif konuşan = `speaking` iken en çok ağız hareketi olan track. **Histerezis:** yeni aday, mevcut konuşandan `SWITCH_RATIO=1.4` kat fazla hareket + `MOTION_MIN=1.8` üstü + `SWITCH_HOLD=2` örnek (~0.2s) sürerse geçilir → titreme yok. Sahne kesmesinde track'ler sıfırlanır. Kadraj = aktif track merkezi; mevcut kamera yumuşatma (ölü bölge+ease) pan'i yumuşatır.
+- **Ses kapısı:** `load_audio_env(wav)` — mono 16k WAV'dan 50ms RMS zarfı, 90. persentile normalize; `env(t) > SPEECH_THRESH=0.16` ise "konuşma var". Ses yoksa (None) yalnız dudak hareketi. **TUZAK (çözüldü):** track dict'leri numpy dizisi (patch/f) içerdiğinden `active not in visible` (`==`) "ambiguous truth" hatası verdi → kimlik (`is`) kontrolüne çevrildi (`any(active is t ...)`).
+- **`main.js`**: `opts.speakerMode` ise tracker'a `--speaker` + sesi `-vn -ac 1 -ar 16000 -c:a pcm_s16le` ile wav'a çıkarıp `--audio` geçer. Hem download-tracking (trackClipFile'dan) hem track-preview (480p klipten, zaten sesli) yollarında. Speaker modda `trackPoint` yok sayılır.
+- **renderer**: trackCard'a `#trackMode` segmented ("İşaretlenen kişi" / "Aktif konuşan"). Speaker seçilince tek-nokta işaretleme gizli/ilgisiz (preview click = oynat/duraklat), farklı ipucu. `buildOpts.speakerMode`, `computeTrackPreview`'e geçer. queueBadges "konuşan takip". Format-dikey-kaldırma/ses'te mod+ipuçları gizlenir.
+
+## Doğrulama (gerçek video)
+
+- **Regresyon:** tek-kişi modu aynı klipte 375 satır, önceki çıktılarla özdeş → kanıtlı yol bozulmadı.
+- **Konuşmacı modu (30s TV dizisi klibi, çok-kişili):** exit 0, kadraj kişiler arası kayıyor (x 341→114→522→104, 5 belirgin pan). **Görsel doğrulama** (6 zaman noktasında aktif-konuşan yeşil kutu + mavi kadraj çerçevesi kaynağa çizildi): tek-kişi sahnelerde kutu doğru kişide; **iki-kişi sahnelerinde (t=7 yaşlı kadın sol, t=23 yaşlı kadın sağ) sistem birini seçip kadrajı ona oturttu**; kutular gerçek yüzlerde. Yoğun geçiş karesinde (t=15) hafif şaşkın — kabul edilebilir.
+- **UI wiring (başsız Electron + mock):** yükleme temiz, mod seçici görünür, speaker seçince doğru ipucu, `buildOpts → {track:true, speakerMode:true}`.
+- **Sınır:** "tam DOĞRU konuşanı mı seçiyor" — ses+izleme gerektirir, kullanıcı arayüzde yargılayacak (tek-kişi takibindeki gibi). Heuristik; eşikler (SPEECH_THRESH/MOTION_MIN/SWITCH_*) tracker.py başında ayarlanabilir.
+
+## Kalan / Sıradaki
+
+- Yayın: v1.10.0 (kullanıcı onayı bekleniyor).
+- İyileştirme fikirleri (gerekirse): dudak hareketi için YuNet 5-nokta yerine gerçek ağız-açıklık; ses-dudak korelasyonu (şu an ayrı sinyaller); çoklu-yüz aynı anda görünürken pan yerine bölünmüş ekran.

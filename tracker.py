@@ -3,14 +3,17 @@
 #
 # Kullanim:
 #   python tracker.py klip.mp4 --out cmds.txt [--point 0.42,0.35]
+#   python tracker.py klip.mp4 --out cmds.txt --speaker --audio ses.wav
 #
-# --point: takip edilecek kisinin ilk karedeki normalize konumu (0-1).
-# Verilmezse ilk karede en buyuk yuz otomatik secilir.
-#
-# Sahne kesmelerine dayanikli calisir: kesme tespit edildiginde CSRT takibi
-# sifirlanir ve kisi, yuz kimligi (SFace embedding) eslesmesiyle yeniden
-# bulunur. Kisi sahnede yokken kirpma penceresi son konumunda bekler.
+# Iki mod:
+#  * Tek kisi (varsayilan): --point ile isaretlenen (yoksa en buyuk) yuz takip
+#    edilir; sahne kesmelerine dayanikli, yuz kimligiyle yeniden bulma.
+#  * Konusmaci (--speaker, Faz 10): sahnedeki yuzler arasindan o an KONUSANI
+#    secip kadraji ona kaydirir. Aktif konusan = ses enerjisi (RMS zarfi,
+#    --audio wav'dan) konusma gosterirken agiz bolgesi en cok hareket eden yuz;
+#    histerezis ile kisiler arasi gereksiz gecis engellenir.
 import argparse
+import math
 import os
 import sys
 
@@ -25,6 +28,13 @@ MATCH_THRESHOLD = 0.32  # SFace kosinus benzerligi (resmi esik 0.363; TV kadraji
 CUT_DIFF = 35.0         # sahne kesmesi: kucuk gri karelerin ortalama mutlak farki
 REVALIDATE_EVERY = 10   # ~saniyede bir takip dogrulamasi / kimlik kontrolu
 MAX_REF_FEATS = 5
+
+# --- Konusmaci modu ayarlari ---
+SPEECH_THRESH = 0.16    # normalize ses enerjisi bu esigin ustundeyse "konusma var"
+MOTION_MIN = 1.8        # aday konusanin en az agiz hareketi (0-255 gri fark)
+SWITCH_RATIO = 1.4      # yeni aday, mevcut konusandan bu kadar cok hareket etmeli
+SWITCH_HOLD = 2         # gecis icin gereken ardisik ornek sayisi (~0.2 sn)
+TRACK_STALE = 3         # bir yuz kaç ornek görünmezse "track" düşürülür
 
 
 class FaceEngine:
@@ -82,44 +92,71 @@ def best_face_match(engine, small, ref_feats):
     return None, 0.0
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("video")
-    ap.add_argument("--out", required=True)
-    ap.add_argument("--point", default=None)
-    # Yalnizca kadraj onizlemesi (Faz 8) icin: her ornekte takip edilen kisinin
-    # kutusunu normalize (0-1) yazar. Render bu bayragi vermez; --out (cmds.txt)
-    # formati degismez.
-    ap.add_argument("--boxes-out", default=None, dest="boxes_out")
-    args = ap.parse_args()
+def detect_scene_cut(small, prev_tiny):
+    """(is_cut, tiny) — kucuk gri kare ortalama farkiyla sahne kesmesi."""
+    tiny = cv2.cvtColor(cv2.resize(small, (64, 36)), cv2.COLOR_BGR2GRAY).astype(np.int16)
+    is_cut = prev_tiny is not None and float(np.abs(tiny - prev_tiny).mean()) > CUT_DIFF
+    return is_cut, tiny
 
-    cap = cv2.VideoCapture(args.video)
-    if not cap.isOpened():
-        print("ERROR video acilamadi", flush=True)
-        sys.exit(1)
 
-    fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
-    src_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    src_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 1
+# ----------------------------------------------------------------------------
+# Ses enerjisi zarfi (konusmaci modu icin)
+# ----------------------------------------------------------------------------
+def load_audio_env(path):
+    """WAV'dan 50 ms'lik pencerelerde RMS zarfi; env(t)->0..~3 (90. persentile normalize).
+    Ses yoksa None (o zaman yalnizca dudak hareketi kullanilir)."""
+    if not path or not os.path.exists(path):
+        return None
+    try:
+        import wave
+        wf = wave.open(path, "rb")
+        sr = wf.getframerate() or 16000
+        raw = wf.readframes(wf.getnframes())
+        wf.close()
+        a = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+        if a.size == 0:
+            return None
+        bin_n = max(1, int(sr * 0.05))
+        nb = a.size // bin_n
+        if nb == 0:
+            return None
+        rms = np.sqrt((a[: nb * bin_n].reshape(nb, bin_n) ** 2).mean(axis=1) + 1e-9)
+        norm = float(np.percentile(rms, 90)) or 1.0
+        env = np.clip(rms / (norm + 1e-9), 0.0, 3.0)
 
-    scale = min(1.0, 480.0 / src_h)
-    sw, sh = int(src_w * scale), int(src_h * scale)
+        def q(t):
+            i = int(t / 0.05)
+            return float(env[min(max(i, 0), env.size - 1)])
 
-    engine = FaceEngine()
-    step = max(1, round(fps / 10))  # saniyede ~10 ornek
+        return q
+    except Exception:
+        return None
 
+
+def mouth_patch(face, gray, sw, sh):
+    """Yuzun agiz bolgesinden 24x16 gri yama (kareler arasi hareket olcumu icin)."""
+    mx = (face[10] + face[12]) / 2.0
+    my = (face[11] + face[13]) / 2.0
+    eye = math.hypot(face[4] - face[6], face[5] - face[7]) or (face[2] * 0.4)
+    hw = max(4.0, eye * 0.6)
+    hh = max(3.0, eye * 0.4)
+    x0, x1 = int(max(0, mx - hw)), int(min(sw, mx + hw))
+    y0, y1 = int(max(0, my - hh)), int(min(sh, my + hh))
+    if x1 <= x0 or y1 <= y0:
+        return None
+    return cv2.resize(gray[y0:y1, x0:x1], (24, 16)).astype(np.int16)
+
+
+# ----------------------------------------------------------------------------
+# Mod 1: tek kisi takibi (mevcut/kanitlanmis yol)
+# ----------------------------------------------------------------------------
+def run_single(cap, engine, scale, sw, sh, src_w, src_h, fps, step, total, init_point):
     tracker = None
     lost = True
-    ref_feats = []          # hedef kisinin yuz kimlikleri (birden fazla ornek)
-    init_point = None
-    if args.point:
-        px, py = (float(v) for v in args.point.split(","))
-        init_point = (px * sw, py * sh)
-
-    centers = []            # (saniye, kaynak cx, segment no)
-    boxes = []              # (saniye, normalize kutu (x,y,w,h) veya None) — yalniz onizleme
-    last_box = None         # son bilinen takip kutusu (small koordinatlarinda)
+    ref_feats = []
+    centers = []
+    boxes = []
+    last_box = None
     last_cx = src_w / 2.0
     segment = 0
     prev_tiny = None
@@ -135,27 +172,21 @@ def main():
             frame_idx += 1
             continue
         small = cv2.resize(frame, (sw, sh))
-        tiny = cv2.cvtColor(cv2.resize(small, (64, 36)), cv2.COLOR_BGR2GRAY).astype(np.int16)
-
-        # --- sahne kesmesi tespiti ---
-        is_cut = prev_tiny is not None and float(np.abs(tiny - prev_tiny).mean()) > CUT_DIFF
-        prev_tiny = tiny
+        is_cut, prev_tiny = detect_scene_cut(small, prev_tiny)
         if is_cut:
             segment += 1
             tracker = None
             lost = True
 
-        cur_box = None  # bu karede gecerli takip kutusu (small koordinatlari)
+        cur_box = None
 
         if first:
-            # Ilk kare: isaretli noktaya en yakin yuz, yoksa en buyuk yuz
             faces = engine.detect(small)
             target = None
             if init_point is not None and faces:
                 def dist(f):
                     return (f[0] + f[2] / 2 - init_point[0]) ** 2 + (f[1] + f[3] / 2 - init_point[1]) ** 2
                 target = min(faces, key=dist)
-                # Tiklanan nokta yuzden cok uzaksa (govdeye tiklandiysa) kutuyu noktadan kur
                 if dist(target) > (sw * 0.25) ** 2:
                     target = None
             elif faces:
@@ -194,7 +225,6 @@ def main():
                 tracker = None
                 lost = True
 
-        # --- kimlik dogrulama / yeniden bulma ---
         need_check = lost or (sample_idx % REVALIDATE_EVERY == 0)
         if need_check and ref_feats:
             face, score = best_face_match(engine, small, ref_feats)
@@ -213,7 +243,6 @@ def main():
                     if feat is not None:
                         ref_feats.append(feat)
         elif need_check and not ref_feats and tracker is not None and not lost:
-            # Kimlik henuz yok (govdeye tiklandi): takip kutusundaki yuzden kimlik cikar
             bx = last_cx * scale
             for face in engine.detect(small):
                 if abs(face[0] + face[2] / 2 - bx) < sw * 0.1:
@@ -221,37 +250,137 @@ def main():
                     if feat is not None:
                         ref_feats.append(feat)
                     break
-        # Kisi bulunamadiysa son konumda bekle (last_cx degismez)
 
         centers.append((frame_idx / fps, last_cx, segment))
-        # Takip kutusunu kaydet (yalniz onizleme): bu karede kutu varsa guncelle,
-        # yoksa son bilineni koru (kisi gecici gorunmezken kutu titremesin)
         if cur_box is not None:
             last_box = cur_box
-        if last_box is not None:
-            bx, by, bw, bh = (float(v) for v in last_box[:4])
-            boxes.append((frame_idx / fps, (
-                min(max(bx / sw, 0.0), 1.0),
-                min(max(by / sh, 0.0), 1.0),
-                min(max(bw / sw, 0.0), 1.0),
-                min(max(bh / sh, 0.0), 1.0),
-            )))
-        else:
-            boxes.append((frame_idx / fps, None))
+        boxes.append((frame_idx / fps, _norm_box(last_box, sw, sh)))
         if sample_idx % 20 == 0:
             print(f"PROGRESS {int(frame_idx * 100 / total)}", flush=True)
         frame_idx += 1
         sample_idx += 1
 
-    cap.release()
+    return centers, boxes
 
+
+# ----------------------------------------------------------------------------
+# Mod 2: konusmaci-degisimli takip (Faz 10)
+# ----------------------------------------------------------------------------
+def run_speaker(cap, engine, scale, sw, sh, src_w, src_h, fps, step, total, audio_env):
+    centers = []
+    boxes = []
+    tracks = []          # her yuz icin kalici iz: {cx,cy,w,patch,motion,seen,f}
+    active = None        # o an secili konusan track
+    active_cx = src_w / 2.0
+    active_box_norm = None
+    pending = None
+    pending_n = 0
+    segment = 0
+    prev_tiny = None
+    frame_idx = 0
+    sample_idx = 0
+
+    while True:
+        ok, frame = cap.read()
+        if not ok:
+            break
+        if frame_idx % step != 0:
+            frame_idx += 1
+            continue
+        small = cv2.resize(frame, (sw, sh))
+        gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
+        is_cut, prev_tiny = detect_scene_cut(small, prev_tiny)
+        if is_cut:
+            segment += 1
+            tracks = []
+            active = None
+            pending = None
+            pending_n = 0
+
+        # yuzleri tespit et + agiz yamasi hesapla
+        dets = []
+        for f in engine.detect(small):
+            dets.append({
+                "f": f,
+                "cx": float(f[0] + f[2] / 2),
+                "cy": float(f[1] + f[3] / 2),
+                "w": float(f[2]),
+                "patch": mouth_patch(f, gray, sw, sh),
+            })
+
+        # tespitleri mevcut izlere esle (en yakin merkez); yoksa yeni iz
+        for d in dets:
+            best_t, best_dd = None, 1e9
+            for t in tracks:
+                dd = abs(t["cx"] - d["cx"]) + abs(t["cy"] - d["cy"])
+                if dd < best_dd:
+                    best_dd, best_t = dd, t
+            if best_t is not None and best_dd < max(d["w"], 20.0) * 1.5:
+                if d["patch"] is not None and best_t["patch"] is not None:
+                    m = float(np.abs(d["patch"] - best_t["patch"]).mean())
+                    best_t["motion"] = 0.5 * best_t["motion"] + 0.5 * m
+                best_t.update(patch=d["patch"], cx=d["cx"], cy=d["cy"], w=d["w"], f=d["f"], seen=sample_idx)
+            else:
+                tracks.append({**d, "motion": 0.0, "seen": sample_idx})
+
+        tracks = [t for t in tracks if sample_idx - t["seen"] <= TRACK_STALE]
+        visible = [t for t in tracks if t["seen"] == sample_idx]
+        speaking = True if audio_env is None else (audio_env(frame_idx / fps) > SPEECH_THRESH)
+
+        if visible:
+            best = max(visible, key=lambda t: t["motion"])
+            # kimlik (is) ile kontrol: track dict'leri numpy dizisi icerdiginden
+            # 'in'/'==' belirsizlik hatasi verir
+            active_visible = any(active is t for t in visible)
+            if active is None or not active_visible:
+                # konusan yoksa/kayboldu: en cok hareket edene (yoksa tek yuze) geç
+                active = best
+                pending, pending_n = None, 0
+            elif speaking and best is not active and best["motion"] > active["motion"] * SWITCH_RATIO and best["motion"] > MOTION_MIN:
+                # aday baskin: birkac ornek sürerse geç (histerezis, titremeyi önler)
+                pending_n = pending_n + 1 if pending is best else 1
+                pending = best
+                if pending_n >= SWITCH_HOLD:
+                    active = best
+                    pending, pending_n = None, 0
+            else:
+                pending, pending_n = None, 0
+
+            active_cx = active["cx"] / scale
+            active_box_norm = _norm_box(body_box(active["f"], sw, sh), sw, sh)
+        # gorunur yuz yoksa: son konumda bekle (active_cx degismez)
+
+        centers.append((frame_idx / fps, active_cx, segment))
+        boxes.append((frame_idx / fps, active_box_norm))
+        if sample_idx % 20 == 0:
+            print(f"PROGRESS {int(frame_idx * 100 / total)}", flush=True)
+        frame_idx += 1
+        sample_idx += 1
+
+    return centers, boxes
+
+
+def _norm_box(box, sw, sh):
+    if box is None:
+        return None
+    bx, by, bw, bh = (float(v) for v in box[:4])
+    return (
+        min(max(bx / sw, 0.0), 1.0),
+        min(max(by / sh, 0.0), 1.0),
+        min(max(bw / sw, 0.0), 1.0),
+        min(max(bh / sh, 0.0), 1.0),
+    )
+
+
+# ----------------------------------------------------------------------------
+# Ortak cikti: kamera yumusatma + sendcmd/boxes yazma
+# ----------------------------------------------------------------------------
+def write_output(centers, boxes, out_path, boxes_out, src_w, src_h):
     crop_w = src_h * 9.0 / 16.0
     max_x = max(0.0, src_w - crop_w)
     if not centers:
         centers = [(0.0, src_w / 2.0, 0)]
 
-    # Kadraj hareketini "sanal kameraman" gibi yumusat — segment (sahne)
-    # sinirlarini asmadan: kesmede kadraj kaymaz, aninda atlar.
     xs = [c[1] for c in centers]
     segs = [c[2] for c in centers]
 
@@ -265,8 +394,7 @@ def main():
             hi += 1
         med.append(sorted(xs[lo:hi])[(hi - lo) // 2])
 
-    # 2) Olu bolge + yumusak izleme: kisi kadraj merkezinden belirli esikten
-    #    az saparsa kamera hic kimildamaz; asarsa yumusakca yetisir
+    # 2) Olu bolge + yumusak izleme: kucuk sapmada kamera kimildamaz, buyukte yetisir
     dead = crop_w * 0.10
     ease = 0.18
     smoothed = []
@@ -280,20 +408,60 @@ def main():
                 cam += (err - (dead if err > 0 else -dead)) * ease
         smoothed.append(cam)
 
-    with open(args.out, "w") as f:
+    with open(out_path, "w") as f:
         for (t, _, _), cx in zip(centers, smoothed):
             x = min(max(cx - crop_w / 2.0, 0.0), max_x)
             f.write(f"{t:.2f} crop x {x:.0f};\n")
 
-    # Onizleme icin takip kutusu yolu (normalize) — istenmisse
-    if args.boxes_out:
-        with open(args.boxes_out, "w") as f:
+    if boxes_out:
+        with open(boxes_out, "w") as f:
             for t, b in boxes:
                 if b is None:
                     f.write(f"{t:.2f} -\n")
                 else:
                     f.write(f"{t:.2f} {b[0]:.4f} {b[1]:.4f} {b[2]:.4f} {b[3]:.4f}\n")
 
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("video")
+    ap.add_argument("--out", required=True)
+    ap.add_argument("--point", default=None)
+    # Faz 8 onizleme: takip edilen kisinin normalize kutu yolu (render vermez)
+    ap.add_argument("--boxes-out", default=None, dest="boxes_out")
+    # Faz 10 konusmaci modu: aktif konusana kadraj; --audio ses enerjisi kapisi
+    ap.add_argument("--speaker", action="store_true")
+    ap.add_argument("--audio", default=None)
+    args = ap.parse_args()
+
+    cap = cv2.VideoCapture(args.video)
+    if not cap.isOpened():
+        print("ERROR video acilamadi", flush=True)
+        sys.exit(1)
+
+    fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
+    src_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    src_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 1
+
+    scale = min(1.0, 480.0 / src_h)
+    sw, sh = int(src_w * scale), int(src_h * scale)
+
+    engine = FaceEngine()
+    step = max(1, round(fps / 10))  # saniyede ~10 ornek
+
+    if args.speaker:
+        audio_env = load_audio_env(args.audio)
+        centers, boxes = run_speaker(cap, engine, scale, sw, sh, src_w, src_h, fps, step, total, audio_env)
+    else:
+        init_point = None
+        if args.point:
+            px, py = (float(v) for v in args.point.split(","))
+            init_point = (px * sw, py * sh)
+        centers, boxes = run_single(cap, engine, scale, sw, sh, src_w, src_h, fps, step, total, init_point)
+
+    cap.release()
+    write_output(centers, boxes, args.out, args.boxes_out, src_w, src_h)
     print("PROGRESS 100", flush=True)
     print("DONE", flush=True)
 
