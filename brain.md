@@ -6,7 +6,7 @@ Bu dosya, farklı ortamlardaki (ev: macOS M-serisi, ofis: Windows 11) geliştirm
 
 ## 📍 GÜNCEL DURUM & SIRADAKİ İŞLER (yeni oturum buradan başlasın)
 
-**Yayındaki sürüm:** `v1.9.0` · Windows/macOS(arm64)/Linux · GitHub: mehmetakarim/TrimTube
+**Yayındaki sürüm:** `v1.10.0` · Windows/macOS(arm64)/Linux · GitHub: mehmetakarim/TrimTube
 **Yapılacaklar listesi (asıl kaynak):** proje kökündeki `YOL-HARITASI.md` (onay kutulu, faz faz).
 
 **Tamamlanan fazlar (detayları aşağıda):**
@@ -16,12 +16,11 @@ v1.8.2 (YAYINLANDI): kadraj önizleme modalında önizleme **sesi** + **tasarım
 
 **Faz 9 (v1.9.0) YAYINLANDI:** playlist toplu indirme + arka planda kuyruk.
 
-**⏳ KOD HAZIR (v1.10.0), yayın bekliyor: Faz 10-A — konuşmacı-değişimli takip** (aktif konuşana kadraj). Kod + gerçek videoyla görsel doğrulama tamam, aşağıya bkz.
+**Faz 10-A (v1.10.0) YAYINLANDI:** konuşmacı-değişimli takip (aktif konuşana kadraj). Kullanıcı arayüzden test edip "mükemmel sonuç" dedi; ince ayar sonrası bu haliyle yayınlandı.
 
 **Kalan fazlar (öncelik sırası):**
-- **Faz 10-B (araştırma):** gömülü Python/WASM ile **kurulumsuz takip** (Python bağımlılığını kaldır). Kullanıcı önce A'yı seçti; B daha çok dağıtım/altyapı işi (PyInstaller ~100MB veya onnxruntime-node port), yerelde tam test edilemez.
+- **Faz 10-B (araştırma):** gömülü Python/WASM ile **kurulumsuz takip** (Python bağımlılığını kaldır). Kullanıcı önce A'yı seçti; B daha çok dağıtım/altyapı işi (PyInstaller ~100MB veya onnxruntime-node port), yerelde tam test edilemez. **Yol haritasının kalan tek kalemi.**
 - **Bekleyen küçük iş:** Faz 6 (marka) arayüzünde kullanıcının belirteceği ufak rötuşlar (detay henüz verilmedi — sorulacak).
-- **Saha testi:** kullanıcı v1.8.1/v1.9.0'ı onayladı; v1.10.0 (konuşmacı takip) arayüzden test edilmedi (kod + gerçek video görsel doğrulaması geçti — kutu doğru yüzlere oturdu, kadraj kişiler arası kaydı).
 
 **Release akışı (her faz sonu):** `package.json` sürümü artır → commit → `git tag -a vX.Y.Z` → `git push origin main && git push origin vX.Y.Z` → CI (create-release idempotent + 3 platform) → `gh` ile draft'ı doğrula → `gh api PATCH ... draft=false` ile başlık+not ekleyerek yayınla. gh yolu: `/c/Program Files/GitHub CLI/gh.exe`.
 
