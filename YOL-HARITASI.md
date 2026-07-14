@@ -48,15 +48,15 @@ Bu dosya, [TrimTube Özellik Yol Haritası](https://claude.ai/code/artifact/2fd1
 - [x] **Playlist / çoklu URL toplu indirme** — oynatma listesi bağlantısını açıp videoları seçerek kuyruğa alma (modal seçici)
 - [x] **Arka planda kuyruk** — render sürerken yeni video hazırlayıp kuyruğa ekleyebilme; canlı kuyruktan işleme, hata olan işi atlayıp devam, "Durdur" ile mevcut işi kesme
 
-### Faz 10 — İleri Takip (araştırma) · `v1.10.0`
-- [x] **Konuşmacı değişimli çoklu kişi takibi** — sahnedeki yüzler arasından o an konuşanı (ses enerjisi + ağız hareketi + histerezis) otomatik seçip kadrajı ona kaydırma; takip kartında "Aktif konuşan" modu
+### Faz 10 — İleri Takip (araştırma) · `v1.10.0` / `v1.11.0`
+- [x] **Konuşmacı değişimli çoklu kişi takibi** (`v1.10.0`) — sahnedeki yüzler arasından o an konuşanı (ses enerjisi + ağız hareketi + histerezis) otomatik seçip kadrajı ona kaydırma; takip kartında "Aktif konuşan" modu
+- [x] **Kurulumsuz takip** (`v1.11.0`) — `tracker.py` PyInstaller ile platforma özel tek dosyaya dondurulup pakete gömüldü; son kullanıcı Python kurmadan kişi takibini kullanır (takip kalitesi birebir korunur)
 
 ---
 
-## 🔲 Kalanlar
+## 🎉 Ana plan tamamlandı
 
-### Uzun vadeli (araştırma / büyük iş)
-- [ ] **Gömülü Python veya WASM takip** — kişi takibini kurulumsuz hale getirme (Python bağımlılığını kaldırma)
+Faz 1–10'un tamamı yayında. Kalan fikirler bilinçli olarak kapsam dışı (aşağıda).
 
 ### Bilinçli olarak kapsam dışı
 - [ ] ~~Diğer platform kaynakları (X, Instagram vb.)~~ — teknik olarak kolay ama ayrı bir ürün yönü; şimdilik YouTube odağı korunuyor
@@ -64,4 +64,4 @@ Bu dosya, [TrimTube Özellik Yol Haritası](https://claude.ai/code/artifact/2fd1
 
 ---
 
-*Son güncelleme: Faz 10 (v1.10.0) — konuşmacı-değişimli takip. Geriye yalnızca "kurulumsuz takip (Python'ı kaldır)" araştırma kalemi kaldı.*
+*Son güncelleme: Faz 10-B (v1.11.0) — kurulumsuz takip (PyInstaller). Yol haritasının ana planı tamamen tamamlandı.*

@@ -48,12 +48,18 @@ jobs:
           - os: windows-latest
             fetch: fetch:win
             args: --win
+            bindir: win
+            trackerout: tracker.exe
           - os: macos-14 # Apple Silicon (arm64) — macos-13 (Intel) çıkarıldı: bu hesapta
             fetch: fetch:mac # runner kuyrukta saatlerce takılı kalıyor, GitHub'ın Intel Mac
             args: --mac --arm64 # runner'larını kademeli kaldırmasının bir sonucu.
+            bindir: mac
+            trackerout: tracker
           - os: ubuntu-latest
             fetch: fetch:linux
             args: --linux
+            bindir: linux
+            trackerout: tracker
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -66,6 +72,23 @@ jobs:
       - run: npm ci
 
       - run: npm run ${{ matrix.fetch }}
+
+      # Faz 10-B: kişi takibini kurulumsuz yapmak için tracker.py'yi PyInstaller ile
+      # platforma özel tek çalıştırılabilir dosyaya dondur (resources/bin/<platform>).
+      # GUI'siz headless OpenCV: tracker hiçbir GUI çağrısı kullanmaz; Linux'ta
+      # libGL runtime bağımlılığını önler, takip çıktısı birebir aynıdır.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Kişi takibi ikilisini dondur (PyInstaller)
+        shell: bash
+        run: |
+          python -m pip install --quiet opencv-contrib-python-headless numpy pyinstaller
+          python -m PyInstaller tracker.spec --clean --noconfirm
+          mkdir -p "resources/bin/${{ matrix.bindir }}"
+          cp "dist/${{ matrix.trackerout }}" "resources/bin/${{ matrix.bindir }}/${{ matrix.trackerout }}"
+          if [ "${{ matrix.bindir }}" != "win" ]; then chmod +x "resources/bin/${{ matrix.bindir }}/${{ matrix.trackerout }}"; fi
 
       - run: npx electron-builder ${{ matrix.args }} --publish always
         env:

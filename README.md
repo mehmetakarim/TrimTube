@@ -29,7 +29,7 @@ yt-dlp ve ffmpeg pakete gömülüdür, ayrıca bir şey kurmanıza gerek yoktur.
 > - **Windows:** "Windows bilgisayarınızı korudu" uyarısında **Diğer bilgiler → Yine de çalıştır**'a tıklayın.
 > - **macOS:** Uygulamayı Finder'da sağ tıklayıp **Aç**'ı seçin (Gatekeeper'ın "bilinmeyen geliştirici" uyarısını atlamak için).
 
-🎯 Kişiyi takip eden akıllı kadraj ve 📝 Whisper ile otomatik altyazı özellikleri, pakete dahil olmayan Python 3 gerektirir (`opencv-contrib-python` ve `faster-whisper` — bkz. [Kaynaktan çalıştırma](#kaynaktan-çalıştırma-geliştirici)); diğer tüm özellikler kutudan çıktığı gibi çalışır.
+🎯 Kişiyi takip eden akıllı kadraj artık **kurulumsuz** çalışır — kurulum paketine platforma özel dondurulmuş bir takip motoru dahildir, Python gerektirmez. 📝 Whisper ile otomatik altyazı ise hâlâ Python 3 + `faster-whisper` gerektirir (bkz. [Kaynaktan çalıştırma](#kaynaktan-çalıştırma-geliştirici)); diğer tüm özellikler kutudan çıktığı gibi çalışır.
 
 ### Otomatik güncelleme
 
@@ -73,9 +73,11 @@ Sistemde PATH üzerinde şunlar bulunmalı:
 
 - [Node.js](https://nodejs.org)
 - [yt-dlp](https://github.com/yt-dlp/yt-dlp) — `winget install yt-dlp` (403 hatalarına karşı güncel tutun: `yt-dlp -U`)
-- Python 3 + `pip install -r requirements.txt` (kişi takibi için `opencv-contrib-python`, otomatik altyazı için `faster-whisper`)
+- Python 3 + `pip install -r requirements.txt` (kaynaktan çalışırken kişi takibi için `opencv-contrib-python`, otomatik altyazı için `faster-whisper`)
 
 ffmpeg ayrıca kurulmasına gerek yok — `ffmpeg-static` paketiyle otomatik gelir.
+
+> **Not:** Yayınlanan kurulum paketlerinde kişi takibi motoru (`tracker.py`) PyInstaller ile platforma özel tek dosyaya dondurulup gömülür (bkz. `tracker.spec` ve CI); son kullanıcı Python kurmadan takibi kullanır. Yukarıdaki Python bağımlılıkları yalnızca **kaynaktan** çalıştıran geliştiriciler içindir. Whisper altyazısı için Python son kullanıcıda da gereklidir.
 
 ```bash
 npm install

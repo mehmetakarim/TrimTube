@@ -18,6 +18,8 @@ v1.8.2 (YAYINLANDI): kadraj önizleme modalında önizleme **sesi** + **tasarım
 
 **Faz 10-A (v1.10.0) YAYINLANDI:** konuşmacı-değişimli takip (aktif konuşana kadraj). Kullanıcı "mükemmel sonuç" dedi; ince ayar sonrası yayınlandı.
 
+**⏳ KOD HAZIR (v1.11.0), yayın bekliyor: Faz 10-B — kurulumsuz takip** (PyInstaller). `tracker.py` platforma özel tek dosyaya dondurulup pakete gömülür → son kullanıcı Python kurmadan takibi kullanır. Windows'ta yerel build doğrulandı (frozen exe çıktısı python ile BİREBİR aynı). mac/Linux yalnız CI'de görülecek. Aşağıya bkz.
+
 **Faz 6 marka arayüzü rötuşları (v1.10.1) YAYINLANDI:** (1) "İndirme tamamlandı · Klasörü aç" kalıcı satır yerine **yüzer toast** — indirme bildirimi `sticky` (yalnız ✕ ile kapanır, kullanıcı isteğiyle 8s otomatik-kapanma kaldırıldı); kısa bilgi mesajları (playlist) otomatik kapanır. (2) Sağ panel boşluk düzeni: **KRİTİK bulgu** — Logo/filigran + Başlık kartları arasındaki `style="margin-top:10px"` inline'ı **CSP `style-src 'self'` tarafından engellenmiş** → yapışıktı. brandCard `.brand-unit` sarmalayıcılarıyla yeniden yapılandırıldı (birimler arası 16px, birim içi 10px). Kullanıcı "kusursuz" dedi. **Ders: inline `style=` her zaman CSP'ye takılır — daima CSS sınıfı kullan.**
 
 **Kalan fazlar (öncelik sırası):**
@@ -570,3 +572,29 @@ Kullanıcı "mükemmel sonuç" dedi; 3 iyileştirme noktası bildirdi → hepsi 
 
 - Yayın: v1.10.0 (ince ayar sonrası; kullanıcı onayı bekleniyor).
 - İleride (gerekirse): dudak hareketi için gerçek ağız-açıklık; ses-dudak korelasyonu; eşikler `tracker.py` başında (SPEECH_THRESH/MOTION_MIN/SWITCH_*/MISSING_GRACE).
+
+---
+
+# Windows Oturumu — Faz 10-B: Kurulumsuz Takip (v1.11.0, PyInstaller)
+
+Kişi takibi artık kullanıcının Python kurmasını gerektirmiyor. `tracker.py` PyInstaller ile platforma özel **tek dosyalık çalıştırılabilir** hale dondurulup pakete gömülüyor. Kullanıcı A/B'den **A**'yı (PyInstaller) seçti; gerekçe: beğendiği takip kalitesi birebir korunur (aynı kod), JS-port'un regresyon riski yok.
+
+## Mimari
+
+- **`tracker.spec`** (yeni): PyInstaller onefile; iki ONNX modeli (`--add-data`/datas) exe'ye gömülür, gereksiz ağır modüller (tkinter/matplotlib/scipy/pandas…) dışlanır. `console=True` (PROGRESS/DONE/ERROR görünmeli).
+- **`tracker.py`**: model yolu frozen-uyumlu — `getattr(sys,"frozen",False)` ise `sys._MEIPASS` (PyInstaller açılım dizini), değilse betik klasörü. Takip mantığı DEĞİŞMEDİ.
+- **`main.js` `resolveTracker()`**: paketlenmişse `resources/bin/tracker(.exe)` (yt-dlp gibi), değilse `python[3] tracker.py`. `{ cmd, prefix }` döner; iki çağrı yeri (download-tracking + track-preview) `TRACKER.cmd` + `TRACKER.prefix` kullanır. subtitle.py (Whisper) hâlâ sistem Python'ı gerektirir — frozen kapsamı dışında (deps ~500MB+, model runtime indiriyor).
+- **`package.json`**: `files`'a `!*.onnx` + `!build/**` + `!tracker.spec` eklendi (modeller artık frozen exe içinde → app bundle'ından 37MB düştü). extraResources zaten `resources/bin/<platform>` → `bin` taşıyor.
+- **CI (`release.yml`)**: matrise `bindir`/`trackerout` eklendi; electron-builder öncesi `setup-python@3.12` + `pip install opencv-contrib-python-headless numpy pyinstaller` + `pyinstaller tracker.spec` + çıktıyı `resources/bin/<platform>/`'e kopyalama adımı (shell: bash, tüm platformlarda). **headless OpenCV bilinçli**: tracker GUI kullanmaz → Linux'ta libGL runtime bağımlılığı olmaz, çıktı birebir aynı.
+- `.gitignore`'a `build/` eklendi (dist/, resources/bin/ zaten vardı). `tracker.spec` commit'lenir (CI kullanır).
+
+## Doğrulama
+
+- **Windows yerel build**: `pyinstaller tracker.spec` → `dist/tracker.exe` (111MB). Frozen exe hem tek-kişi hem konuşmacı modunda `python tracker.py` ile **`diff` BİREBİR AYNI** çıktı verdi (aynı klip+wav). → algoritma/kalite korunuyor, model gömme + frozen yol çalışıyor.
+- main.js/tracker.py sözdizimi OK.
+- **RİSK / açık**: mac/Linux frozen build'i yalnız CI'de görülecek (yerelde test edilemez). PyInstaller + opencv-contrib-headless standart; risk orta. İlk yayında CI logları izlenecek. Kurulum boyutu ~100MB artar (kullanıcı onayladı).
+
+## Kalan / Sıradaki
+
+- Yayın: v1.11.0 (kullanıcı onayı + CI mac/Linux build başarısı bekleniyor).
+- **Yol haritasının ana planı (Faz 1–10) bitti.** Geriye bilinçli kapsam-dışı fikirler kaldı (diğer platform kaynakları, sosyal paylaşım) + istenirse Whisper'ı da dondurma (pratik değil).

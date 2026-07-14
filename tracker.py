@@ -20,7 +20,13 @@ import sys
 import cv2
 import numpy as np
 
-DIR = os.path.dirname(os.path.abspath(__file__))
+# Model dosyalarinin konumu: PyInstaller ile dondurulmus (frozen) calistirilabilir
+# dosyada --add-data ile paketlenen dosyalar sys._MEIPASS altina acilir; normal
+# calismada ise betigin bulundugu klasor. Boylece Python kurulumsuz da calisir (Faz 10-B).
+if getattr(sys, "frozen", False):
+    DIR = sys._MEIPASS
+else:
+    DIR = os.path.dirname(os.path.abspath(__file__))
 DET_MODEL = os.path.join(DIR, "face_detection_yunet_2023mar.onnx")
 REC_MODEL = os.path.join(DIR, "face_recognition_sface_2021dec.onnx")
 

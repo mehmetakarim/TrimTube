@@ -89,8 +89,23 @@ function resolveFfmpeg() {
   }
 }
 
+// Kişi takibi (tracker): paketlenmiş sürümde PyInstaller ile dondurulmuş ikili
+// resources/bin altında gelir (Python kurulumu gerekmez — Faz 10-B); geliştirme
+// ortamında sistemdeki python + tracker.py kullanılır. subtitle.py (Whisper)
+// hâlâ sistem Python'ı gerektirir (dev bağımlılığı; frozen kapsamı dışında).
+function resolveTracker() {
+  if (app.isPackaged) {
+    const exe = process.platform === 'win32' ? 'tracker.exe' : 'tracker';
+    const bundled = path.join(process.resourcesPath, 'bin', exe);
+    if (fs.existsSync(bundled)) return { cmd: bundled, prefix: [] };
+  }
+  const py = process.platform === 'win32' ? 'python' : 'python3';
+  return { cmd: py, prefix: [path.join(__dirname, 'tracker.py')] };
+}
+
 const YTDLP = resolveYtdlp();
 const FFMPEG = resolveFfmpeg();
+const TRACKER = resolveTracker();
 
 // --- GPU hızlandırmalı kodlama ---
 // Gömülü ffmpeg-static ikilisi NVENC/QuickSync/AMF (Win/Linux) ve VideoToolbox
@@ -1006,7 +1021,7 @@ ipcMain.handle('download', async (e, opts) => {
 
       win.webContents.send('phase', 'track');
       win.webContents.send('progress', 0);
-      const trackArgs = [path.join(__dirname, 'tracker.py'), trackClipFile, '--out', path.join(tmpDir, 'cmds.txt')];
+      const trackArgs = [...TRACKER.prefix, trackClipFile, '--out', path.join(tmpDir, 'cmds.txt')];
       if (opts.speakerMode) {
         // Aktif konuşanı takip (Faz 10): sesi mono wav'a çıkarıp konuşmacı moduna ver
         const wav = path.join(tmpDir, 'track.wav');
@@ -1016,9 +1031,8 @@ ipcMain.handle('download', async (e, opts) => {
       } else if (trackPoint) {
         trackArgs.push('--point', `${trackPoint.x.toFixed(4)},${trackPoint.y.toFixed(4)}`);
       }
-      // macOS/Linux'ta python3, Windows'ta python çalıştır
-      const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
-      const tr = await runProc(pythonCmd, trackArgs, (line) => {
+      // Paketlenmiş: donmuş tracker ikilisi; geliştirme: python + tracker.py
+      const tr = await runProc(TRACKER.cmd, trackArgs, (line) => {
         const m = line.match(/^PROGRESS (\d+)/);
         if (m) win.webContents.send('progress', Math.min(99.9, +m[1]));
         else if (line.startsWith('WARN')) win.webContents.send('log', line);
@@ -1206,7 +1220,7 @@ ipcMain.handle('track-preview', async (e, { url, videoId, localFile, start, dura
     // 2) tracker.py — render'daki takiple aynı kod; ek olarak takip kutusu yolu
     const cmds = path.join(tmpDir, 'cmds.txt');
     const boxesFile = path.join(tmpDir, 'boxes.txt');
-    const args = [path.join(__dirname, 'tracker.py'), clip, '--out', cmds, '--boxes-out', boxesFile];
+    const args = [...TRACKER.prefix, clip, '--out', cmds, '--boxes-out', boxesFile];
     if (speakerMode) {
       // Aktif konuşanı takip: 480p klibin sesini wav'a çıkarıp ver
       const wav = path.join(tmpDir, 'prev.wav');
@@ -1216,8 +1230,7 @@ ipcMain.handle('track-preview', async (e, { url, videoId, localFile, start, dura
     } else if (trackPoint) {
       args.push('--point', `${trackPoint.x.toFixed(4)},${trackPoint.y.toFixed(4)}`);
     }
-    const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
-    const tr = await runPreviewProc(pythonCmd, args, (line) => {
+    const tr = await runPreviewProc(TRACKER.cmd, args, (line) => {
       const m = line.match(/^PROGRESS (\d+)/);
       if (m) send({ stage: 'track', pct: +m[1] });
     });
