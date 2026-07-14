@@ -6,7 +6,7 @@ Bu dosya, farklı ortamlardaki (ev: macOS M-serisi, ofis: Windows 11) geliştirm
 
 ## 📍 GÜNCEL DURUM & SIRADAKİ İŞLER (yeni oturum buradan başlasın)
 
-**Yayındaki sürüm:** `v1.10.0` · Windows/macOS(arm64)/Linux · GitHub: mehmetakarim/TrimTube
+**Yayındaki sürüm:** `v1.10.1` · Windows/macOS(arm64)/Linux · GitHub: mehmetakarim/TrimTube
 **Yapılacaklar listesi (asıl kaynak):** proje kökündeki `YOL-HARITASI.md` (onay kutulu, faz faz).
 
 **Tamamlanan fazlar (detayları aşağıda):**
@@ -18,7 +18,7 @@ v1.8.2 (YAYINLANDI): kadraj önizleme modalında önizleme **sesi** + **tasarım
 
 **Faz 10-A (v1.10.0) YAYINLANDI:** konuşmacı-değişimli takip (aktif konuşana kadraj). Kullanıcı "mükemmel sonuç" dedi; ince ayar sonrası yayınlandı.
 
-**⏳ KOD HAZIR (v1.10.1), yayın bekliyor: Faz 6 marka arayüzü rötuşları** (kullanıcının ertelediği ufak işler). (1) "İndirme tamamlandı · Klasörü aç" kalıcı satır yerine **yüzer toast** (kendiliğinden kapanır ~8s + elle kapatma). (2) Sağ panel boşluk düzeni: **KRİTİK bulgu** — Logo/filigran + Başlık kartlarının arasındaki `style="margin-top:10px"` inline'ı **CSP `style-src 'self'` tarafından engellenmiş** → yapışıklardı. brandCard `.brand-unit` sarmalayıcılarıyla yeniden yapılandırıldı (birimler arası 16px, birim içi 10px). NOT: bu oturumda komut sınıflandırıcısı geçici kapandı; syntax/görsel test + commit/yayın araç dönünce yapılacak (statik doğrulama: ID'ler, brand-unit×2, dangling referans yok tamam).
+**Faz 6 marka arayüzü rötuşları (v1.10.1) YAYINLANDI:** (1) "İndirme tamamlandı · Klasörü aç" kalıcı satır yerine **yüzer toast** — indirme bildirimi `sticky` (yalnız ✕ ile kapanır, kullanıcı isteğiyle 8s otomatik-kapanma kaldırıldı); kısa bilgi mesajları (playlist) otomatik kapanır. (2) Sağ panel boşluk düzeni: **KRİTİK bulgu** — Logo/filigran + Başlık kartları arasındaki `style="margin-top:10px"` inline'ı **CSP `style-src 'self'` tarafından engellenmiş** → yapışıktı. brandCard `.brand-unit` sarmalayıcılarıyla yeniden yapılandırıldı (birimler arası 16px, birim içi 10px). Kullanıcı "kusursuz" dedi. **Ders: inline `style=` her zaman CSP'ye takılır — daima CSS sınıfı kullan.**
 
 **Kalan fazlar (öncelik sırası):**
 - **Faz 10-B (araştırma):** gömülü Python/WASM ile **kurulumsuz takip** (Python bağımlılığını kaldır). Kullanıcı önce A'yı seçti; B daha çok dağıtım/altyapı işi (PyInstaller ~100MB veya onnxruntime-node port), yerelde tam test edilemez. **Yol haritasının kalan tek kalemi.**
