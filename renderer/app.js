@@ -52,6 +52,16 @@ function showToast(msg, action, opts) {
     a.classList.add('hidden');
     a.onclick = null;
   }
+  // İsteğe bağlı ikinci eylem (ör. "Sıkıştır" — Faz 11)
+  const a2 = $('toastAction2');
+  if (opts.action2) {
+    a2.textContent = opts.action2.label;
+    a2.classList.remove('hidden');
+    a2.onclick = () => { opts.action2.onClick(); hideToast(); };
+  } else {
+    a2.classList.add('hidden');
+    a2.onclick = null;
+  }
   $('toast').classList.remove('hidden');
   clearTimeout(toastTimer);
   // sticky: yalnızca ✕ ile kapanır (ör. indirme tamamlandı). Aksi halde birkaç
@@ -327,6 +337,8 @@ document.addEventListener('keydown', (e) => {
   const t = e.target;
   // Metin girişi veya buton odaktayken kısayollar devre dışı (buton için boşluk = tıklama)
   if (t.matches('input[type="text"], select, button')) return;
+  // Kesim kısayolları yalnız Video Kes ekranında geçerli (view sistemi)
+  if (currentView !== 'cutter') return;
   const v = $('preview');
   if (!v.src || v.classList.contains('hidden')) return;
 
@@ -970,11 +982,15 @@ $('openFileBtn').addEventListener('click', async () => {
 
 const dropOverlay = $('dropOverlay');
 let dragDepth = 0;
+// Sıkıştırma ekranındayken bırakılan dosya ana boru hattına değil sıkıştırmaya
+// gider; tam ekran katman yerine ekrandaki bırakma alanı vurgulanır.
+const onCompressView = () => currentView === 'compress';
 window.addEventListener('dragenter', (e) => {
   if (!Array.from(e.dataTransfer.types || []).includes('Files')) return;
   e.preventDefault();
   dragDepth++;
-  dropOverlay.classList.remove('hidden');
+  if (onCompressView()) $('cmpDrop').classList.add('drag');
+  else dropOverlay.classList.remove('hidden');
 });
 window.addEventListener('dragover', (e) => {
   // 'drop' olayının tetiklenebilmesi için dragover mutlaka preventDefault etmeli;
@@ -983,20 +999,24 @@ window.addEventListener('dragover', (e) => {
 });
 window.addEventListener('dragleave', () => {
   dragDepth = Math.max(0, dragDepth - 1);
-  if (dragDepth === 0) dropOverlay.classList.add('hidden');
+  if (dragDepth === 0) { dropOverlay.classList.add('hidden'); $('cmpDrop').classList.remove('drag'); }
 });
 window.addEventListener('drop', (e) => {
   e.preventDefault();
   dragDepth = 0;
   dropOverlay.classList.add('hidden');
+  $('cmpDrop').classList.remove('drag');
   const file = e.dataTransfer.files && e.dataTransfer.files[0];
   if (!file) return;
   if (!isVideoFile(file.name)) {
-    setStatus('err', 'Desteklenmeyen dosya türü. MP4, MKV, MOV, WEBM, M4V veya AVI bırakın.');
+    const msg = 'Desteklenmeyen dosya türü. MP4, MKV, MOV, WEBM, M4V veya AVI bırakın.';
+    if (onCompressView()) cmpShowError(msg); else setStatus('err', msg);
     return;
   }
   const p = window.api.pathForFile(file);
-  if (p) loadLocalFile(p);
+  if (!p) return;
+  if (onCompressView()) cmpSetFile(p);
+  else loadLocalFile(p);
 });
 
 // ---- klasör seçimi (varsayılan: ayarlardaki son klasör, yoksa İndirilenler) ----
@@ -1178,6 +1198,7 @@ async function runQueueWorker() {
 
   let done = 0, failed = 0;
   const failures = [];
+  const producedFiles = []; // bu turda üretilen dosyalar (toast'taki "Sıkıştır" için)
   let cancelledMid = false;
 
   while (queue.length && !stopRequested) {
@@ -1196,8 +1217,10 @@ async function runQueueWorker() {
     if (result.cancelled) { cancelledMid = true; break; } // aktif iş kuyrukta kalır
 
     queue.shift(); // başarılı/başarısız — işlenen iş kuyruktan düşer
-    if (result.ok) done++;
-    else { failed++; failures.push(`${job.opts.title || 'video'}: ${result.error || 'hata'}`); }
+    if (result.ok) {
+      done++;
+      if (Array.isArray(result.files)) producedFiles.push(...result.files);
+    } else { failed++; failures.push(`${job.opts.title || 'video'}: ${result.error || 'hata'}`); }
     renderQueue();
     updateDownloadBtn();
   }
@@ -1210,10 +1233,15 @@ async function runQueueWorker() {
   if (cancelledMid || stopRequested) {
     setStatus('err', `Durduruldu — ${done} iş tamamlandı, ${queue.length} kuyrukta kaldı.`);
   } else if (failed === 0) {
+    // Üretilen son video (mp4) toast'taki "Sıkıştır" kısayoluyla modalda hazır açılır
+    const lastMp4 = producedFiles.filter(f => f.toLowerCase().endsWith('.mp4')).pop();
     showToast(done > 1 ? `${done} iş tamamlandı` : 'İndirme tamamlandı', {
       label: 'Klasörü aç',
       onClick: () => window.api.openFolder($('folder').textContent)
-    }, { sticky: true }); // indirme bildirimi kendiliğinden kapanmaz, elle kapatılır
+    }, {
+      sticky: true, // indirme bildirimi kendiliğinden kapanmaz, elle kapatılır
+      action2: lastMp4 ? { label: 'Sıkıştır', onClick: () => openCompress(lastMp4) } : null
+    });
   } else {
     setStatus('err', `${done} tamamlandı, ${failed} başarısız:\n` + failures.slice(0, 3).join('\n'));
   }
@@ -1348,6 +1376,8 @@ async function initSettings() {
   settings = await window.api.getSettings();
   applyTheme(settings.theme);
   applyDefaultsToUI();
+  // Sol menü: kapalı başlar, kullanıcının son tercihi hatırlanır
+  $('sideNav').classList.toggle('collapsed', !settings.sidebarOpen);
 
   // Modal alanlarını doldur
   $('setQuality').value = settings.defaultQuality || 'best';
@@ -1409,23 +1439,168 @@ $('cacheClearBtn').addEventListener('click', async () => {
   $('cacheClearBtn').disabled = false;
 });
 
-// Modal aç/kapat
-function openSettings() {
-  $('settingsOverlay').classList.remove('hidden');
-  refreshCacheInfo();
+// ---- Sol navigasyon + ekran (view) sistemi (v1.12.0) ----
+// Her menü öğesi bir ekran gösterir; ana ekran kalabalıklaşmadan yeni özellikler
+// (Faz 12+: GIF, Moodlar…) kendi ekranlarıyla eklenir. Ayarlar ve Sıkıştır
+// eskiden modaldı, artık birer ekran.
+const VIEWS = { cutter: 'viewCutter', compress: 'viewCompress', settings: 'viewSettings' };
+let currentView = 'cutter';
+
+function switchView(name) {
+  if (!VIEWS[name] || name === currentView) return;
+  // Ayarlardan çıkarken varsayılan formatları kaydet (eski closeSettings davranışı)
+  if (currentView === 'settings') window.api.setSettings({ defaultFormats: [...selectedFormats] });
+  currentView = name;
+  Object.entries(VIEWS).forEach(([key, id]) => $(id).classList.toggle('hidden', key !== name));
+  document.querySelectorAll('#sideNav .nav-item').forEach(b => b.classList.toggle('active', b.dataset.view === name));
+  if (name === 'settings') refreshCacheInfo();
 }
-function closeSettings() {
-  $('settingsOverlay').classList.add('hidden');
-  // Varsayılan formatları çıkışta kaydet (kullanıcı ana ekranda değiştirmiş olabilir)
-  window.api.setSettings({ defaultFormats: [...selectedFormats] });
-}
-$('settingsBtn').addEventListener('click', openSettings);
-$('settingsClose').addEventListener('click', closeSettings);
-$('settingsOverlay').addEventListener('click', (e) => {
-  if (e.target === $('settingsOverlay')) closeSettings();
+
+document.querySelectorAll('#sideNav .nav-item').forEach(btn => {
+  btn.addEventListener('click', () => switchView(btn.dataset.view));
 });
+
+// Hamburger: menüyü aç/kapa; son durum ayarlarda hatırlanır (kapalı başlar)
+$('navToggle').addEventListener('click', () => {
+  const open = $('sideNav').classList.contains('collapsed');
+  $('sideNav').classList.toggle('collapsed', !open);
+  if (settings) { settings.sidebarOpen = open; window.api.setSettings({ sidebarOpen: open }); }
+});
+
+// Esc: özellik ekranlarından ana ekrana dön
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && !$('settingsOverlay').classList.contains('hidden')) closeSettings();
+  if (e.key === 'Escape' && currentView !== 'cutter') switchView('cutter');
+});
+
+// ---- Faz 11: Sıkıştırma ekranı ----
+// Üretilen (veya herhangi bir yerel) videoyu görsel kayıpsız yeniden kodlayıp
+// küçültür. Ana indirme/kuyruk akışından tamamen bağımsızdır: kendi ilerleme
+// kanalı (compress-progress) ve kendi iptali vardır; kuyruk çalışırken de
+// kullanılabilir (ekrandan ayrılınca iş arkada sürer, dönünce canlı ilerleme
+// görünür — öğeler gizliyken de güncellenir). Render kalitesi ayarlarına dokunmaz.
+
+let cmpFile = null;      // seçili dosyanın tam yolu
+let cmpRunning = false;
+let cmpMode = 'quality'; // quality (görsel kayıpsız) | size (hedef MB)
+let cmpEta = null;
+
+// Toast'taki "Sıkıştır" kısayolu buradan geçer: ekrana geç + dosyayı ön seç
+function openCompress(presetFile) {
+  switchView('compress');
+  if (presetFile) cmpSetFile(presetFile);
+}
+
+function cmpShowError(msg) {
+  const el = $('cmpError');
+  el.textContent = msg;
+  el.classList.remove('hidden');
+}
+function cmpClearError() { $('cmpError').classList.add('hidden'); }
+
+async function cmpSetFile(p) {
+  if (cmpRunning) return; // iş sürerken dosya değiştirilemez
+  cmpClearError();
+  $('cmpResult').classList.add('hidden');
+  $('cmpOpenFolderBtn').classList.add('hidden');
+  const info = await window.api.localInfo(p);
+  if (info.error) { cmpShowError(info.error); return; }
+  cmpFile = p;
+  $('cmpFileName').textContent = p.split(/[\\/]/).pop();
+  const parts = [fmtBytes(info.size), fmtClock(info.duration)];
+  if (info.w && info.h) parts.push(`${info.w}×${info.h}`);
+  $('cmpFileMeta').textContent = parts.join(' · ');
+  $('cmpDrop').classList.add('hidden');
+  $('cmpFileCard').classList.remove('hidden');
+  cmpUpdateStart();
+}
+
+function cmpResetFile() {
+  if (cmpRunning) return;
+  cmpFile = null;
+  $('cmpFileCard').classList.add('hidden');
+  $('cmpDrop').classList.remove('hidden');
+  $('cmpResult').classList.add('hidden');
+  $('cmpOpenFolderBtn').classList.add('hidden');
+  cmpClearError();
+  cmpUpdateStart();
+}
+
+$('cmpChooseBtn').addEventListener('click', async () => {
+  const p = await window.api.chooseVideo();
+  if (p) cmpSetFile(p);
+});
+$('cmpFileChange').addEventListener('click', cmpResetFile);
+
+// Mod seçimi: hedef boyut satırı yalnızca "size" modunda görünür
+document.querySelectorAll('#cmpModeSeg .seg').forEach(btn => {
+  btn.addEventListener('click', () => {
+    if (cmpRunning) return;
+    cmpMode = btn.dataset.cmpMode;
+    document.querySelectorAll('#cmpModeSeg .seg').forEach(b => b.classList.toggle('active', b === btn));
+    $('cmpSizeRow').classList.toggle('hidden', cmpMode !== 'size');
+    cmpUpdateStart();
+  });
+});
+
+function cmpUpdateStart() {
+  const btn = $('cmpStartBtn');
+  if (cmpRunning) { btn.disabled = false; btn.textContent = 'Durdur'; return; }
+  btn.textContent = 'Sıkıştır';
+  btn.disabled = !cmpFile;
+}
+
+window.api.onCompressProgress((p) => {
+  if (p.eta !== undefined) cmpEta = p.eta;
+  $('cmpProgressFill').style.width = p.pct + '%';
+  $('cmpProgressText').textContent = '%' + p.pct.toFixed(1) + (cmpEta ? ` · kalan ${cmpEta}` : '');
+});
+
+const CMP_OK_SVG = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#34C759" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
+
+$('cmpStartBtn').addEventListener('click', async () => {
+  if (cmpRunning) { window.api.compressCancel(); return; } // Durdur
+  if (!cmpFile) return;
+
+  let targetMB = null;
+  if (cmpMode === 'size') {
+    targetMB = parseInt($('cmpTargetMB').value, 10);
+    if (isNaN(targetMB) || targetMB < 5) { cmpShowError('Geçerli bir hedef boyut girin (en az 5 MB).'); return; }
+  }
+
+  cmpRunning = true;
+  cmpEta = null;
+  cmpClearError();
+  $('cmpResult').classList.add('hidden');
+  $('cmpOpenFolderBtn').classList.add('hidden');
+  $('cmpProgressFill').style.width = '0%';
+  $('cmpProgressText').textContent = '%0';
+  $('cmpProgress').classList.remove('hidden');
+  cmpUpdateStart();
+
+  let r;
+  try {
+    r = await window.api.compressVideo({ file: cmpFile, mode: cmpMode, targetMB, hevc: $('cmpHevc').checked });
+  } catch (err) {
+    r = { error: 'Beklenmeyen hata: ' + (err.message || String(err)) };
+  }
+
+  cmpRunning = false;
+  $('cmpProgress').classList.add('hidden');
+  cmpUpdateStart();
+
+  if (r.cancelled) return; // sessizce eski duruma dön
+  if (r.error) { cmpShowError(r.error); return; }
+
+  const saved = r.beforeBytes > 0 ? Math.round((1 - r.afterBytes / r.beforeBytes) * 100) : 0;
+  $('cmpResultIcon').innerHTML = CMP_OK_SVG;
+  $('cmpResultTitle').textContent = saved > 0
+    ? `%${saved} küçüldü — ${r.outFile.split(/[\\/]/).pop()}`
+    : 'Tamamlandı — kaynak dosya zaten verimli kodlanmış';
+  $('cmpResultSub').textContent = `${fmtBytes(r.beforeBytes)} → ${fmtBytes(r.afterBytes)}`;
+  $('cmpResult').classList.remove('hidden');
+  const outDir = r.outFile.slice(0, r.outFile.length - r.outFile.split(/[\\/]/).pop().length - 1);
+  $('cmpOpenFolderBtn').onclick = () => window.api.openFolder(outDir);
+  $('cmpOpenFolderBtn').classList.remove('hidden');
 });
 
 initSettings();

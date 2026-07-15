@@ -39,7 +39,8 @@ const SETTINGS_DEFAULTS = {
   cacheLimit: 2,          // önbellekte tutulacak video sayısı (1-10)
   defaultQuality: 'best',
   defaultFormats: ['original'],
-  lastFolder: null
+  lastFolder: null,
+  sidebarOpen: false      // sol navigasyon menüsü (v1.12.0): kapalı başlar
 };
 let settingsCache = null;
 function settingsPath() { return path.join(app.getPath('userData'), 'settings.json'); }
@@ -542,6 +543,9 @@ ipcMain.handle('local-info', async (e, filePath) => {
       id,
       title: path.basename(filePath, path.extname(filePath)),
       duration: meta.duration,
+      size: st.size,          // sıkıştırma modalındaki dosya kartı için
+      w: meta.w,
+      h: meta.h,
       localFile: filePath,
       previewUrl: pathToFileURL(filePath).href
     };
@@ -995,7 +999,7 @@ ipcMain.handle('download', async (e, opts) => {
     cleanupTmp();
     if (cancelRequested) { try { fs.rmSync(target, { force: true }); } catch {} return { ok: false, cancelled: true }; }
     if (ff.code !== 0) return { ok: false, error: 'Kesme başarısız:\n' + ff.stderr.split(/\r?\n/).filter(Boolean).slice(-4).join('\n') };
-    return { ok: true };
+    return { ok: true, files: [target] };
   }
 
   try {
@@ -1047,6 +1051,7 @@ ipcMain.handle('download', async (e, opts) => {
 
     // --- Format döngüsü: seçilen her format ayrı dosya üretir ---
     win.webContents.send('phase', 'convert');
+    const outFiles = []; // üretilen dosyalar (toast'taki "Sıkıştır" kısayolu için)
     for (let i = 0; i < formats.length; i++) {
       const fmt = formats[i];
       const def = FORMAT_DEFS[fmt];
@@ -1110,10 +1115,11 @@ ipcMain.handle('download', async (e, opts) => {
         cleanupTmp();
         return { ok: false, error: `${def.label} formatı başarısız:\n` + ff.stderr.split(/\r?\n/).filter(Boolean).slice(-4).join('\n') };
       }
+      outFiles.push(target);
     }
 
     cleanupTmp();
-    return { ok: true };
+    return { ok: true, files: outFiles };
   } catch (err) {
     cleanupTmp();
     return { ok: false, error: err.message };
@@ -1273,6 +1279,163 @@ ipcMain.handle('track-preview', async (e, { url, videoId, localFile, start, dura
       clipUrl: pathToFileURL(clip).href
     };
   } catch (err) {
+    cleanup();
+    return { error: err.message };
+  }
+});
+
+// --- Faz 11: Sıkıştırma (Compress) ---
+// Üretilen (veya herhangi bir yerel) videoyu görsel olarak kayıpsız biçimde
+// yeniden kodlayıp küçültür. Render, kalite hedefli donanım kodlayıcılarla
+// bitrate tavanı olmadan şişkin dosyalar üretebildiğinden burada bilinçli
+// olarak CPU kodlayıcı (libx264/libx265) kullanılır: aynı görsel kalitede
+// belirgin küçülme sağlar, kesim hızını etkilemez (ayrı ve isteğe bağlı adım).
+// İndirme/kesme işlerinden bağımsız kendi süreç takibini kullanır (currentProc'a
+// dokunmaz — İptal butonu sıkıştırmayı, Durdur da indirmeyi öldürmesin).
+let compressProc = null;
+let compressCancelled = false;
+
+function runCompressProc(args, onLine, cwd) {
+  return new Promise((resolve) => {
+    const proc = spawn(FFMPEG, args, { windowsHide: true, env: procEnv, cwd });
+    compressProc = proc;
+    const dec = new StringDecoder('utf8');
+    let buf = '';
+    let errBuf = '';
+    proc.stdout.on('data', (d) => {
+      buf += dec.write(d);
+      const lines = buf.split(/\r?\n/);
+      buf = lines.pop();
+      lines.forEach((l) => { if (l.trim()) onLine(l); });
+    });
+    proc.stderr.on('data', (d) => { errBuf += d.toString('utf8'); });
+    proc.on('close', (code) => { if (compressProc === proc) compressProc = null; resolve({ code, stderr: errBuf }); });
+    proc.on('error', (err) => { if (compressProc === proc) compressProc = null; resolve({ code: -1, stderr: err.message }); });
+  });
+}
+
+ipcMain.handle('compress-cancel', () => {
+  compressCancelled = true;
+  if (compressProc) {
+    if (process.platform === 'win32') {
+      spawn('taskkill', ['/pid', String(compressProc.pid), '/T', '/F'], { windowsHide: true });
+    } else {
+      try { compressProc.kill(); } catch {}
+    }
+  }
+});
+
+// Çakışmayan çıktı yolu: ad.mp4 → ad-2.mp4 → ad-3.mp4 …
+function uniquePath(p) {
+  if (!fs.existsSync(p)) return p;
+  const dir = path.dirname(p);
+  const ext = path.extname(p);
+  const base = path.basename(p, ext);
+  for (let i = 2; ; i++) {
+    const cand = path.join(dir, `${base}-${i}${ext}`);
+    if (!fs.existsSync(cand)) return cand;
+  }
+}
+
+// Ses akışının bitrate'ini (kb/s) ffmpeg -i stderr'inden okur; bulunamazsa
+// uygulamanın kendi çıktılarındaki varsayılan (192) kullanılır.
+function probeAudioKbps(file) {
+  return new Promise((resolve) => {
+    const proc = spawn(FFMPEG, ['-i', file], { windowsHide: true, env: procEnv });
+    let buf = '';
+    proc.stderr.on('data', (d) => { buf += d.toString('utf8'); });
+    proc.on('close', () => {
+      const m = buf.match(/Audio:.*?(\d+) kb\/s/);
+      resolve(m ? +m[1] : 192);
+    });
+    proc.on('error', () => resolve(192));
+  });
+}
+
+// mode: 'quality' (görsel kayıpsız, CRF) | 'size' (hedef MB, two-pass)
+ipcMain.handle('compress-video', async (e, { file, mode, targetMB, hevc }) => {
+  compressCancelled = false;
+  if (!file || !fs.existsSync(file)) return { error: 'Dosya bulunamadı.' };
+  const meta = await probeMedia(file);
+  if (!meta.duration || !meta.w) return { error: 'Video bilgisi okunamadı — dosya bozuk veya desteklenmiyor olabilir.' };
+  const beforeBytes = fs.statSync(file).size;
+
+  const target = uniquePath(path.join(
+    path.dirname(file),
+    `${path.basename(file, path.extname(file))} [sıkıştırılmış].mp4`
+  ));
+  // Two-pass log dosyaları buraya yazılır (göreli adla, cwd=tmpDir — boşluklu
+  // yollarda x265-params ayrıştırma sorunlarından kaçınmak için)
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yt-compress-'));
+  const cleanup = () => { try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {} };
+
+  const send = (p) => { try { win.webContents.send('compress-progress', p); } catch {} };
+  // İlerleme: out_time / toplam süre; two-pass'te 1. geçiş %0-50, 2. geçiş %50-100
+  const progressFor = (base, span) => {
+    let speed = 0;
+    return (line) => {
+      const sp = line.match(/^speed=\s*([\d.]+)x/);
+      if (sp) { speed = parseFloat(sp[1]); return; }
+      const m = line.match(/^out_time=(\d+):(\d+):(\d+)/);
+      if (m) {
+        const t = (+m[1]) * 3600 + (+m[2]) * 60 + (+m[3]);
+        const pct = base + Math.min(1, t / meta.duration) * span;
+        let eta = null;
+        if (speed > 0) {
+          const remain = Math.max(0, Math.round((meta.duration - t) / speed));
+          eta = `${String(Math.floor(remain / 60)).padStart(2, '0')}:${String(remain % 60).padStart(2, '0')}`;
+        }
+        send({ pct: Math.min(99.9, pct), eta });
+      }
+    };
+  };
+
+  const common = ['-pix_fmt', 'yuv420p', '-movflags', '+faststart', '-progress', 'pipe:1', '-nostats'];
+
+  try {
+    if (mode === 'size') {
+      // Hedef boyut: video bitrate = toplam bütçe − ses bütçesi (ses kopyalanır)
+      const audioKbps = await probeAudioKbps(file);
+      const videoKbps = Math.floor((targetMB * 8192) / meta.duration - audioKbps);
+      if (videoKbps < 150) { cleanup(); return { error: 'Hedef boyut bu süre için çok küçük — daha büyük bir değer girin.' }; }
+      const venc = hevc
+        ? ['-c:v', 'libx265', '-preset', 'medium', '-b:v', `${videoKbps}k`, '-tag:v', 'hvc1']
+        : ['-c:v', 'libx264', '-preset', 'slow', '-b:v', `${videoKbps}k`];
+      const passArg = (n) => hevc
+        ? ['-x265-params', `pass=${n}:stats=x265stats`]
+        : ['-pass', String(n), '-passlogfile', 'ff2pass'];
+
+      const p1 = await runCompressProc(
+        ['-y', '-i', file, ...venc, ...passArg(1), '-an', '-f', 'null', '-progress', 'pipe:1', '-nostats', '-'],
+        progressFor(0, 50), tmpDir
+      );
+      if (compressCancelled) { cleanup(); return { cancelled: true }; }
+      if (p1.code !== 0) { cleanup(); return { error: 'Sıkıştırma (1. geçiş) başarısız:\n' + p1.stderr.split(/\r?\n/).filter(Boolean).slice(-3).join('\n') }; }
+
+      const p2 = await runCompressProc(
+        ['-y', '-i', file, ...venc, ...passArg(2), '-c:a', 'copy', ...common, target],
+        progressFor(50, 50), tmpDir
+      );
+      if (compressCancelled) { try { fs.rmSync(target, { force: true }); } catch {} cleanup(); return { cancelled: true }; }
+      if (p2.code !== 0) { try { fs.rmSync(target, { force: true }); } catch {} cleanup(); return { error: 'Sıkıştırma (2. geçiş) başarısız:\n' + p2.stderr.split(/\r?\n/).filter(Boolean).slice(-3).join('\n') }; }
+    } else {
+      // Görsel kayıpsız: CRF tabanlı tek geçiş; ses kayıpsız kopya
+      const venc = hevc
+        ? ['-c:v', 'libx265', '-preset', 'medium', '-crf', '20', '-tag:v', 'hvc1']
+        : ['-c:v', 'libx264', '-preset', 'slow', '-crf', '18'];
+      const r = await runCompressProc(
+        ['-y', '-i', file, ...venc, '-c:a', 'copy', ...common, target],
+        progressFor(0, 100), tmpDir
+      );
+      if (compressCancelled) { try { fs.rmSync(target, { force: true }); } catch {} cleanup(); return { cancelled: true }; }
+      if (r.code !== 0) { try { fs.rmSync(target, { force: true }); } catch {} cleanup(); return { error: 'Sıkıştırma başarısız:\n' + r.stderr.split(/\r?\n/).filter(Boolean).slice(-3).join('\n') }; }
+    }
+
+    cleanup();
+    const afterBytes = fs.statSync(target).size;
+    return { ok: true, outFile: target, beforeBytes, afterBytes };
+  } catch (err) {
+    try { fs.rmSync(target, { force: true }); } catch {}
     cleanup();
     return { error: err.message };
   }

@@ -1,8 +1,8 @@
 # TrimTube — Yol Haritası & Yapılacaklar
 
-Bu dosya, [TrimTube Özellik Yol Haritası](https://claude.ai/code/artifact/2fd1bca8-5533-43ec-a1c1-bb1db32d230b) dokümanındaki fikirlerin uygulanma durumunu takip eder.
+Bu dosya, TrimTube'un özellik yol haritasını ve uygulanma durumunu takip eder.
 
-**Durum:** 5 fazlık ana plan tamamlandı (v1.1.0 → v1.5.0). Aşağıdaki "Kalanlar" bölümü, henüz yapılmamış fikirleri önceliğe göre listeler.
+**Durum:** Ana plan (Faz 1–10) tamamlandı (v1.1.0 → v1.11.0). İkinci plan dönemi (Faz 11–16 + kulvarlar), kullanıcının 16 maddelik özellik notları ile saha/kod analizi birleştirilerek 15 Temmuz 2026'da oluşturuldu.
 
 ---
 
@@ -54,14 +54,67 @@ Bu dosya, [TrimTube Özellik Yol Haritası](https://claude.ai/code/artifact/2fd1
 
 ---
 
-## 🎉 Ana plan tamamlandı
+## 📋 İkinci Plan Dönemi (Faz 11–16)
 
-Faz 1–10'un tamamı yayında. Kalan fikirler bilinçli olarak kapsam dışı (aşağıda).
+Sıralama mantığı: önce sahadaki somut sorun (çıktı boyutu), sonra hızlı kazanımlar, ardından iki temel yapı taşı — **kurgu/montaj motoru** (Faz 13 → 15/16'nın ön koşulu) ve **AI altyapısı** (Faz 14 → 15'in ön koşulu) — en sonda zirve özellik (Moodlar) ve ileri kurgu.
+
+### Faz 11 — Sıkıştırma (Compress) · `v1.12.0` ✅ (tamamlandı, saha testinden geçti — yayın Faz 12 ile birlikte)
+Saha geri bildirimi: 3 dk'lık klip ~350MB çıkabiliyor (donanım kodlayıcı bitrate tavanı olmadan ~16 Mbps üretiyor); sosyal medya paylaşımında sorun. Mevcut render kalitesine DOKUNULMADI — ayrı, isteğe bağlı sıkıştırma aracı eklendi.
+- [x] "Sıkıştır" ekranı: dosya seç / sürükle-bırak, dosya bilgisi kartı (ad/boyut/süre/çözünürlük), ilerleme + ETA, önce/sonra boyut raporu
+- [x] Görsel kayıpsız mod (libx264 slow CRF 18, ses kayıpsız kopya) — tipik %50–70 küçülme, gözle fark edilmez
+- [x] Hedef boyut (MB) modu (two-pass kodlama; testte 5MB hedef → 5.02MB)
+- [x] HEVC (H.265) seçeneği — ek ~%30–50 küçülme (modern cihaz uyumu notuyla)
+- [x] Render sonrası "tamamlandı" toast'ına "Sıkıştır" kısayolu
+- [x] Sol navigasyon menüsü (hamburger) + ekran mimarisi — her özellik kendi ekranında; Sıkıştır ve Ayarlar kendi ekranına taşındı, üst çubuk sadeleşti. Gelecek fazların (GIF, Moodlar…) iskeleti.
+
+### Faz 12 — Hızlı Kazanımlar
+- [ ] GIF dışa aktarma: kesitten tek tıkla hareketli GIF (palettegen/paletteuse)
+- [ ] Safe Zone maskesi: kadraj önizleme modalına TikTok/Shorts/Reels arayüz şablonu katmanı (toggle) — altyazı/logo, platform butonlarının altında kalmasın
+- [ ] `.trimtube` proje dosyası: URL + kesim + kuyruk + stil + watermark ayarlarını kaydet/aç; şablon olarak her videoya tek tıkla uygula
+- [ ] Zaman çizelgesine kare önizlemeli (thumbnail) şerit
+- _Not: MP3 kesit ve waveform/timeline (Faz 1) zaten yayında._
+
+### Faz 13 — Kurgu Motoru
+- [ ] Akıllı sessizlik ayıklama: Whisper zaman damgalarından uzun sessizlik/duraksamaları tespit edip tek tıkla kesme (ffmpeg concat)
+- [ ] Dolgu kelimesi ayıklama: "eee", "yani", "şey" vb. (kelime bazlı zaman damgası)
+- _Bu faz, Faz 15 ve 16'nın ihtiyacı olan concat/montaj altyapısını kurar._
+
+### Faz 14 — AI Altyapısı ve İlk Meyveler
+- [ ] Ayarlara API anahtarları: Gemini + ElevenLabs/Google TTS (kullanıcının kendi anahtarı — sunucu maliyeti yok)
+- [ ] Başlık/açıklama/hashtag üretici: transkript → Gemini → 3 Shorts başlığı + caption + hashtag'ler, panoya kopyala
+- [ ] Semantik arama ile kırpma: "X'ten bahsettiği yerleri bul ve kes"
+- [ ] AI Hook Finder: viral potansiyelli anları skorlayıp öne çıkarma (transkript + ses enerjisi analizi)
+- [ ] "Reklam dostu içerik" uyarısı: transkriptten küfür/hassas kelime taraması
+  - _Not: Content ID (telif) simülasyonu teknik olarak yapılamaz — YouTube'un parmak izi veritabanına dış erişim yok; fikir bu şekilde daraltıldı._
+
+### Faz 15 — Moodlar & AI Director *(zirve özellik)*
+- [ ] Moodlar sekmesi: bölüm yükle → mood seç (Komedi/Drama/…) → Whisper ile zaman damgalı diyalog haritası → Gemini'den 1 dk'lık anlatıcılı hikaye kurgusu (JSON: anlatıcı metinleri + kesit aralıkları)
+- [ ] TTS seslendirme (ElevenLabs/Google) → dış ses (voiceover) üretimi
+- [ ] Montaj robotu: dış ses + kesitler concat + audio ducking; Faz 9 kuyruğunda arka planda
+- _Tuzaklar: uzun bölüm dökümü için Gemini'nin geniş context'i tercih nedeni; prompt'ta "yalnızca güçlü diyaloglu sahneler" kısıtı; maliyet kullanıcının kendi anahtarında._
+
+### Faz 16 — İleri Kurgu
+- [ ] Kelime bazlı animasyonlu altyazı: Shorts tarzı anlık büyüme/renk vurgusu (ASS karaoke)
+- [ ] Ses efekti tetikleyicileri: vurgu/sahne geçişinde swoosh/pop gömme
+- [ ] Otomatik J-Cut / L-Cut (araştırma — kurgu motorunun üstüne)
+- [ ] B-Roll köprüsü: transkript anahtar kelimelerine Pexels/Pixabay API ile overlay önerisi (kullanıcı onaylı)
+- [ ] Yüz imzası (face-embedding) ile takip sağlamlaştırma — gürültülü ortamlar için; ihtiyaç doğarsa
+
+### 🔧 Paralel Bakım Kulvarı *(faz sırasından bağımsız, araya alınabilir)*
+- [ ] yt-dlp kendini güncelleme: gömülü ikili userData'ya kopyalanır, `--update-to stable` ile güncel tutulur — YouTube kırılmalarına karşı kritik koruma (Apple geliştirici hesabı GEREKTİRMEZ)
+- [ ] Kurulum boyutu küçültme (233–270MB)
+- [ ] macOS notarization — **beklemede: Apple Developer ID hesabı ($99/yıl) alınırsa** ("hasar görmüş" uyarısı + macOS oto-güncelleme bunun eksikliğinden)
+
+### 🧩 Ayrı Kulvar — Tarayıcı Eklentisi
+- [ ] `extension/` klasöründe Chrome eklentisi: YouTube izleme sayfasında "TrimTube ile Kes" butonu
+- [ ] Uygulamaya `trimtube://` protokol (deep-link) desteği
+- [ ] Test: geliştirici modunda yükleme; mağaza dağıtımı ayrıca konuşulacak
 
 ### Bilinçli olarak kapsam dışı
 - [ ] ~~Diğer platform kaynakları (X, Instagram vb.)~~ — teknik olarak kolay ama ayrı bir ürün yönü; şimdilik YouTube odağı korunuyor
 - [ ] ~~Sosyal medyaya doğrudan paylaşım/yükleme~~ — OAuth/API/platform kuralları; bu projenin kapsamı dışında
+- [ ] ~~Content ID / telif simülasyonu~~ — teknik olarak mümkün değil; "reklam dostu içerik" uyarısına daraltıldı (Faz 14)
 
 ---
 
-*Son güncelleme: Faz 10-B (v1.11.0) — kurulumsuz takip (PyInstaller). Yol haritasının ana planı tamamen tamamlandı.*
+*Son güncelleme: Faz 11 (Sıkıştırma + sol navigasyon mimarisi) tamamlandı ve saha testinden geçti; v1.12.0 yayını Faz 12 ile birlikte yapılacak. Faz 12 geliştirmede.*

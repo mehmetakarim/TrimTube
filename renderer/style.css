@@ -76,8 +76,63 @@ body {
   overflow: hidden;
 }
 
-.app { height: 100vh; display: flex; flex-direction: column; }
+.app { height: 100vh; display: flex; }
+.app-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .hidden { display: none !important; }
+
+/* ---- Sol navigasyon (v1.12.0) ---- */
+/* Her özellik kendi ekranında: menü genişlik geçişiyle açılır/kapanır; iç
+   sarmalayıcı sabit genişlikte kalır ki daralırken içerik sıkışıp kırılmasın. */
+.side-nav {
+  flex: none;
+  width: 208px;
+  border-right: 1px solid var(--hairline);
+  overflow: hidden;
+  transition: width 0.22s ease;
+}
+.side-nav.collapsed { width: 0; border-right: none; }
+.side-nav-inner {
+  width: 208px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 14px 10px;
+}
+.nav-spacer { flex: 1; }
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.nav-item svg { flex: none; color: var(--muted); transition: color 0.12s ease; }
+.nav-item:hover { background: var(--fill); }
+.nav-item.active { background: var(--accent-soft); color: var(--accent); }
+.nav-item.active svg { color: var(--accent); }
+
+/* ---- Ekranlar (view sistemi) ---- */
+/* Menüdeki her öğe bir .view bölümü gösterir; ana ekran (.body) da bir view'dur. */
+.view-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 26px 24px; }
+.view-inner {
+  max-width: 560px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.view-head { display: flex; flex-direction: column; gap: 3px; }
+.view-title { font-size: 17px; font-weight: 700; }
+.view-sub { font-size: 12.5px; color: var(--muted); }
 
 .label {
   font-size: 11px;
@@ -997,3 +1052,93 @@ button:disabled { opacity: 0.45; cursor: default; }
 .btn-download:hover:not(:disabled) { background: var(--accent-hover); }
 .btn-download.cancel { background: var(--fill); color: var(--text); }
 .btn-download.cancel:hover { background: var(--fill-hover); }
+
+/* ---- Sıkıştırma modalı (Faz 11) ---- */
+/* Dosya bırakma alanı: modal içi hedef; genel dropOverlay'den bağımsız */
+.cmp-drop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 26px 16px;
+  border: 1.5px dashed var(--border);
+  border-radius: 12px;
+  color: var(--muted);
+  text-align: center;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.cmp-drop.drag { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+.cmp-drop-title { font-size: 13px; color: var(--text); }
+
+/* Seçilen dosya kartı */
+.cmp-file {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--hairline);
+  border-radius: 12px;
+}
+.cmp-file-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.cmp-file-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cmp-file-meta { font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* Hedef boyut girişi: ayarlar modalındaki sayı girişiyle aynı dil */
+#cmpTargetMB {
+  width: 76px; height: 32px;
+  text-align: center;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  outline: none;
+}
+.cmp-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--text);
+  cursor: pointer;
+}
+.cmp-check-sub { color: var(--muted); font-size: 11.5px; }
+
+/* İlerleme çubuğu dolgusu ana akıştakiyle aynı */
+#cmpProgressFill {
+  height: 100%;
+  width: 0%;
+  border-radius: 3px;
+  background: var(--accent);
+  transition: width 0.15s linear;
+}
+#cmpProgressText { font-variant-numeric: tabular-nums; }
+
+/* Sonuç kartı: önce/sonra boyut ve kazanç */
+.cmp-result {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 14px;
+  border-radius: 12px;
+  background: rgba(52, 199, 89, 0.1);
+}
+.cmp-result-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.cmp-result-title { font-size: 12.5px; font-weight: 600; color: var(--text); }
+.cmp-result-sub { font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+.cmp-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-top: 14px;
+  border-top: 1px solid var(--hairline);
+}
+.cmp-foot-hint { flex: 1; font-size: 11.5px; color: var(--muted); line-height: 1.4; }

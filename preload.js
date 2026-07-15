@@ -40,5 +40,10 @@ contextBridge.exposeInMainWorld('api', {
   getSettings: () => ipcRenderer.invoke('get-settings'),
   setSettings: (patch) => ipcRenderer.invoke('set-settings', patch),
   cacheInfo: () => ipcRenderer.invoke('cache-info'),
-  cacheClear: () => ipcRenderer.invoke('cache-clear')
+  cacheClear: () => ipcRenderer.invoke('cache-clear'),
+
+  // Faz 11: sıkıştırma (görsel kayıpsız yeniden kodlama ile boyut küçültme)
+  compressVideo: (opts) => ipcRenderer.invoke('compress-video', opts),
+  compressCancel: () => ipcRenderer.invoke('compress-cancel'),
+  onCompressProgress: (cb) => ipcRenderer.on('compress-progress', (e, p) => cb(p))
 });
