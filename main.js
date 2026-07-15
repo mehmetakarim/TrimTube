@@ -402,6 +402,64 @@ ipcMain.handle('waveform', async (e, { url, start, duration, videoId, localPath 
   });
 });
 
+// --- Faz 12: kare önizlemeli film şeridi (ana zaman çizelgesi arka planı) ---
+// 12 kare, videoya eşit aralıklı. Her kare için ayrı `-ss T -i input` girdisi
+// kullanılır (hızlı sarma): tüm videoyu çözmeden — uzak akışta da — saniyeler
+// içinde biter. Kendi süreç takibi vardır; yeni istek eskisini iptal eder
+// (waveform ile aynı kalıp), indirme/kesme işlerine dokunmaz.
+let filmstripProc = null;
+
+ipcMain.handle('filmstrip', async (e, { url, duration, videoId, localPath }) => {
+  const localFile = (localPath && fs.existsSync(localPath)) ? localPath : findCachedMedia(videoId);
+  const input = localFile || url;
+  if (!input || !duration || duration <= 0) return null;
+  if (filmstripProc) { filmstripProc.supersededByNewer = true; try { filmstripProc.kill(); } catch {} filmstripProc = null; }
+
+  const FRAMES = 12;
+  const out = path.join(os.tmpdir(), `trimtube-strip-${Date.now()}.png`);
+  const inputs = [];
+  const labels = [];
+  for (let i = 0; i < FRAMES; i++) {
+    // Kareler aralık ortalarından: (i+0.5)/FRAMES — kapak/kapanış karesine denk gelmesin
+    const t = Math.min(Math.max(0, duration - 0.5), ((i + 0.5) / FRAMES) * duration);
+    inputs.push('-ss', t.toFixed(2), '-i', input);
+    labels.push(`[v${i}]`);
+  }
+  const chains = Array.from({ length: FRAMES }, (_, i) => `[${i}:v]scale=160:-2[v${i}]`).join(';');
+  const args = [
+    '-y', ...inputs,
+    '-filter_complex', `${chains};${labels.join('')}hstack=inputs=${FRAMES}`,
+    '-frames:v', '1', out, '-loglevel', 'error'
+  ];
+
+  return new Promise((resolve) => {
+    const proc = spawn(FFMPEG, args, { windowsHide: true, env: procEnv });
+    filmstripProc = proc;
+    let errBuf = '';
+    proc.stderr.on('data', (d) => { errBuf += d.toString('utf8'); });
+    let timedOut = false;
+    const timer = setTimeout(() => { timedOut = true; try { proc.kill(); } catch {} }, localFile ? 20000 : 60000);
+    proc.on('close', (code) => {
+      clearTimeout(timer);
+      if (filmstripProc === proc) filmstripProc = null;
+      if (proc.supersededByNewer) return resolve(null); // beklenen iptal
+      if (timedOut || code !== 0 || !fs.existsSync(out)) {
+        // Film şeridi süs katmanıdır: başarısızlık sessizce yutulur, akış etkilenmez
+        if (!timedOut && code !== 0) console.error('[filmstrip] başarısız:', errBuf.trim().split('\n').pop() || code);
+        return resolve(null);
+      }
+      try {
+        const b64 = fs.readFileSync(out).toString('base64');
+        fs.rmSync(out, { force: true });
+        resolve('data:image/png;base64,' + b64);
+      } catch {
+        resolve(null);
+      }
+    });
+    proc.on('error', () => { clearTimeout(timer); resolve(null); });
+  });
+});
+
 ipcMain.handle('get-default-folder', () => app.getPath('downloads'));
 
 ipcMain.handle('choose-folder', async () => {
@@ -557,9 +615,67 @@ ipcMain.handle('local-info', async (e, filePath) => {
 ipcMain.handle('choose-video', async () => {
   const res = await dialog.showOpenDialog(win, {
     properties: ['openFile'],
-    filters: [{ name: 'Video', extensions: LOCAL_VIDEO_EXTS }]
+    filters: [
+      { name: 'Video ve Proje', extensions: [...LOCAL_VIDEO_EXTS, 'trimtube'] },
+      { name: 'TrimTube Projesi', extensions: ['trimtube'] }
+    ]
   });
   return res.canceled ? null : res.filePaths[0];
+});
+
+// --- Faz 12: .trimtube proje dosyası ---
+// Proje = oturumun hafif JSON'u (kaynak, kesim, format, takip, altyazı, marka,
+// kuyruk). Video verisi içermez. Açılırken "tümü" (kaynak+kesim+kuyruk dahil)
+// veya "yalnız ayarlar" (şablon gibi) olarak uygulanabilir.
+ipcMain.handle('project-save', async (e, data) => {
+  const res = await dialog.showSaveDialog(win, {
+    defaultPath: `${sanitizeName(data.title || 'proje')}.trimtube`,
+    filters: [{ name: 'TrimTube Projesi', extensions: ['trimtube'] }]
+  });
+  if (res.canceled || !res.filePath) return { cancelled: true };
+  try {
+    const doc = { app: 'trimtube', version: 1, savedAt: new Date().toISOString(), ...data };
+    fs.writeFileSync(res.filePath, JSON.stringify(doc, null, 2), 'utf8');
+    return { ok: true, path: res.filePath };
+  } catch (err) {
+    return { error: 'Proje kaydedilemedi: ' + err.message };
+  }
+});
+
+ipcMain.handle('project-open', async (e, filePath) => {
+  let p = filePath;
+  if (!p) {
+    const res = await dialog.showOpenDialog(win, {
+      properties: ['openFile'],
+      filters: [{ name: 'TrimTube Projesi', extensions: ['trimtube'] }]
+    });
+    if (res.canceled) return { cancelled: true };
+    p = res.filePaths[0];
+  }
+  try {
+    const data = JSON.parse(fs.readFileSync(p, 'utf8'));
+    if (data.app !== 'trimtube') return { error: 'Bu bir TrimTube proje dosyası değil.' };
+    // Diskte olmayan yollar renderer'da uyarıya dönüşür (sessiz kırılma olmasın)
+    if (data.watermark && data.watermark.file && !fs.existsSync(data.watermark.file)) data.watermark.missing = true;
+    if (data.localFile && !fs.existsSync(data.localFile)) data.localFileMissing = true;
+    return { ok: true, project: data };
+  } catch {
+    return { error: 'Proje dosyası okunamadı veya bozuk.' };
+  }
+});
+
+// Yükleme türü sorusu: yerleşik diyalogla (tasarım diline ek modal gerektirmez)
+ipcMain.handle('project-ask-mode', async () => {
+  const r = await dialog.showMessageBox(win, {
+    type: 'question',
+    buttons: ['Tümünü geri yükle', 'Yalnız ayarları uygula', 'Vazgeç'],
+    defaultId: 0,
+    cancelId: 2,
+    title: 'Proje aç',
+    message: 'Proje nasıl uygulansın?',
+    detail: 'Tümünü geri yükle: video, kesim aralığı ve kuyruk dahil her şey geri gelir.\nYalnız ayarları uygula: kalite/format/takip/altyazı/marka, şablon gibi mevcut oturuma uygulanır.'
+  });
+  return r.response === 0 ? 'full' : r.response === 1 ? 'settings' : 'cancel';
 });
 
 // --- Altyazı gömme ---
@@ -836,7 +952,11 @@ const FORMAT_DEFS = {
     vf: 'crop=min(iw\\,ih):min(iw\\,ih),scale=1080:1080:force_original_aspect_ratio=decrease,pad=1080:1080:(ow-iw)/2:(oh-ih)/2',
     marginV: 35,
     label: '1:1'
-  }
+  },
+  // GIF (Faz 12): palet tabanlı tek geçiş; venc/ses yolu ve altyazı/marka/takip
+  // zinciri uygulanmaz — amaç "tek tık paylaşımlık kesit". 12 fps + 480px genişlik
+  // boyut/kalite dengesinin tatlı noktası.
+  gif: { suffix: ' [gif]', vf: null, marginV: 25, label: 'GIF' }
 };
 
 ipcMain.handle('download', async (e, opts) => {
@@ -952,6 +1072,8 @@ ipcMain.handle('download', async (e, opts) => {
   const subSuffix = subStyleBase ? ' [altyazılı]' : '';
   const brandSuffix = (watermark || titleText) ? ' [marka]' : '';
   const targetFor = (fmt, tracked) => {
+    // GIF'e altyazı/marka uygulanmadığından adına da o etiketler girmez
+    if (fmt === 'gif') return path.join(folder, `${sanitizeName(title)}${baseSuffix} [gif].gif`);
     const fmtSuffix = fmt === 'vertical' ? (tracked ? ' [9x16 takipli]' : ' [9x16]') : FORMAT_DEFS[fmt].suffix;
     return path.join(folder, `${sanitizeName(title)}${baseSuffix}${fmtSuffix}${subSuffix}${brandSuffix}.${isAudio ? 'mp3' : 'mp4'}`);
   };
@@ -1059,6 +1181,27 @@ ipcMain.handle('download', async (e, opts) => {
       const target = targetFor(fmt, tracked);
       if (formats.length > 1) win.webContents.send('log', `Format ${i + 1}/${formats.length}: ${def.label}${tracked ? ' (takipli)' : ''}`);
       win.webContents.send('progress', 0);
+
+      // GIF: kendi tek geçişli yolu (palettegen/paletteuse), venc/ses devre dışı
+      if (fmt === 'gif') {
+        const gf = await runProc(FFMPEG, [
+          '-y', ...(trim ? ['-ss', trim.start] : []), '-i', cacheFile,
+          '-filter_complex', 'fps=12,scale=480:-2:flags=lanczos,split[a][b];[a]palettegen=stats_mode=diff[p];[b][p]paletteuse=dither=bayer',
+          '-an', ...(trim ? ['-t', String(clipSec)] : []),
+          '-progress', 'pipe:1', '-nostats', target
+        ], ffProgress);
+        if (cancelRequested) {
+          try { fs.rmSync(target, { force: true }); } catch {}
+          cleanupTmp();
+          return { ok: false, cancelled: true };
+        }
+        if (gf.code !== 0) {
+          cleanupTmp();
+          return { ok: false, error: 'GIF formatı başarısız:\n' + gf.stderr.split(/\r?\n/).filter(Boolean).slice(-4).join('\n') };
+        }
+        outFiles.push(target);
+        continue;
+      }
 
       const outDims = (watermark || titleText) ? await outDimsFor(fmt) : null;
 

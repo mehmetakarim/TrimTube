@@ -45,5 +45,11 @@ contextBridge.exposeInMainWorld('api', {
   // Faz 11: sıkıştırma (görsel kayıpsız yeniden kodlama ile boyut küçültme)
   compressVideo: (opts) => ipcRenderer.invoke('compress-video', opts),
   compressCancel: () => ipcRenderer.invoke('compress-cancel'),
-  onCompressProgress: (cb) => ipcRenderer.on('compress-progress', (e, p) => cb(p))
+  onCompressProgress: (cb) => ipcRenderer.on('compress-progress', (e, p) => cb(p)),
+
+  // Faz 12: .trimtube proje dosyası + film şeridi
+  projectSave: (data) => ipcRenderer.invoke('project-save', data),
+  projectOpen: (path) => ipcRenderer.invoke('project-open', path),
+  projectAskMode: () => ipcRenderer.invoke('project-ask-mode'),
+  getFilmstrip: (opts) => ipcRenderer.invoke('filmstrip', opts)
 });

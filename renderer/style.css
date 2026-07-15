@@ -502,6 +502,47 @@ button:disabled { opacity: 0.45; cursor: default; }
   display: block;
 }
 
+/* ---- Safe Zone maskesi (Faz 12) ---- */
+/* Platform arayüzünün (beğeni sütunu, açıklama alanı, üst bar) kapattığı
+   bölgeleri 9:16 çıktının üstünde yarı saydam gösterir; içerik tıklanabilir
+   kalsın diye pointer-events yok. Ölçüler platformların yayımlanmış güvenli
+   alan kılavuzlarına orantısal yaklaşıklıktır. */
+.tp-canvas-wrap { position: relative; display: inline-block; }
+.tp-safezone { position: absolute; inset: 0; border-radius: 12px; overflow: hidden; pointer-events: none; }
+.tp-safezone[data-platform="off"] { display: none; }
+.tsz-top, .tsz-rail, .tsz-caption {
+  position: absolute;
+  background: rgba(255, 59, 48, 0.28);
+  border: 1px dashed rgba(255, 59, 48, 0.55);
+}
+.tsz-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-evenly;
+  padding: 4px 0;
+}
+.tsz-dot {
+  width: 55%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.35);
+}
+/* TikTok: üst arama barı yok denecek kadar ince; sağ sütun uzun, altta geniş açıklama */
+.tp-safezone[data-platform="tiktok"] .tsz-top { top: 0; left: 0; right: 0; height: 6%; }
+.tp-safezone[data-platform="tiktok"] .tsz-rail { right: 1.5%; bottom: 22%; width: 13%; height: 34%; }
+.tp-safezone[data-platform="tiktok"] .tsz-caption { left: 0; right: 16%; bottom: 0; height: 20%; }
+/* YouTube Shorts: sağ sütun biraz daha yukarıda, alt şerit daha dar */
+.tp-safezone[data-platform="shorts"] .tsz-top { top: 0; left: 0; right: 0; height: 8%; }
+.tp-safezone[data-platform="shorts"] .tsz-rail { right: 1.5%; bottom: 18%; width: 13%; height: 36%; }
+.tp-safezone[data-platform="shorts"] .tsz-caption { left: 0; right: 16%; bottom: 0; height: 14%; }
+/* Instagram Reels: alt açıklama + paylaşım çubuğu daha yüksek */
+.tp-safezone[data-platform="reels"] .tsz-top { top: 0; left: 0; right: 0; height: 5%; }
+.tp-safezone[data-platform="reels"] .tsz-rail { right: 1.5%; bottom: 24%; width: 13%; height: 32%; }
+.tp-safezone[data-platform="reels"] .tsz-caption { left: 0; right: 0; bottom: 0; height: 22%; }
+
+.tp-safezone-seg .seg { font-size: 11px; padding: 4px 8px; }
+
 .tp-modal-foot {
   display: flex;
   align-items: center;
@@ -550,6 +591,22 @@ button:disabled { opacity: 0.45; cursor: default; }
 /* ---- Kesim alanı ---- */
 .trim-area { flex: none; display: flex; flex-direction: column; gap: 12px; transition: opacity 0.2s; }
 .trim-area.disabled { opacity: 0.35; pointer-events: none; }
+
+/* Film şeridi bandı (Faz 12): ana kaydırıcının üstünde, aynı yatay hizada */
+.filmstrip-band {
+  height: 44px;
+  margin: 0 6px -6px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--fill);
+}
+.filmstrip-band img {
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+  display: block;
+  pointer-events: none;
+}
 
 .slider-wrap { position: relative; height: 28px; margin: 0 6px; }
 .slider-track {
@@ -1036,6 +1093,8 @@ button:disabled { opacity: 0.45; cursor: default; }
 .download-row { display: flex; gap: 8px; flex: none; }
 .download-row .btn-download { flex: 1; }
 .queue-add { height: 44px; border-radius: 12px; padding: 0 14px; }
+/* Proje kaydet (Faz 12): indirme satırındaki ikon düğmesi ana düğmelerle aynı boyda */
+.download-row .dl-icon { width: 44px; height: 44px; border-radius: 12px; flex: none; }
 
 /* ---- İndir butonu ---- */
 .btn-download {

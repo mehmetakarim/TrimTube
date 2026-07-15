@@ -67,11 +67,11 @@ Saha geri bildirimi: 3 dk'lık klip ~350MB çıkabiliyor (donanım kodlayıcı b
 - [x] Render sonrası "tamamlandı" toast'ına "Sıkıştır" kısayolu
 - [x] Sol navigasyon menüsü (hamburger) + ekran mimarisi — her özellik kendi ekranında; Sıkıştır ve Ayarlar kendi ekranına taşındı, üst çubuk sadeleşti. Gelecek fazların (GIF, Moodlar…) iskeleti.
 
-### Faz 12 — Hızlı Kazanımlar
-- [ ] GIF dışa aktarma: kesitten tek tıkla hareketli GIF (palettegen/paletteuse)
-- [ ] Safe Zone maskesi: kadraj önizleme modalına TikTok/Shorts/Reels arayüz şablonu katmanı (toggle) — altyazı/logo, platform butonlarının altında kalmasın
-- [ ] `.trimtube` proje dosyası: URL + kesim + kuyruk + stil + watermark ayarlarını kaydet/aç; şablon olarak her videoya tek tıkla uygula
-- [ ] Zaman çizelgesine kare önizlemeli (thumbnail) şerit
+### Faz 12 — Hızlı Kazanımlar · `v1.12.0` ✅ (tamamlandı, saha testinden geçti)
+- [x] GIF dışa aktarma: format seçicide 4. seçenek — tek geçiş palettegen/paletteuse (12 fps, 480px); 30 sn üstü kesitte boyut uyarısı
+- [x] Safe Zone maskesi: kadraj önizleme modalında Kapalı/TikTok/Shorts/Reels seçici; platform arayüz bölgeleri 9:16 çıktının üstünde yarı saydam şablon
+- [x] `.trimtube` proje dosyası: kaynak + kesim + kuyruk + stil + marka kaydet/aç; açarken "Tümünü geri yükle" veya "Yalnız ayarları uygula" (şablon)
+- [x] Zaman çizelgesine kare önizlemeli şerit: ana kaydırıcının üstünde 12 karelik bant (hızlı sarma ile — uzak akışta da saniyeler içinde)
 - _Not: MP3 kesit ve waveform/timeline (Faz 1) zaten yayında._
 
 ### Faz 13 — Kurgu Motoru
@@ -117,4 +117,4 @@ Saha geri bildirimi: 3 dk'lık klip ~350MB çıkabiliyor (donanım kodlayıcı b
 
 ---
 
-*Son güncelleme: Faz 11 (Sıkıştırma + sol navigasyon mimarisi) tamamlandı ve saha testinden geçti; v1.12.0 yayını Faz 12 ile birlikte yapılacak. Faz 12 geliştirmede.*
+*Son güncelleme: Faz 11 + Faz 12 tamamlandı ve saha testinden geçti — v1.12.0 olarak birlikte yayınlandı. Sıradaki: Faz 13 (Kurgu Motoru).*

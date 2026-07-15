@@ -203,12 +203,29 @@
           </div>
           <div class="tp-pane tp-pane-out">
             <span class="label">Çıktı · 9:16</span>
-            <canvas id="tpCanvas" class="tp-canvas"></canvas>
+            <!-- Safe Zone (Faz 12): platform arayüz bölgeleri yarı saydam şablonla
+                 bindirilir; altyazı/logo render öncesi bu bölgelere göre konumlanır -->
+            <div class="tp-canvas-wrap">
+              <canvas id="tpCanvas" class="tp-canvas"></canvas>
+              <div id="tpSafeZone" class="tp-safezone" data-platform="off">
+                <div class="tsz-top"></div>
+                <div class="tsz-rail">
+                  <span class="tsz-dot"></span><span class="tsz-dot"></span><span class="tsz-dot"></span><span class="tsz-dot"></span>
+                </div>
+                <div class="tsz-caption"></div>
+              </div>
+            </div>
           </div>
         </div>
         <div class="tp-modal-foot">
           <button id="tpPlayBtn" class="btn-ghost small">Duraklat</button>
           <button id="tpMuteBtn" class="btn-ghost small">Sesi kapat</button>
+          <div class="segmented tp-safezone-seg" id="tpSafeZoneSeg">
+            <button class="seg active" data-safezone="off">Kapalı</button>
+            <button class="seg" data-safezone="tiktok">TikTok</button>
+            <button class="seg" data-safezone="shorts">Shorts</button>
+            <button class="seg" data-safezone="reels">Reels</button>
+          </div>
           <span class="tp-foot-hint">Yeşil kutu takibin izlediği kişiyi gösterir.</span>
         </div>
       </div>
@@ -260,6 +277,9 @@
         </div>
 
         <div id="trimControls" class="trim-area disabled">
+          <!-- Kare önizlemeli film şeridi (Faz 12): videoya eşit aralıklı 12 kare;
+               ana kaydırıcıyla aynı zaman eksenini paylaşır, tıklanamaz süs katmanı -->
+          <div id="filmstripBand" class="filmstrip-band hidden"><img id="filmstrip" alt=""></div>
           <div class="slider-wrap">
             <div class="slider-track"></div>
             <div class="slider-range" id="sliderRange"></div>
@@ -359,6 +379,10 @@
             <button id="fmtOriginal" class="seg active" data-format="original">Orijinal</button>
             <button id="fmtVertical" class="seg" data-format="vertical">9:16</button>
             <button id="fmtSquare" class="seg" data-format="square">1:1</button>
+            <button id="fmtGif" class="seg" data-format="gif">GIF</button>
+          </div>
+          <div id="gifHint" class="track-hint hidden">
+            GIF sessizdir ve dosyası hızla büyür — <b>30 saniyenin altındaki</b> kesitlerde önerilir.
           </div>
         </div>
 
@@ -489,6 +513,9 @@
         <div id="statusMsg" class="hidden"></div>
 
         <div class="download-row">
+          <button id="projSaveBtn" class="icon-btn dl-icon" disabled title="Projeyi kaydet (.trimtube) — kesim, format ve marka ayarlarını dosyaya yaz">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg>
+          </button>
           <button id="addQueueBtn" class="btn-ghost queue-add" disabled title="Mevcut seçimi kuyruğa ekle">+ Kuyruk</button>
           <button id="downloadBtn" class="btn-download" disabled>İndir</button>
         </div>
