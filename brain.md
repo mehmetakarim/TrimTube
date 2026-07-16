@@ -6,7 +6,7 @@ Bu dosya, farklı ortamlardaki (ev: macOS M-serisi, ofis: Windows 11) geliştirm
 
 ## 📍 GÜNCEL DURUM & SIRADAKİ İŞLER (yeni oturum buradan başlasın)
 
-**Yayındaki sürüm:** `v1.13.0` · Windows/macOS(arm64)/Linux · GitHub: mehmetakarim/TrimTube
+**Yayındaki sürüm:** `v1.14.0` · Windows/macOS(arm64)/Linux · GitHub: mehmetakarim/TrimTube
 **Yapılacaklar listesi (asıl kaynak):** proje kökündeki `YOL-HARITASI.md` (onay kutulu, faz faz).
 
 **Tamamlanan fazlar (detayları aşağıda):**
@@ -38,7 +38,7 @@ v1.8.2 (YAYINLANDI): kadraj önizleme modalında önizleme **sesi** + **tasarım
 - Guard'lar: keep<0.12s komşuya katılır; keep boşsa/>200 segmentse açıklayıcı hata; iptal yarım dosyayı siler.
 - **macOS dev ortam sorunu (bu oturumda çözüldü):** Akıllı Kırpma "faster-whisper kurulu degil" hatası verdi — Homebrew Python 3.14.5'te paket yoktu (Faz 7 Whisper altyazı da aynı pakete bağlı, bu Mac'te hiç kurulmamış). Çözüm: `python3 -m pip install --user --break-system-packages faster-whisper` (PEP 668/externally-managed nedeniyle düz `pip install` reddediliyor; cp314 arm64 wheel'leri mevcut, sorunsuz kuruldu).
 
-**Faz 14 — AI Altyapısı ve İlk Meyveler: KOD TAMAM (16 Tem 2026, Windows oturumu) — SAHA TESTİ ve v1.14.0 YAYIN KARARI BEKLİYOR (yalnız yerel commit).**
+**Faz 14 — AI Altyapısı ve İlk Meyveler: v1.14.0 — SAHA TESTİNDEN GEÇTİ ("testler başarılı", Windows, 16 Tem 2026) ve YAYINLANDI.**
 - Yeni **"AI Araçları" ekranı** (sol nav 5. öğe): dört araç ortak bir transkript üzerinde — (1) **Başlık**: 3 Shorts başlığı + açıklama + hashtag, satır satır/tümünü panoya kopyala; (2) **Konu Ara** (semantik): eşleşmeler "Aralığı uygula" ile kesim aralığına yazılıp Video Kes'e döner; (3) **Hook Bul**: transkript + ses enerjisi, 0-100 puanlı en iyi 5 an; (4) **Reklam**: küfür/hassas konu taraması, verdict uygun/sınırlı/riskli + bulgu listesi (Content ID bilinçli kapsam dışı).
 - **Gemini main süreçte** (`geminiGenerate`): renderer CSP (`default-src 'self'`) dışa isteği zaten yasaklıyor. Model tek sabitte: `GEMINI_MODEL='gemini-2.5-flash'`. `responseMimeType: application/json` + çit temizleme; 120 sn AbortController; HTTP hataları Türkçeye çevrilir (`geminiErrorMessage`: 400 anahtar geçersiz, 429 kota, 5xx hizmet).
 - **Anahtarlar Ayarlar'da** (`geminiKey`, `elevenKey` — ElevenLabs Faz 15 hazırlığı): parola alanı, yalnız settings.json'da yerelde; "Doğrula" → `ai-test-key` (modele GET, üretim maliyeti yok); "Ücretsiz anahtar al" → aistudio.google.com/apikey (shell.openExternal). Transkript hazırlama anahtarsız da çalışır.

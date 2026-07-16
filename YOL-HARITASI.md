@@ -80,7 +80,7 @@ Saha geri bildirimi: 3 dk'lık klip ~350MB çıkabiliyor (donanım kodlayıcı b
 - [x] "Akıllı Kırpma" ekranı sol menüde; bağımsız akış (dosya seç → Tespit et → gözden geçir → Kırp ve Kaydet), kendi ilerleme/iptal kanalı
 - _Bu fazın concat/montaj zinciri, Faz 15 ve 16'nın altyapısını kurdu._
 
-### Faz 14 — AI Altyapısı ve İlk Meyveler · `v1.14.0` (kod tamam — saha testi bekliyor)
+### Faz 14 — AI Altyapısı ve İlk Meyveler · `v1.14.0` ✅ (tamamlandı, saha testinden geçti, yayınlandı)
 - [x] Ayarlara API anahtarları: Gemini + ElevenLabs (kullanıcının kendi anahtarı — sunucu maliyeti yok; yalnız yerelde saklanır, "Doğrula" düğmesi var)
 - [x] Başlık/açıklama/hashtag üretici: transkript → Gemini → 3 Shorts başlığı + caption + hashtag'ler, panoya kopyala
 - [x] Semantik arama ile kırpma: "X'ten bahsettiği yerleri bul" → sonuç tek tıkla kesim aralığına uygulanır
@@ -119,4 +119,4 @@ Saha geri bildirimi: 3 dk'lık klip ~350MB çıkabiliyor (donanım kodlayıcı b
 
 ---
 
-*Son güncelleme: Faz 14 (AI Altyapısı ve İlk Meyveler) kodu tamamlandı — saha testi ve v1.14.0 yayın kararı bekliyor. Sıradaki: Faz 15 (Moodlar & AI Director).*
+*Son güncelleme: Faz 14 (AI Altyapısı ve İlk Meyveler) v1.14.0 olarak yayınlandı — saha testinden geçti. Sıradaki: Faz 15 (Moodlar & AI Director).*
