@@ -74,7 +74,7 @@ Saha geri bildirimi: 3 dk'lık klip ~350MB çıkabiliyor (donanım kodlayıcı b
 - [x] Zaman çizelgesine kare önizlemeli şerit: ana kaydırıcının üstünde 12 karelik bant (hızlı sarma ile — uzak akışta da saniyeler içinde)
 - _Not: MP3 kesit ve waveform/timeline (Faz 1) zaten yayında._
 
-### Faz 13 — Kurgu Motoru · `v1.13.0` ✅ (kod tamam + otomatik testler geçti; saha testi yayın sonrası yapılacak)
+### Faz 13 — Kurgu Motoru · `v1.13.0` ✅ (tamamlandı, saha testinden geçti)
 - [x] Akıllı sessizlik ayıklama: Whisper kelime zaman damgalarından sessizlik tespiti (hassasiyet: Sıkı 0.4 / Dengeli 0.7 / Gevşek 1.2 sn), onay kutulu aday listesi, trim/atrim/concat ile tek geçişte kırpma
 - [x] Dolgu kelimesi ayıklama: yalnız temiz dolgu sesleri ("ıı", "eee", "hmm"…) — "yani/şey/işte" yanlış-pozitif riski nedeniyle bilinçli hariç (kullanıcı kararı)
 - [x] "Akıllı Kırpma" ekranı sol menüde; bağımsız akış (dosya seç → Tespit et → gözden geçir → Kırp ve Kaydet), kendi ilerleme/iptal kanalı
@@ -118,4 +118,4 @@ Saha geri bildirimi: 3 dk'lık klip ~350MB çıkabiliyor (donanım kodlayıcı b
 
 ---
 
-*Son güncelleme: Faz 13 (Kurgu Motoru — Akıllı Kırpma) v1.13.0 olarak yayınlandı; saha testi yayın sonrası. Sıradaki: Faz 14 (AI Altyapısı).*
+*Son güncelleme: Faz 13 (Kurgu Motoru — Akıllı Kırpma) v1.13.0 olarak yayınlandı ve saha testinden geçti. Sıradaki: Faz 14 (AI Altyapısı).*

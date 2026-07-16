@@ -31,7 +31,7 @@ v1.8.2 (YAYINLANDI): kadraj önizleme modalında önizleme **sesi** + **tasarım
 - UI: üst çubukta yeni düğme → `compressModal` (ayarlar modalı diliyle); sürükle-bırak modal açıkken ana boru hattı yerine modala yönlenir; indirme-tamamlandı toast'ına ikinci eylem ("Sıkıştır", `toastAction2`) eklendi — `download` IPC'si artık `files:[…]` döndürüyor.
 - Saha testinde bakılacak: gerçek 350MB klipte küçülme oranı + gözle A/B; Durdur'un yarım dosyayı sildiği; kuyruk çalışırken ilerleme kanallarının karışmadığı.
 
-**Faz 13 — Kurgu Motoru (Akıllı Kırpma): v1.13.0 OLARAK YAYINLANDI (kullanıcı kararı: otomatik testler geçti, saha testi yayın sonrası yapılacak).**
+**Faz 13 — Kurgu Motoru (Akıllı Kırpma): v1.13.0 YAYINLANDI ve SAHA TESTİNDEN GEÇTİ ("her şey yolunda" — macOS).**
 - Whisper kelime zaman damgaları (`subtitle.py --words-out` — SRT davranışı değişmedi, geriye uyumlu) → sessizlik (eşik: Sıkı 0.4 / Dengeli 0.7 / Gevşek 1.2 sn) + dolgu kelime (`FILLER_WORDS`: yalnız "ıı/eee/hmm" gibi temiz sesler; "yani/şey/işte" bilinçli hariç) adayları → onay kutulu liste → `trim/atrim/concat` filter_complex ile tek geçişte kırpma (`smarttrim-analyze/apply/cancel` IPC; kendi proc/iptal, GPU→CPU düşüşü kendi süreç takibiyle tekrarlandı — `runEncodeWithFallback` KULLANILMADI çünkü paylaşılan `currentProc`'a bağlanıyor).
 - **Bu concat zinciri Faz 15 (Moodlar) ve Faz 16'nın (J/L-cut) montaj altyapısının ilk hali.**
 - Doğrulanan: concat zinciri 3 segmentte kare-hassas (30sn→20.87sn beklenen 20.85); `say` ile üretilen konuşmada her iki enjekte sessizlik yakalandı (10sn→5.6sn); dolgu normalizasyonu ("eee," → eşleşir, "yani" → eşleşmez); Electron duman + 156 DOM id eşleşmesi temiz.
