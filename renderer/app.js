@@ -1044,7 +1044,8 @@ let dragDepth = 0;
 // o ekrana gider; tam ekran katman yerine ekrandaki bırakma alanı vurgulanır.
 const onCompressView = () => currentView === 'compress';
 const onSmartTrimView = () => currentView === 'smarttrim';
-const dropTargetEl = () => onCompressView() ? $('cmpDrop') : onSmartTrimView() ? $('stDrop') : null;
+const onMoodView = () => currentView === 'mood';
+const dropTargetEl = () => onCompressView() ? $('cmpDrop') : onSmartTrimView() ? $('stDrop') : onMoodView() ? $('mdDrop') : null;
 window.addEventListener('dragenter', (e) => {
   if (!Array.from(e.dataTransfer.types || []).includes('Files')) return;
   e.preventDefault();
@@ -1064,6 +1065,7 @@ window.addEventListener('dragleave', () => {
     dropOverlay.classList.add('hidden');
     $('cmpDrop').classList.remove('drag');
     $('stDrop').classList.remove('drag');
+    $('mdDrop').classList.remove('drag');
   }
 });
 window.addEventListener('drop', (e) => {
@@ -1072,6 +1074,7 @@ window.addEventListener('drop', (e) => {
   dropOverlay.classList.add('hidden');
   $('cmpDrop').classList.remove('drag');
   $('stDrop').classList.remove('drag');
+  $('mdDrop').classList.remove('drag');
   const file = e.dataTransfer.files && e.dataTransfer.files[0];
   if (!file) return;
   // .trimtube projesi her ekrandan bırakılabilir (Faz 12)
@@ -1084,6 +1087,7 @@ window.addEventListener('drop', (e) => {
     const msg = 'Desteklenmeyen dosya türü. MP4, MKV, MOV, WEBM, M4V veya AVI bırakın.';
     if (onCompressView()) cmpShowError(msg);
     else if (onSmartTrimView()) stShowError(msg);
+    else if (onMoodView()) mdShowError(msg);
     else setStatus('err', msg);
     return;
   }
@@ -1091,6 +1095,7 @@ window.addEventListener('drop', (e) => {
   if (!p) return;
   if (onCompressView()) cmpSetFile(p);
   else if (onSmartTrimView()) stSetFile(p);
+  else if (onMoodView()) mdSetFile(p);
   else loadLocalFile(p);
 });
 
@@ -1686,7 +1691,7 @@ $('cacheClearBtn').addEventListener('click', async () => {
 // Her menü öğesi bir ekran gösterir; ana ekran kalabalıklaşmadan yeni özellikler
 // (Faz 12+: GIF, Moodlar…) kendi ekranlarıyla eklenir. Ayarlar ve Sıkıştır
 // eskiden modaldı, artık birer ekran.
-const VIEWS = { cutter: 'viewCutter', compress: 'viewCompress', smarttrim: 'viewSmartTrim', ai: 'viewAI', settings: 'viewSettings' };
+const VIEWS = { cutter: 'viewCutter', compress: 'viewCompress', smarttrim: 'viewSmartTrim', ai: 'viewAI', mood: 'viewMood', settings: 'viewSettings' };
 let currentView = 'cutter';
 
 function switchView(name) {
@@ -1698,6 +1703,7 @@ function switchView(name) {
   document.querySelectorAll('#sideNav .nav-item').forEach(b => b.classList.toggle('active', b.dataset.view === name));
   if (name === 'settings') refreshCacheInfo();
   if (name === 'ai') aiRefreshView(); // anahtar/kaynak durumu her girişte tazelenir
+  if (name === 'mood') mdRefreshView();
 }
 
 document.querySelectorAll('#sideNav .nav-item').forEach(btn => {
@@ -2422,5 +2428,265 @@ $('aiAdBtn').addEventListener('click', () => aiRunTool('adcheck',
 
 $('aiGoSettings').addEventListener('click', () => switchView('settings'));
 $('aiGoCutter').addEventListener('click', () => switchView('cutter'));
+
+// ---- Faz 15: Moodlar & AI Director ----
+// Akış: bölüm dosyası → mood/süre/ses → "Kurgu planı oluştur" (Whisper + Gemini)
+// → plan önizlemesi → "Seslendir ve Montajla" (ElevenLabs TTS + montaj robotu).
+// Sıkıştır/Akıllı Kırpma ile aynı bağımsız-ekran deseni; kendi kanalı/iptali var.
+
+let mdFile = null;
+let mdVideoId = null;    // localInfo'nun kararlı kimliği (transkript önbelleği için)
+let mdDuration = 0;
+let mdMood = 'komedi';
+let mdTarget = 60;
+let mdPlanData = null;   // { title, scenes:[{start,end,narration}], totalSec }
+let mdRunning = null;    // 'plan' | 'render' | null
+let mdVoicesLoaded = false;
+
+function mdShowError(msg) {
+  const el = $('mdError');
+  el.textContent = msg;
+  el.classList.remove('hidden');
+}
+function mdClearError() { $('mdError').classList.add('hidden'); }
+
+function mdResetPlan() {
+  mdPlanData = null;
+  $('mdPlan').classList.add('hidden');
+  $('mdSceneList').innerHTML = '';
+  $('mdRenderBtn').classList.add('hidden');
+  $('mdResult').classList.add('hidden');
+  $('mdOpenFolderBtn').classList.add('hidden');
+}
+
+// Anahtar durumu uyarısı: plan için Gemini, seslendirme için ElevenLabs
+function mdRefreshView() {
+  const gemOk = !!(settings && (settings.geminiKey || '').trim());
+  const elvOk = !!(settings && (settings.elevenKey || '').trim());
+  const warn = $('mdKeyWarn');
+  if (gemOk && elvOk) {
+    warn.classList.add('hidden');
+  } else {
+    const missing = [!gemOk && 'Gemini (kurgu planı)', !elvOk && 'ElevenLabs (seslendirme)'].filter(Boolean).join(' ve ');
+    $('mdKeyWarnText').textContent = `Eksik API anahtarı: ${missing}. Ayarlar ekranından ekleyin.`;
+    warn.classList.remove('hidden');
+  }
+  if (elvOk && !mdVoicesLoaded) mdLoadVoices();
+  mdRefreshButtons();
+}
+
+function mdRefreshButtons() {
+  const pBtn = $('mdPlanBtn');
+  pBtn.textContent = mdRunning === 'plan' ? 'Durdur' : (mdPlanData ? 'Planı yenile' : 'Kurgu planı oluştur');
+  pBtn.disabled = mdRunning ? mdRunning !== 'plan' : !mdFile;
+  const rBtn = $('mdRenderBtn');
+  rBtn.textContent = mdRunning === 'render' ? 'Durdur' : 'Seslendir ve Montajla';
+  rBtn.disabled = !!mdRunning && mdRunning !== 'render';
+  rBtn.classList.toggle('hidden', !mdPlanData);
+  $('mdFileChange').disabled = !!mdRunning;
+}
+
+async function mdLoadVoices() {
+  const sel = $('mdVoice');
+  sel.innerHTML = '<option value="">Yükleniyor…</option>';
+  let r;
+  try { r = await window.api.moodVoices(); }
+  catch (err) { r = { error: err.message || String(err) }; }
+  if (r.error) {
+    sel.innerHTML = `<option value="">${r.error.length > 60 ? 'Ses listesi alınamadı' : r.error}</option>`;
+    mdVoicesLoaded = false;
+    return;
+  }
+  mdVoicesLoaded = true;
+  sel.innerHTML = '';
+  r.voices.forEach(v => {
+    const o = document.createElement('option');
+    o.value = v.id;
+    o.textContent = v.name;
+    sel.appendChild(o);
+  });
+  // Son kullanılan ses hatırlanır
+  if (settings.moodVoice && r.voices.some(v => v.id === settings.moodVoice)) sel.value = settings.moodVoice;
+}
+
+$('mdVoice').addEventListener('change', () => {
+  if ($('mdVoice').value) {
+    settings.moodVoice = $('mdVoice').value;
+    window.api.setSettings({ moodVoice: settings.moodVoice });
+  }
+});
+$('mdVoiceReload').addEventListener('click', () => { mdVoicesLoaded = false; mdLoadVoices(); });
+
+async function mdSetFile(p) {
+  if (mdRunning) return;
+  mdClearError();
+  mdResetPlan();
+  const info = await window.api.localInfo(p);
+  if (info.error) { mdShowError(info.error); return; }
+  mdFile = p;
+  mdVideoId = info.id;
+  mdDuration = info.duration;
+  $('mdFileName').textContent = p.split(/[\\/]/).pop();
+  const parts = [fmtBytes(info.size), fmtClock(info.duration)];
+  if (info.w && info.h) parts.push(`${info.w}×${info.h}`);
+  $('mdFileMeta').textContent = parts.join(' · ');
+  $('mdDrop').classList.add('hidden');
+  $('mdFileCard').classList.remove('hidden');
+  mdRefreshButtons();
+}
+
+function mdResetFile() {
+  if (mdRunning) return;
+  mdFile = null;
+  mdVideoId = null;
+  mdDuration = 0;
+  $('mdFileCard').classList.add('hidden');
+  $('mdDrop').classList.remove('hidden');
+  mdClearError();
+  mdResetPlan();
+  mdRefreshButtons();
+}
+
+$('mdChooseBtn').addEventListener('click', async () => {
+  const p = await window.api.chooseVideo();
+  if (p) mdSetFile(p);
+});
+$('mdFileChange').addEventListener('click', mdResetFile);
+
+document.querySelectorAll('#mdMoodSeg .seg').forEach(btn => {
+  btn.addEventListener('click', () => {
+    if (mdRunning) return;
+    mdMood = btn.dataset.mdMood;
+    document.querySelectorAll('#mdMoodSeg .seg').forEach(b => b.classList.toggle('active', b === btn));
+  });
+});
+document.querySelectorAll('#mdTargetSeg .seg').forEach(btn => {
+  btn.addEventListener('click', () => {
+    if (mdRunning) return;
+    mdTarget = +btn.dataset.mdTarget;
+    document.querySelectorAll('#mdTargetSeg .seg').forEach(b => b.classList.toggle('active', b === btn));
+  });
+});
+
+const MD_PHASE_LABELS = {
+  audio: 'Ses çıkarılıyor…',
+  model: 'Model hazırlanıyor…',
+  transcribe: 'Diyalog haritası çıkarılıyor…',
+  plan: 'Gemini kurguyu tasarlıyor…',
+  tts: 'Anlatıcı seslendiriliyor…',
+  render: 'Montajlanıyor…'
+};
+let mdEta = null;
+
+window.api.onMoodProgress((p) => {
+  if (!mdRunning) return;
+  if (p.eta !== undefined) mdEta = p.eta;
+  let label = MD_PHASE_LABELS[p.stage] || 'İşleniyor…';
+  if (p.stage === 'tts' && p.total) label = `Anlatıcı seslendiriliyor… (${p.idx}/${p.total})`;
+  $('mdPhaseLabel').textContent = label;
+  const fill = $('mdProgressFill');
+  if (typeof p.pct === 'number') {
+    fill.classList.remove('indet');
+    fill.style.width = p.pct + '%';
+    $('mdProgressText').textContent = '%' + Math.round(p.pct) + (mdEta ? ` · kalan ${mdEta}` : '');
+  } else {
+    fill.style.width = '';
+    fill.classList.add('indet');
+    $('mdProgressText').textContent = '';
+  }
+});
+
+function mdSetRunning(phase) {
+  mdRunning = phase;
+  $('mdProgress').classList.toggle('hidden', !phase);
+  if (phase) {
+    mdEta = null;
+    $('mdProgressFill').classList.remove('indet');
+    $('mdProgressFill').style.width = '0%';
+    $('mdProgressText').textContent = '';
+    $('mdPhaseLabel').textContent = 'Hazırlanıyor…';
+  }
+  mdRefreshButtons();
+}
+
+const MD_MOOD_LABELS = { komedi: 'Komedi', dram: 'Dram', gerilim: 'Gerilim', duygusal: 'Duygusal', ozet: 'Özet' };
+
+function mdRenderPlan() {
+  const p = mdPlanData;
+  $('mdPlanTitle').textContent = p.title ? `"${p.title}" · ${MD_MOOD_LABELS[mdMood] || mdMood}` : (MD_MOOD_LABELS[mdMood] || mdMood);
+  const narrCount = p.scenes.filter(s => s.narration).length;
+  $('mdPlanSummary').textContent = `${p.scenes.length} sahne · ${narrCount} anlatım · ~${fmtClock(p.totalSec)}`;
+  const list = $('mdSceneList');
+  list.innerHTML = '';
+  p.scenes.forEach((s, i) => {
+    const row = document.createElement('div');
+    row.className = 'ai-item';
+    row.innerHTML = '<span class="md-scene-no"></span><div class="ai-item-main"><span class="ai-item-label"></span><span class="ai-item-text md-scene-narr"></span></div><span class="pl-item-dur"></span>';
+    row.querySelector('.md-scene-no').textContent = i + 1;
+    row.querySelector('.ai-item-label').textContent = `${fmtClock(s.start)} – ${fmtClock(s.end)}`;
+    row.querySelector('.md-scene-narr').textContent = s.narration ? `🎙 ${s.narration}` : '';
+    row.querySelector('.pl-item-dur').textContent = fmtClock(s.end - s.start);
+    list.appendChild(row);
+  });
+  $('mdPlan').classList.remove('hidden');
+}
+
+$('mdPlanBtn').addEventListener('click', async () => {
+  if (mdRunning === 'plan') { window.api.moodCancel(); return; }
+  if (mdRunning || !mdFile) return;
+  mdClearError();
+  mdResetPlan();
+  mdSetRunning('plan');
+
+  let r;
+  try {
+    r = await window.api.moodPlan({ file: mdFile, videoId: mdVideoId, mood: mdMood, targetSec: mdTarget, model: 'small' });
+  } catch (err) {
+    r = { error: 'Beklenmeyen hata: ' + (err.message || String(err)) };
+  }
+  mdSetRunning(null);
+  if (r.cancelled) return;
+  if (r.error) { mdShowError(r.error); return; }
+  mdPlanData = { title: r.title, scenes: r.scenes, totalSec: r.totalSec };
+  mdRenderPlan();
+  mdRefreshButtons();
+});
+
+const MD_OK_SVG = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#34C759" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
+
+$('mdRenderBtn').addEventListener('click', async () => {
+  if (mdRunning === 'render') { window.api.moodCancel(); return; }
+  if (mdRunning || !mdPlanData || !mdFile) return;
+  const needVoice = mdPlanData.scenes.some(s => s.narration);
+  const voiceId = $('mdVoice').value;
+  if (needVoice && !voiceId) {
+    mdShowError('Anlatıcı sesi seçilmedi — ElevenLabs anahtarını girip ses listesini yenileyin.');
+    return;
+  }
+  mdClearError();
+  $('mdResult').classList.add('hidden');
+  $('mdOpenFolderBtn').classList.add('hidden');
+  mdSetRunning('render');
+
+  let r;
+  try {
+    r = await window.api.moodRender({ file: mdFile, scenes: mdPlanData.scenes, voiceId, mood: mdMood });
+  } catch (err) {
+    r = { error: 'Beklenmeyen hata: ' + (err.message || String(err)) };
+  }
+  mdSetRunning(null);
+  if (r.cancelled) return;
+  if (r.error) { mdShowError(r.error); return; }
+
+  $('mdResultIcon').innerHTML = MD_OK_SVG;
+  $('mdResultTitle').textContent = `Kurgu hazır — ${r.outFile.split(/[\\/]/).pop()}`;
+  $('mdResultSub').textContent = `~${fmtClock(r.duration)} · ${r.narrated} anlatım`;
+  $('mdResult').classList.remove('hidden');
+  const outDir = r.outFile.slice(0, r.outFile.length - r.outFile.split(/[\\/]/).pop().length - 1);
+  $('mdOpenFolderBtn').onclick = () => window.api.openFolder(outDir);
+  $('mdOpenFolderBtn').classList.remove('hidden');
+});
+
+$('mdGoSettings').addEventListener('click', () => switchView('settings'));
 
 initSettings();

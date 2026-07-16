@@ -68,5 +68,12 @@ contextBridge.exposeInMainWorld('api', {
   aiHooks: (opts) => ipcRenderer.invoke('ai-hooks', opts),
   aiAdCheck: (opts) => ipcRenderer.invoke('ai-adcheck', opts),
   aiCancel: () => ipcRenderer.invoke('ai-cancel'),
-  onAiProgress: (cb) => ipcRenderer.on('ai-progress', (e, p) => cb(p))
+  onAiProgress: (cb) => ipcRenderer.on('ai-progress', (e, p) => cb(p)),
+
+  // Faz 15: Moodlar & AI Director (kurgu planı + TTS + montaj robotu)
+  moodVoices: () => ipcRenderer.invoke('mood-voices'),
+  moodPlan: (opts) => ipcRenderer.invoke('mood-plan', opts),
+  moodRender: (opts) => ipcRenderer.invoke('mood-render', opts),
+  moodCancel: () => ipcRenderer.invoke('mood-cancel'),
+  onMoodProgress: (cb) => ipcRenderer.on('mood-progress', (e, p) => cb(p))
 });

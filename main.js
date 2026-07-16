@@ -42,7 +42,8 @@ const SETTINGS_DEFAULTS = {
   lastFolder: null,
   sidebarOpen: false,     // sol navigasyon menüsü (v1.12.0): kapalı başlar
   geminiKey: '',          // Faz 14: kullanıcının kendi Gemini API anahtarı (yalnızca yerelde durur)
-  elevenKey: ''           // Faz 15 hazırlığı: ElevenLabs anahtarı (seslendirme)
+  elevenKey: '',          // Faz 15: ElevenLabs anahtarı (seslendirme)
+  moodVoice: null         // Faz 15: son seçilen anlatıcı sesi (voice_id)
 };
 let settingsCache = null;
 function settingsPath() { return path.join(app.getPath('userData'), 'settings.json'); }
@@ -1898,16 +1899,19 @@ function geminiErrorMessage(status, body) {
 
 // Tek Gemini çağrısı: prompt → JSON. Yanıt responseMimeType ile JSON istenir;
 // yine de kod bloğu çitleriyle gelirse temizlenip öyle parse edilir.
-async function geminiGenerate(prompt, temperature) {
+// setAbort/isCancelled parametreli: her akış (AI araçları / Moodlar) kendi iptal
+// denetleyicisini kaydeder — biri diğerinin süren isteğini iptal edemez.
+async function geminiRequest(prompt, temperature, setAbort, isCancelled) {
   const key = (loadSettings().geminiKey || '').trim();
   if (!key) return { error: 'Gemini API anahtarı girilmemiş. Ayarlar ekranından ücretsiz bir anahtar ekleyin.' };
-  aiAbort = new AbortController();
-  const timer = setTimeout(() => { try { aiAbort.abort(); } catch {} }, 120000);
+  const ctrl = new AbortController();
+  setAbort(ctrl);
+  const timer = setTimeout(() => { try { ctrl.abort(); } catch {} }, 120000);
   try {
     const res = await fetch(`${GEMINI_BASE}/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(key)}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      signal: aiAbort.signal,
+      signal: ctrl.signal,
       body: JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }],
         generationConfig: { temperature, responseMimeType: 'application/json' }
@@ -1922,13 +1926,18 @@ async function geminiGenerate(prompt, temperature) {
     try { return { data: JSON.parse(clean) }; }
     catch { return { error: 'AI yanıtı çözümlenemedi (beklenmeyen biçim). Tekrar deneyin.' }; }
   } catch (err) {
-    if (aiCancelled) return { cancelled: true };
+    if (isCancelled()) return { cancelled: true };
     if (err && err.name === 'AbortError') return { error: 'Gemini isteği zaman aşımına uğradı (120 sn).' };
     return { error: 'Gemini bağlantısı kurulamadı: ' + (err && err.message ? err.message : err) };
   } finally {
     clearTimeout(timer);
-    aiAbort = null;
+    setAbort(null);
   }
+}
+
+// AI araçları akışının sarmalayıcısı (aiAbort/aiCancelled ile)
+function geminiGenerate(prompt, temperature) {
+  return geminiRequest(prompt, temperature, (c) => { aiAbort = c; }, () => aiCancelled);
 }
 
 // Anahtar doğrulama: modele küçük bir GET (üretim maliyeti olmadan)
@@ -1987,6 +1996,45 @@ function findAiMedia(videoId, localFile) {
   }
 }
 
+// Yerel medyayı Whisper ile segmentlere çevirir: 16k mono WAV çıkarımı +
+// subtitle.py + SRT parse. runner/sendStage/isCancelled parametreli — AI
+// araçları (runAiProc/ai-progress) ve Moodlar (runMoodProc/mood-progress)
+// kendi bağımsız takipleriyle aynı gövdeyi paylaşır.
+async function whisperSegments(media, model, tmpDir, runner, sendStage, isCancelled) {
+  sendStage({ stage: 'audio' });
+  const wav = path.join(tmpDir, 'aud.wav');
+  const ex = await runner(FFMPEG, ['-y', '-i', media, '-vn', '-ac', '1', '-ar', '16000', '-c:a', 'pcm_s16le', wav], () => {});
+  if (isCancelled()) return { cancelled: true };
+  if (ex.code !== 0 || !fs.existsSync(wav)) return { error: 'Ses çıkarılamadı.' };
+
+  sendStage({ stage: 'model' });
+  const modelDir = path.join(app.getPath('userData'), 'whisper-models');
+  fs.mkdirSync(modelDir, { recursive: true });
+  const outSrt = path.join(tmpDir, 'ai.srt');
+  const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
+  let errLine = '';
+  const tr = await runner(pythonCmd, [
+    path.join(__dirname, 'subtitle.py'), wav,
+    '--out', outSrt, '--model', model, '--model-dir', modelDir
+  ], (line) => {
+    const m = line.match(/^PROGRESS (\d+)/);
+    if (m) { sendStage({ stage: 'transcribe', pct: +m[1] }); return; }
+    if (line.startsWith('STATUS model')) sendStage({ stage: 'model' });
+    else if (line.startsWith('STATUS transcribe')) sendStage({ stage: 'transcribe', pct: 0 });
+    else if (line.startsWith('ERROR ')) errLine = line.slice(6).trim();
+  });
+  if (isCancelled()) return { cancelled: true };
+  if (tr.code !== 0 || !fs.existsSync(outSrt)) {
+    let msg = errLine;
+    if (!msg) {
+      if (/ENOENT/.test(tr.stderr)) msg = 'Python bulunamadı. Transkript için Python 3 kurulu olmalı.';
+      else msg = tr.stderr.split(/\r?\n/).filter(Boolean).slice(-2).join('\n') || 'Bilinmeyen hata.';
+    }
+    return { error: 'Transkript başarısız: ' + msg };
+  }
+  return { segments: parseSrtSegments(fs.readFileSync(outSrt, 'utf8')) };
+}
+
 // Transkript hazırlama — tüm AI araçlarının ortak ön koşulu. YouTube altyazısı
 // varsa onu indirir (saniyeler sürer, anahtar gerektirmez); yoksa sesi (gerekirse
 // tam videoyu indirmeden yalnız-ses indirmesiyle) Whisper'a verir. Sonuç
@@ -2041,41 +2089,11 @@ ipcMain.handle('ai-transcript', async (e, opts) => {
         if (!media) return { error: 'Ses indirildi ama dosya bulunamadı.' };
       }
 
-      // 2) 16 kHz mono WAV (whisper'ın beklediği biçim)
+      // 2) Whisper: WAV çıkarımı + çözümleme (paylaşılan yardımcı)
       tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yt-ai-'));
-      aiSend({ stage: 'audio' });
-      const wav = path.join(tmpDir, 'aud.wav');
-      const ex = await runAiProc(FFMPEG, ['-y', '-i', media, '-vn', '-ac', '1', '-ar', '16000', '-c:a', 'pcm_s16le', wav], () => {});
-      if (aiCancelled) return { cancelled: true };
-      if (ex.code !== 0 || !fs.existsSync(wav)) return { error: 'Ses çıkarılamadı.' };
-
-      // 3) subtitle.py → SRT → segmentler (akıllı kırpmadaki çıktı sözleşmesinin aynısı)
-      aiSend({ stage: 'model', pct: 0 });
-      const modelDir = path.join(app.getPath('userData'), 'whisper-models');
-      fs.mkdirSync(modelDir, { recursive: true });
-      const outSrt = path.join(tmpDir, 'ai.srt');
-      const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
-      let errLine = '';
-      const tr = await runAiProc(pythonCmd, [
-        path.join(__dirname, 'subtitle.py'), wav,
-        '--out', outSrt, '--model', model, '--model-dir', modelDir
-      ], (line) => {
-        const m = line.match(/^PROGRESS (\d+)/);
-        if (m) { aiSend({ stage: 'transcribe', pct: +m[1] }); return; }
-        if (line.startsWith('STATUS model')) aiSend({ stage: 'model' });
-        else if (line.startsWith('STATUS transcribe')) aiSend({ stage: 'transcribe', pct: 0 });
-        else if (line.startsWith('ERROR ')) errLine = line.slice(6).trim();
-      });
-      if (aiCancelled) return { cancelled: true };
-      if (tr.code !== 0 || !fs.existsSync(outSrt)) {
-        let msg = errLine;
-        if (!msg) {
-          if (/ENOENT/.test(tr.stderr)) msg = 'Python bulunamadı. Transkript için Python 3 kurulu olmalı.';
-          else msg = tr.stderr.split(/\r?\n/).filter(Boolean).slice(-2).join('\n') || 'Bilinmeyen hata.';
-        }
-        return { error: 'Transkript başarısız: ' + msg };
-      }
-      segments = parseSrtSegments(fs.readFileSync(outSrt, 'utf8'));
+      const w = await whisperSegments(media, model, tmpDir, runAiProc, aiSend, () => aiCancelled);
+      if (w.cancelled || w.error) return w;
+      segments = w.segments;
       doc = { source: 'whisper', model, segments };
     }
     if (!segments.length) return { error: 'Bu videoda kullanılabilir konuşma/altyazı metni bulunamadı.' };
@@ -2313,4 +2331,329 @@ ipcMain.handle('ai-adcheck', async (e, { segments, range }) => {
     .sort((a, b) => a.start - b.start)
     .slice(0, 30);
   return { ok: true, verdict, summary: String(d.summary || ''), findings };
+});
+
+// --- Faz 15: Moodlar & AI Director ---
+// Bir bölüm dosyasından seçilen mood'da (~1 dk) anlatıcılı kısa kurgu üretir:
+// Whisper diyalog haritası (Faz 14 transkript önbelleğini paylaşır) → Gemini'den
+// sahne+anlatım planı → ElevenLabs TTS → montaj robotu. Montaj, Faz 13'ün
+// kanıtlı trim/atrim/concat zinciri üzerine kurulur; anlatım çalarken özgün ses
+// volume enable='between(...)' ile kısılır (ducking), anlatımlar adelay+amix ile
+// bindirilir. Diğer işlerden bağımsız kendi süreç/iptal takibi vardır.
+let moodProc = null;
+let moodCancelled = false;
+let moodAbort = null; // süren Gemini/TTS isteğinin iptali
+
+function runMoodProc(cmd, args, onLine, cwd) {
+  return new Promise((resolve) => {
+    const proc = spawn(cmd, args, { windowsHide: true, env: procEnv, cwd });
+    moodProc = proc;
+    const dec = new StringDecoder('utf8');
+    let buf = '';
+    let errBuf = '';
+    proc.stdout.on('data', (d) => {
+      buf += dec.write(d);
+      const lines = buf.split(/\r?\n/);
+      buf = lines.pop();
+      lines.forEach((l) => { if (l.trim()) onLine(l); });
+    });
+    proc.stderr.on('data', (d) => { errBuf += d.toString('utf8'); });
+    proc.on('close', (code) => { if (moodProc === proc) moodProc = null; resolve({ code, stderr: errBuf }); });
+    proc.on('error', (err) => { if (moodProc === proc) moodProc = null; resolve({ code: -1, stderr: err.message }); });
+  });
+}
+
+ipcMain.handle('mood-cancel', () => {
+  moodCancelled = true;
+  if (moodProc) {
+    if (process.platform === 'win32') {
+      spawn('taskkill', ['/pid', String(moodProc.pid), '/T', '/F'], { windowsHide: true });
+    } else {
+      try { moodProc.kill(); } catch {}
+    }
+  }
+  if (moodAbort) { try { moodAbort.abort(); } catch {} }
+});
+
+function moodSend(p) { try { win.webContents.send('mood-progress', p); } catch {} }
+
+// Mood tanımları: prompt'a giden anlatıcı tonu tarifleri
+const MOODS = {
+  komedi: 'komedi — esprili, hafif alaycı, enerjik bir anlatıcı tonu; komik ve absürt anlar öne çıkar',
+  dram: 'dram — ağır, duygulu, düşündüren bir anlatıcı tonu; çatışma ve yüzleşme anları öne çıkar',
+  gerilim: 'gerilim — tedirgin edici, merak kamçılayan bir anlatıcı tonu; belirsizlik ve tehdit anları öne çıkar',
+  duygusal: 'duygusal — sıcak, dokunaklı, samimi bir anlatıcı tonu; bağ kuran ve hüzünlü anlar öne çıkar',
+  ozet: 'özet — tarafsız, akıcı bir "önceki bölümlerde" tonu; olay örgüsünü taşıyan kilit anlar öne çıkar'
+};
+
+const ELEVEN_BASE = 'https://api.elevenlabs.io/v1';
+
+function elevenErrorMessage(status, body) {
+  const raw = String(body || '');
+  if (status === 401) return 'ElevenLabs anahtarı geçersiz veya reddedildi. Ayarlar ekranından kontrol edin.';
+  if (status === 429) return 'ElevenLabs istek sınırına takıldı. Biraz bekleyip tekrar deneyin.';
+  if (status === 402 || /quota_exceeded|character/i.test(raw)) return 'ElevenLabs karakter kotası doldu — hesabınızı kontrol edin.';
+  if (status >= 500) return 'ElevenLabs hizmeti şu an yanıt veremiyor. Birkaç dakika sonra tekrar deneyin.';
+  return `ElevenLabs isteği başarısız (${status}).`;
+}
+
+// Kullanılabilir sesler (Moodlar ekranındaki seçici için)
+ipcMain.handle('mood-voices', async () => {
+  const key = (loadSettings().elevenKey || '').trim();
+  if (!key) return { error: 'ElevenLabs anahtarı girilmemiş. Ayarlar ekranından ekleyin.' };
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => { try { ctrl.abort(); } catch {} }, 15000);
+  try {
+    const res = await fetch(`${ELEVEN_BASE}/voices`, { headers: { 'xi-api-key': key }, signal: ctrl.signal });
+    if (!res.ok) return { error: elevenErrorMessage(res.status, await res.text().catch(() => '')) };
+    const j = await res.json();
+    const voices = (j.voices || []).map(v => ({ id: v.voice_id, name: v.name })).filter(v => v.id && v.name).slice(0, 50);
+    if (!voices.length) return { error: 'Hesapta kullanılabilir ses bulunamadı.' };
+    return { ok: true, voices };
+  } catch (err) {
+    return { error: err && err.name === 'AbortError' ? 'Ses listesi zaman aşımına uğradı.' : 'ElevenLabs bağlantısı kurulamadı: ' + err.message };
+  } finally {
+    clearTimeout(timer);
+  }
+});
+
+// Tek anlatım metnini MP3'e çevirir (eleven_multilingual_v2 Türkçeyi destekler)
+async function elevenTts(text, voiceId, outFile) {
+  const key = (loadSettings().elevenKey || '').trim();
+  if (!key) return { error: 'ElevenLabs anahtarı girilmemiş. Ayarlar ekranından ekleyin (seslendirme için gerekli).' };
+  const ctrl = new AbortController();
+  moodAbort = ctrl;
+  const timer = setTimeout(() => { try { ctrl.abort(); } catch {} }, 60000);
+  try {
+    const res = await fetch(`${ELEVEN_BASE}/text-to-speech/${encodeURIComponent(voiceId)}?output_format=mp3_44100_128`, {
+      method: 'POST',
+      headers: { 'xi-api-key': key, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, model_id: 'eleven_multilingual_v2' }),
+      signal: ctrl.signal
+    });
+    if (!res.ok) return { error: elevenErrorMessage(res.status, await res.text().catch(() => '')) };
+    fs.writeFileSync(outFile, Buffer.from(await res.arrayBuffer()));
+    return { ok: true };
+  } catch (err) {
+    if (moodCancelled) return { cancelled: true };
+    if (err && err.name === 'AbortError') return { error: 'Seslendirme isteği zaman aşımına uğradı.' };
+    return { error: 'ElevenLabs bağlantısı kurulamadı: ' + (err && err.message ? err.message : err) };
+  } finally {
+    clearTimeout(timer);
+    moodAbort = null;
+  }
+}
+
+// Hassas süre (ondalıklı saniye) — anlatım ofset/ducking hesapları kare
+// hassasiyeti ister; probeMedia'nın tam-saniye değeri yetmez.
+function probeDurationPrecise(file) {
+  return new Promise((resolve) => {
+    const proc = spawn(FFMPEG, ['-i', file], { windowsHide: true, env: procEnv });
+    let buf = '';
+    proc.stderr.on('data', (d) => { buf += d.toString('utf8'); });
+    proc.on('close', () => {
+      const m = buf.match(/Duration:\s*(\d+):(\d+):(\d+)\.(\d+)/);
+      resolve(m ? (+m[1]) * 3600 + (+m[2]) * 60 + (+m[3]) + (+m[4]) / 100 : 0);
+    });
+    proc.on('error', () => resolve(0));
+  });
+}
+
+// Kurgu planı: transkript (önbellekten ya da Whisper) → Gemini → doğrulanmış
+// sahne listesi. Plan kullanıcıya gösterilir; montaj ayrı adımda (mood-render).
+ipcMain.handle('mood-plan', async (e, { file, videoId, mood, targetSec, model }) => {
+  moodCancelled = false;
+  if (!file || !fs.existsSync(file)) return { error: 'Dosya bulunamadı.' };
+  const moodDesc = MOODS[mood];
+  if (!moodDesc) return { error: 'Geçersiz mood seçimi.' };
+  const meta = await probeMedia(file);
+  if (!meta.duration || !meta.w) return { error: 'Video bilgisi okunamadı — dosya bozuk veya desteklenmiyor olabilir.' };
+
+  // 1) Transkript — AI Araçları ile aynı önbellek anahtarı (iki ekran paylaşır)
+  const cacheDir = cacheDirPath();
+  fs.mkdirSync(cacheDir, { recursive: true });
+  const mdl = model || 'small';
+  const cached = videoId ? path.join(cacheDir, `${videoId}_ai_transcript_${mdl}.json`) : null;
+  let segments = null;
+  if (cached && fs.existsSync(cached)) {
+    try { segments = JSON.parse(fs.readFileSync(cached, 'utf8')).segments; } catch {}
+  }
+  let tmpDir = null;
+  const cleanup = () => { if (tmpDir) { try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {} } };
+  try {
+    if (!segments || !segments.length) {
+      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yt-mood-'));
+      const w = await whisperSegments(file, mdl, tmpDir, runMoodProc, moodSend, () => moodCancelled);
+      if (w.cancelled || w.error) return w;
+      segments = w.segments;
+      if (cached && segments.length) {
+        try { fs.writeFileSync(cached, JSON.stringify({ source: 'whisper', model: mdl, segments }), 'utf8'); } catch {}
+      }
+    }
+    if (!segments.length) return { error: 'Bu videoda kullanılabilir konuşma bulunamadı.' };
+
+    // 2) Gemini kurgu planı
+    moodSend({ stage: 'plan' });
+    const t = aiTranscriptBlock(segments, null);
+    const target = Math.max(30, Math.min(120, +targetSec || 60));
+    const prompt = [
+      'Sen usta bir dizi editörü ve anlatıcı senaristisin. Aşağıda bir bölümün zaman',
+      'damgalı transkripti var ("[başlangıç-bitiş] metin", saniye cinsinden).',
+      `Görev: bu bölümden şu havada bir kısa kurgu çıkarmak → ${moodDesc}.`,
+      `Hedef süre: yaklaşık ${target} saniye (±%20). Yanıt dili TÜRKÇE.`,
+      '',
+      'Kurallar:',
+      '- 3-6 sahne seç; her sahne kaynaktan kesintisiz bir aralıktır (start/end transkript zamanları).',
+      '- YALNIZCA güçlü, kendi başına anlaşılır diyalogların olduğu sahneleri seç; sessiz/zayıf anları alma.',
+      '- Sahneler kronolojik sırada olmalı ve birbiriyle örtüşmemeli.',
+      '- Sahne sınırlarını cümle ortasında kesme: aralığı satır sınırlarına oturt.',
+      '- "narration": o sahnenin başında okunacak 1 cümlelik anlatıcı metni (hikayeyi bağlar, seçilen tonda; spoiler dozunda). Her sahnede gerekmiyorsa null bırak; toplam 2-4 anlatım olsun, ilk sahnede mutlaka olsun.',
+      '- "title": kurgunun 3-5 kelimelik adı.',
+      '',
+      'Yalnızca şu JSON şemasıyla yanıt ver:',
+      '{"title":"...","scenes":[{"start":sayı,"end":sayı,"narration":"... ya da null"}]}',
+      '',
+      'Transkript:',
+      t.text
+    ].join('\n');
+    const r = await geminiRequest(prompt, 0.6, (c) => { moodAbort = c; }, () => moodCancelled);
+    if (r.error || r.cancelled) return r;
+    const d = r.data || {};
+
+    // 3) Doğrulama/kırpma: sayısal, süre sınırları içinde, kronolojik, örtüşmesiz
+    let scenes = (Array.isArray(d.scenes) ? d.scenes : [])
+      .filter(s => isFinite(+s.start) && isFinite(+s.end) && +s.end > +s.start)
+      .map(s => ({
+        start: Math.max(0, +(+s.start).toFixed(2)),
+        end: Math.min(meta.duration, +(+s.end).toFixed(2)),
+        narration: (s.narration && String(s.narration).trim()) ? String(s.narration).trim().slice(0, 400) : null
+      }))
+      .sort((a, b) => a.start - b.start)
+      .slice(0, 8);
+    for (let i = 1; i < scenes.length; i++) {
+      if (scenes[i].start < scenes[i - 1].end) scenes[i].start = scenes[i - 1].end;
+    }
+    scenes = scenes.filter(s => s.end - s.start >= 1.5);
+    if (!scenes.length) return { error: 'Kurgu planı üretilemedi — farklı bir mood veya süre deneyin.' };
+    const totalSec = scenes.reduce((s, x) => s + (x.end - x.start), 0);
+    return { ok: true, title: String(d.title || ''), scenes, totalSec };
+  } catch (err) {
+    return { error: err.message };
+  } finally {
+    cleanup();
+  }
+});
+
+// Montaj filter_complex grafiğini kurar (saf fonksiyon — testte doğrudan sınanır).
+// Girdi 0 = kaynak video; 1..N = anlatım sesleri (narrItems sırası girdi sırasıdır).
+// narrItems: [{offset, dur}] — offset çıktı zaman çizelgesindeki saniye.
+function buildMoodFilterGraph(scenes, narrItems) {
+  const parts = [];
+  const labels = [];
+  scenes.forEach((s, i) => {
+    parts.push(`[0:v]trim=${s.start}:${s.end},setpts=PTS-STARTPTS[v${i}]`);
+    parts.push(`[0:a]atrim=${s.start}:${s.end},asetpts=PTS-STARTPTS[a${i}]`);
+    labels.push(`[v${i}][a${i}]`);
+  });
+  parts.push(`${labels.join('')}concat=n=${scenes.length}:v=1:a=1[outv][ca]`);
+  if (!narrItems.length) {
+    parts.push('[ca]anull[outa]');
+    return parts.join(';');
+  }
+  // Ducking: anlatım çalarken özgün ses kısılır (0.22), bitince kendiliğinden döner
+  const spans = narrItems.map(n => `between(t,${n.offset.toFixed(2)},${(n.offset + n.dur).toFixed(2)})`).join('+');
+  parts.push(`[ca]aformat=sample_rates=48000:channel_layouts=stereo,volume=0.22:enable='${spans}'[duck]`);
+  const mixIns = ['[duck]'];
+  narrItems.forEach((n, i) => {
+    parts.push(`[${i + 1}:a]aformat=sample_rates=48000:channel_layouts=stereo,adelay=${Math.round(n.offset * 1000)}:all=1[n${i}]`);
+    mixIns.push(`[n${i}]`);
+  });
+  // duration=first: çıktı uzunluğunu montaj sesi belirler; normalize=0 seviye korur
+  parts.push(`${mixIns.join('')}amix=inputs=${narrItems.length + 1}:duration=first:normalize=0[outa]`);
+  return parts.join(';');
+}
+
+// Montaj robotu: TTS (sahne başına) → filter graph → tek geçişte render.
+// GPU→CPU düşüşü smarttrim-apply'daki gibi kendi süreç takibiyle yapılır.
+ipcMain.handle('mood-render', async (e, { file, scenes, voiceId, mood }) => {
+  moodCancelled = false;
+  if (!file || !fs.existsSync(file)) return { error: 'Dosya bulunamadı.' };
+  const valid = (Array.isArray(scenes) ? scenes : [])
+    .filter(s => isFinite(+s.start) && isFinite(+s.end) && +s.end > +s.start)
+    .map(s => ({ start: +s.start, end: +s.end, narration: s.narration || null }));
+  if (!valid.length) return { error: 'Montaj için sahne yok.' };
+  const narrScenes = valid.filter(s => s.narration);
+  if (narrScenes.length && !voiceId) return { error: 'Anlatıcı sesi seçilmedi.' };
+
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yt-mood-out-'));
+  const cleanup = () => { try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {} };
+  const target = uniquePath(path.join(
+    path.dirname(file),
+    `${path.basename(file, path.extname(file))} [mood-${mood || 'kurgu'}].mp4`
+  ));
+
+  try {
+    // 1) TTS: her anlatım ayrı MP3 (süreleri ofset/ducking hesabına girer)
+    const narrItems = [];
+    let done = 0;
+    const offsets = [];
+    let acc = 0;
+    valid.forEach(s => { offsets.push(acc); acc += (s.end - s.start); });
+    const totalSec = acc;
+    for (let i = 0; i < valid.length; i++) {
+      if (!valid[i].narration) continue;
+      done++;
+      moodSend({ stage: 'tts', idx: done, total: narrScenes.length });
+      const mp3 = path.join(tmpDir, `narr${i}.mp3`);
+      const t = await elevenTts(valid[i].narration, voiceId, mp3);
+      if (moodCancelled || t.cancelled) { cleanup(); return { cancelled: true }; }
+      if (t.error) { cleanup(); return t; }
+      const dur = await probeDurationPrecise(mp3);
+      if (!dur) { cleanup(); return { error: 'Seslendirme dosyası okunamadı.' }; }
+      narrItems.push({ file: mp3, offset: offsets[i], dur });
+    }
+
+    // 2) Render
+    const graph = buildMoodFilterGraph(valid, narrItems);
+    let speed = 0;
+    const onLine = (line) => {
+      const sp = line.match(/^speed=\s*([\d.]+)x/);
+      if (sp) { speed = parseFloat(sp[1]); return; }
+      const m = line.match(/^out_time=(\d+):(\d+):(\d+)/);
+      if (m && totalSec > 0) {
+        const tSec = (+m[1]) * 3600 + (+m[2]) * 60 + (+m[3]);
+        let eta = null;
+        if (speed > 0) {
+          const remain = Math.max(0, Math.round((totalSec - tSec) / speed));
+          eta = `${String(Math.floor(remain / 60)).padStart(2, '0')}:${String(remain % 60).padStart(2, '0')}`;
+        }
+        moodSend({ stage: 'render', pct: Math.min(99.9, (tSec / totalSec) * 100), eta });
+      }
+    };
+    const buildArgs = (hwaccel, venc) => [
+      '-y', ...hwaccel, '-i', file,
+      ...narrItems.flatMap(n => ['-i', n.file]),
+      '-filter_complex', graph, '-map', '[outv]', '-map', '[outa]',
+      ...venc, '-c:a', 'aac', '-b:a', '192k',
+      '-progress', 'pipe:1', '-nostats', target
+    ];
+    moodSend({ stage: 'render', pct: 0 });
+    const encoder = await getEncoder();
+    let r = await runMoodProc(FFMPEG, buildArgs(hwaccelArgs(encoder), videoEncodeArgs(encoder, 20)), onLine, tmpDir);
+    if (!moodCancelled && r.code !== 0 && encoder !== 'libx264') {
+      win.webContents.send('log', `GPU kodlama (${encoder}) başarısız oldu, CPU ile devam ediliyor…`);
+      r = await runMoodProc(FFMPEG, buildArgs([], videoEncodeArgs('libx264', 20)), onLine, tmpDir);
+    }
+    if (moodCancelled) { try { fs.rmSync(target, { force: true }); } catch {} cleanup(); return { cancelled: true }; }
+    if (r.code !== 0) {
+      cleanup();
+      return { error: 'Montaj başarısız:\n' + r.stderr.split(/\r?\n/).filter(Boolean).slice(-4).join('\n') };
+    }
+    cleanup();
+    return { ok: true, outFile: target, duration: totalSec, narrated: narrItems.length };
+  } catch (err) {
+    try { fs.rmSync(target, { force: true }); } catch {}
+    cleanup();
+    return { error: err.message };
+  }
 });
