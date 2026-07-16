@@ -26,6 +26,10 @@
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 4 1 2 2 1-2 1-1 2-1-2-2-1 2-1 1-2Z" fill="currentColor" stroke="none"/><path d="M5 20 19 6"/><path d="m6 15-1 2-2 1 2 1 1 2 1-2 2-1-2-1-1-2Z" fill="currentColor" stroke="none"/></svg>
           <span>Akıllı Kırpma</span>
         </button>
+        <button class="nav-item" data-view="ai">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 4.4L18.5 9l-4.6 1.6L12 15l-1.9-4.4L5.5 9l4.6-1.6L12 3Z" fill="currentColor" stroke="none"/><path d="M19 14l.9 2.1L22 17l-2.1.9L19 20l-.9-2.1L16 17l2.1-.9L19 14Z" fill="currentColor" stroke="none"/><path d="M5.5 15l.7 1.6 1.7.7-1.7.7-.7 1.6-.7-1.6-1.7-.7 1.7-.7.7-1.6Z" fill="currentColor" stroke="none"/></svg>
+          <span>AI Araçları</span>
+        </button>
         <div class="nav-spacer"></div>
         <button class="nav-item" data-view="settings">
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
@@ -219,6 +223,113 @@
       </div>
     </section>
 
+    <!-- AI Araçları ekranı (Faz 14): tek transkript üzerinde dört araç — başlık/
+         hashtag üretimi, semantik konu arama, hook bulucu, reklam dostu tarama.
+         Gemini çağrıları main'de yapılır (renderer CSP'si dışa isteğe kapalı);
+         araçlar Video Kes ekranında yüklü kaynak üzerinde çalışır. -->
+    <section id="viewAI" class="view view-scroll hidden">
+      <div class="view-inner">
+        <div class="view-head">
+          <span class="view-title">AI Araçları</span>
+          <span class="view-sub">Gemini ile başlık üret, konu ara, hook bul, reklam uygunluğunu tara</span>
+        </div>
+
+        <div id="aiKeyWarn" class="ai-key-warn hidden">
+          <span class="ai-key-warn-text">AI araçları için Gemini API anahtarı gerekir — Google AI Studio'dan ücretsiz alınabilir. Transkript hazırlama anahtarsız da çalışır.</span>
+          <button id="aiGoSettings" class="btn-ghost small">Ayarlar'a git</button>
+        </div>
+
+        <!-- 1) Kaynak: Video Kes ekranında yüklü video -->
+        <div id="aiNoSource" class="cmp-drop">
+          <div class="cmp-drop-title">Yüklü video yok</div>
+          <button id="aiGoCutter" class="btn-ghost small">Video Kes ekranından bir video yükleyin</button>
+        </div>
+        <div id="aiSourceCard" class="cmp-file hidden">
+          <div class="cmp-file-text">
+            <span id="aiSourceName" class="cmp-file-name"></span>
+            <span id="aiSourceMeta" class="cmp-file-meta"></span>
+          </div>
+          <span id="aiTransBadge" class="ai-badge">Transkript yok</span>
+        </div>
+
+        <!-- 2) Transkript: tüm araçların ortak ön koşulu -->
+        <div id="aiTransGroup" class="setting-group hidden">
+          <span class="label">Transkript</span>
+          <div class="segmented hidden" id="aiModelSeg">
+            <button class="seg" data-ai-model="base">Hızlı</button>
+            <button class="seg active" data-ai-model="small">Dengeli</button>
+            <button class="seg" data-ai-model="medium">En iyi</button>
+          </div>
+          <div class="cache-row">
+            <span id="aiTransInfo" class="cache-info">Hazır değil</span>
+            <button id="aiTransBtn" class="btn-ghost">Hazırla</button>
+          </div>
+          <div class="setting-note ai-note-left" id="aiTransNote"></div>
+        </div>
+
+        <!-- 3) İlerleme: transkript + AI istekleri aynı bloğu paylaşır -->
+        <div id="aiProgress" class="progress-block hidden">
+          <div class="progress-head">
+            <span id="aiPhaseLabel" class="pulse">Hazırlanıyor…</span>
+            <span id="aiProgressText"></span>
+          </div>
+          <div class="progress-bar"><div id="aiProgressFill"></div></div>
+        </div>
+
+        <!-- 4) Araçlar -->
+        <div id="aiTools" class="setting-group hidden">
+          <span class="label">Araç</span>
+          <div class="segmented" id="aiToolSeg">
+            <button class="seg active" data-ai-tool="titles">Başlık</button>
+            <button class="seg" data-ai-tool="search">Konu Ara</button>
+            <button class="seg" data-ai-tool="hooks">Hook Bul</button>
+            <button class="seg" data-ai-tool="adcheck">Reklam</button>
+          </div>
+
+          <div id="aiPanelTitles" class="ai-panel">
+            <div class="ai-panel-row">
+              <span class="ai-panel-hint">Transkriptten 3 Shorts başlığı, açıklama ve hashtag üretir. Kesim aralığı açıksa yalnızca o aralık kullanılır.</span>
+              <button id="aiTitlesBtn" class="btn-primary small">Üret</button>
+            </div>
+            <div id="aiTitlesOut" class="ai-out hidden"></div>
+          </div>
+
+          <div id="aiPanelSearch" class="ai-panel hidden">
+            <div class="ai-panel-row">
+              <input type="text" id="aiSearchInput" class="title-input ai-search-input" placeholder="Örn. fiyat artışından bahsettiği yerler" spellcheck="false">
+              <button id="aiSearchBtn" class="btn-primary small">Ara</button>
+            </div>
+            <div id="aiSearchOut" class="ai-out hidden"></div>
+          </div>
+
+          <div id="aiPanelHooks" class="ai-panel hidden">
+            <div class="ai-panel-row">
+              <span class="ai-panel-hint">İzleyiciyi ilk saniyede yakalayacak anları transkript + ses enerjisine göre puanlayıp önerir.</span>
+              <button id="aiHooksBtn" class="btn-primary small">Analiz et</button>
+            </div>
+            <div id="aiHooksOut" class="ai-out hidden"></div>
+          </div>
+
+          <div id="aiPanelAdcheck" class="ai-panel hidden">
+            <div class="ai-panel-row">
+              <span class="ai-panel-hint">Transkripti küfür/argo ve hassas konulara karşı tarar (YouTube reklamveren yönergeleri). Kesim aralığı açıksa yalnızca o aralık taranır.</span>
+              <button id="aiAdBtn" class="btn-primary small">Tara</button>
+            </div>
+            <div id="aiAdVerdict" class="cmp-result hidden">
+              <span id="aiAdIcon" class="cmp-result-icon"></span>
+              <div class="cmp-result-text">
+                <span id="aiAdTitle" class="cmp-result-title"></span>
+                <span id="aiAdSub" class="cmp-result-sub"></span>
+              </div>
+            </div>
+            <div id="aiAdOut" class="ai-out hidden"></div>
+          </div>
+        </div>
+
+        <div id="aiError" class="error-banner hidden"></div>
+      </div>
+    </section>
+
     <!-- Ayarlar ekranı: eskiden modaldı; sol menünün kalıcı alt öğesi olarak kendi ekranına taşındı -->
     <section id="viewSettings" class="view view-scroll hidden">
       <div class="view-inner">
@@ -259,6 +370,25 @@
             <span class="cache-limit-label">Tutulacak video sayısı</span>
             <input type="number" id="setCacheLimit" min="1" max="10" value="2">
           </div>
+        </div>
+
+        <!-- Faz 14: kullanıcının kendi API anahtarları (sunucu maliyeti yok) -->
+        <div class="setting-group">
+          <span class="label">Yapay zeka</span>
+          <div class="ai-key-row">
+            <span class="cache-limit-label">Gemini API anahtarı</span>
+            <input type="password" id="setGeminiKey" class="ai-key-input" placeholder="AIza…" spellcheck="false" autocomplete="off">
+          </div>
+          <div class="cache-row">
+            <span id="geminiKeyStatus" class="cache-info">AI Araçları ekranı için gerekli</span>
+            <button id="geminiKeyPageBtn" class="btn-ghost small">Ücretsiz anahtar al</button>
+            <button id="geminiKeyTestBtn" class="btn-ghost small">Doğrula</button>
+          </div>
+          <div class="ai-key-row">
+            <span class="cache-limit-label">ElevenLabs anahtarı</span>
+            <input type="password" id="setElevenKey" class="ai-key-input" placeholder="İleride: seslendirme (Moodlar)" spellcheck="false" autocomplete="off">
+          </div>
+          <div class="setting-note">Anahtarlar yalnızca bu bilgisayarda saklanır ve doğrudan Google/ElevenLabs'e gönderilir.</div>
         </div>
 
         <div class="setting-note" id="settingsVersion"></div>

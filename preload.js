@@ -57,5 +57,16 @@ contextBridge.exposeInMainWorld('api', {
   smartTrimAnalyze: (opts) => ipcRenderer.invoke('smarttrim-analyze', opts),
   smartTrimApply: (opts) => ipcRenderer.invoke('smarttrim-apply', opts),
   smartTrimCancel: () => ipcRenderer.invoke('smarttrim-cancel'),
-  onSmartTrimProgress: (cb) => ipcRenderer.on('smarttrim-progress', (e, p) => cb(p))
+  onSmartTrimProgress: (cb) => ipcRenderer.on('smarttrim-progress', (e, p) => cb(p)),
+
+  // Faz 14: AI Araçları (Gemini) — transkript + başlık/arama/hook/reklam kontrolü
+  aiTestKey: (key) => ipcRenderer.invoke('ai-test-key', key),
+  openGeminiKeyPage: () => ipcRenderer.invoke('open-gemini-key-page'),
+  aiTranscript: (opts) => ipcRenderer.invoke('ai-transcript', opts),
+  aiTitles: (opts) => ipcRenderer.invoke('ai-titles', opts),
+  aiSearch: (opts) => ipcRenderer.invoke('ai-search', opts),
+  aiHooks: (opts) => ipcRenderer.invoke('ai-hooks', opts),
+  aiAdCheck: (opts) => ipcRenderer.invoke('ai-adcheck', opts),
+  aiCancel: () => ipcRenderer.invoke('ai-cancel'),
+  onAiProgress: (cb) => ipcRenderer.on('ai-progress', (e, p) => cb(p))
 });

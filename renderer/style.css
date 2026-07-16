@@ -1201,3 +1201,119 @@ button:disabled { opacity: 0.45; cursor: default; }
   border-top: 1px solid var(--hairline);
 }
 .cmp-foot-hint { flex: 1; font-size: 11.5px; color: var(--muted); line-height: 1.4; }
+
+/* ---- AI Araçları (Faz 14) ---- */
+/* Anahtar eksikken üstte yumuşak bilgi şeridi (hata değil, yönlendirme) */
+.ai-key-warn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 14px;
+  border-radius: 12px;
+  background: var(--accent-soft);
+}
+.ai-key-warn-text { flex: 1; font-size: 12.5px; color: var(--text); line-height: 1.45; }
+
+/* Kaynak kartındaki transkript durum rozeti */
+.ai-badge {
+  flex: none;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--fill);
+  color: var(--muted);
+  white-space: nowrap;
+}
+.ai-badge.ready { background: rgba(52, 199, 89, 0.14); color: var(--green); }
+
+/* Ayarlardaki anahtar satırları: etiket + geniş parola girişi */
+.ai-key-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.ai-key-input {
+  width: 250px;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  outline: none;
+}
+.ai-key-input:focus { border-color: var(--accent); }
+
+.ai-note-left { text-align: left; }
+
+.ai-panel { display: flex; flex-direction: column; gap: 12px; margin-top: 8px; }
+.ai-panel-row { display: flex; align-items: center; gap: 12px; }
+.ai-panel-hint { flex: 1; font-size: 11.5px; color: var(--muted); line-height: 1.45; }
+.ai-search-input { flex: 1; height: 32px; font-size: 12.5px; }
+
+/* Sonuç listeleri: kopyalanabilir/uygulanabilir satır kartları */
+.ai-out { display: flex; flex-direction: column; gap: 6px; }
+.ai-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.ai-item-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.ai-item-label { font-size: 11px; font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; }
+.ai-item-text { font-size: 12.5px; color: var(--text); line-height: 1.45; word-break: break-word; }
+.ai-item-text:empty { display: none; }
+.ai-copy-all { align-self: flex-end; }
+.ai-empty { font-size: 12px; color: var(--muted); padding: 6px 2px; }
+
+/* Hook viral puanı */
+.ai-score {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 12.5px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Reklam taraması bulgu şiddeti */
+.ai-severity {
+  flex: none;
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--fill);
+  color: var(--muted);
+}
+.ai-severity[data-sev="orta"] { background: rgba(255, 159, 10, 0.16); color: #c77800; }
+.ai-severity[data-sev="yüksek"] { background: rgba(255, 59, 48, 0.14); color: #d70015; }
+
+/* Reklam kararı kartı: cmp-result'un uyarı/risk varyantları */
+.cmp-result.warn { background: rgba(255, 159, 10, 0.12); }
+.cmp-result.bad { background: rgba(255, 59, 48, 0.10); }
+#aiAdIcon { font-weight: 800; font-size: 15px; color: var(--green); }
+.cmp-result.warn #aiAdIcon { color: #ff9f0a; }
+.cmp-result.bad #aiAdIcon { color: var(--red); }
+
+/* AI ilerleme dolgusu; .indet = süresi öngörülemeyen aşama (kayan blok) */
+#aiProgressFill {
+  height: 100%;
+  width: 0%;
+  border-radius: 3px;
+  background: var(--accent);
+  transition: width 0.15s linear;
+}
+#aiProgressFill.indet {
+  width: 40%;
+  animation: ai-indet 1.1s ease-in-out infinite alternate;
+}
+@keyframes ai-indet { from { margin-left: 0; } to { margin-left: 60%; } }
+#aiProgressText { font-variant-numeric: tabular-nums; }

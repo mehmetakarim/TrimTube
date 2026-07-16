@@ -877,6 +877,7 @@ function populateFromInfo(info) {
   $('downloadBtn').disabled = false;
   $('addQueueBtn').disabled = false;
   updateChapters(info); // yerel dosyada info.chapters yok → menü gizli
+  aiSourceChanged(); // yeni kaynak → eski transkript/AI sonuçları geçersiz (Faz 14)
   clearStatus();
   $('progressWrap').classList.add('hidden');
 }
@@ -1595,7 +1596,40 @@ async function initSettings() {
     b.classList.toggle('active', b.dataset.themeOpt === settings.theme);
   });
   $('settingsVersion').textContent = settings.appVersion ? `TrimTube v${settings.appVersion}` : '';
+  // API anahtarları (Faz 14)
+  $('setGeminiKey').value = settings.geminiKey || '';
+  $('setElevenKey').value = settings.elevenKey || '';
 }
+
+// ---- API anahtarları (Faz 14) ----
+// Anahtarlar yalnızca yerelde (settings.json) durur; Gemini'ye/ElevenLabs'e
+// doğrudan istekte kullanılır, hiçbir ara sunucudan geçmez.
+
+$('setGeminiKey').addEventListener('change', () => {
+  const v = $('setGeminiKey').value.trim();
+  settings.geminiKey = v;
+  window.api.setSettings({ geminiKey: v });
+  $('geminiKeyStatus').textContent = v ? 'Kaydedildi' : 'AI Araçları ekranı için gerekli';
+});
+
+$('setElevenKey').addEventListener('change', () => {
+  const v = $('setElevenKey').value.trim();
+  settings.elevenKey = v;
+  window.api.setSettings({ elevenKey: v });
+});
+
+$('geminiKeyPageBtn').addEventListener('click', () => window.api.openGeminiKeyPage());
+
+$('geminiKeyTestBtn').addEventListener('click', async () => {
+  const key = $('setGeminiKey').value.trim();
+  $('geminiKeyTestBtn').disabled = true;
+  $('geminiKeyStatus').textContent = 'Doğrulanıyor…';
+  let r;
+  try { r = await window.api.aiTestKey(key); }
+  catch (err) { r = { error: err.message || String(err) }; }
+  $('geminiKeyTestBtn').disabled = false;
+  $('geminiKeyStatus').textContent = r.ok ? '✓ Anahtar geçerli' : r.error;
+});
 
 // Tema seçimi
 document.querySelectorAll('#themeSeg .seg').forEach(btn => {
@@ -1652,7 +1686,7 @@ $('cacheClearBtn').addEventListener('click', async () => {
 // Her menü öğesi bir ekran gösterir; ana ekran kalabalıklaşmadan yeni özellikler
 // (Faz 12+: GIF, Moodlar…) kendi ekranlarıyla eklenir. Ayarlar ve Sıkıştır
 // eskiden modaldı, artık birer ekran.
-const VIEWS = { cutter: 'viewCutter', compress: 'viewCompress', smarttrim: 'viewSmartTrim', settings: 'viewSettings' };
+const VIEWS = { cutter: 'viewCutter', compress: 'viewCompress', smarttrim: 'viewSmartTrim', ai: 'viewAI', settings: 'viewSettings' };
 let currentView = 'cutter';
 
 function switchView(name) {
@@ -1663,6 +1697,7 @@ function switchView(name) {
   Object.entries(VIEWS).forEach(([key, id]) => $(id).classList.toggle('hidden', key !== name));
   document.querySelectorAll('#sideNav .nav-item').forEach(b => b.classList.toggle('active', b.dataset.view === name));
   if (name === 'settings') refreshCacheInfo();
+  if (name === 'ai') aiRefreshView(); // anahtar/kaynak durumu her girişte tazelenir
 }
 
 document.querySelectorAll('#sideNav .nav-item').forEach(btn => {
@@ -2022,5 +2057,370 @@ $('stApplyBtn').addEventListener('click', async () => {
   $('stOpenFolderBtn').onclick = () => window.api.openFolder(outDir);
   $('stOpenFolderBtn').classList.remove('hidden');
 });
+
+// ---- Faz 14: AI Araçları (Gemini) ----
+// Dört araç (başlık, konu arama, hook bulucu, reklam kontrolü) Video Kes
+// ekranındaki yüklü kaynak üzerinde ve ortak bir transkriptle çalışır. Gemini
+// çağrıları ve transkript üretimi main süreçte; burada durum/akış yönetimi var.
+
+let aiSegments = null;      // hazır transkript segmentleri [{start,end,text}]
+let aiTransSource = null;   // 'youtube' | 'whisper' — hazır transkriptin kaynağı
+let aiModelValue = 'small'; // whisper model boyutu (kaynak whisper ise)
+let aiRunning = null;       // 'transcript'|'titles'|'search'|'hooks'|'adcheck'|null
+let aiTool = 'titles';
+
+function aiHasKey() { return !!(settings && (settings.geminiKey || '').trim()); }
+
+// Transkript kaynağı kararı: videoda YouTube altyazısı varsa (subPick) onu
+// kullan — saniyeler sürer ve API anahtarı gerektirmez; yoksa Whisper.
+function aiPlannedSource() {
+  if (subPick && subPick.source === 'youtube') return { source: 'youtube', lang: subPick.lang, auto: subPick.auto };
+  return { source: 'whisper', model: aiModelValue };
+}
+
+function aiShowError(msg) {
+  const el = $('aiError');
+  el.textContent = msg;
+  el.classList.remove('hidden');
+}
+function aiClearError() { $('aiError').classList.add('hidden'); }
+
+function aiClearOutputs() {
+  for (const id of ['aiTitlesOut', 'aiSearchOut', 'aiHooksOut', 'aiAdOut']) {
+    $(id).innerHTML = '';
+    $(id).classList.add('hidden');
+  }
+  $('aiAdVerdict').classList.add('hidden');
+  aiClearError();
+}
+
+// Yeni video yüklendi → eski transkript ve sonuçlar geçersiz
+function aiSourceChanged() {
+  aiSegments = null;
+  aiTransSource = null;
+  aiClearOutputs();
+  aiRefreshView();
+}
+
+function aiRefreshView() {
+  // Anahtar uyarısı: araçlar için gerekli; transkript anahtarsız da hazırlanır
+  $('aiKeyWarn').classList.toggle('hidden', aiHasKey());
+
+  $('aiNoSource').classList.toggle('hidden', infoLoaded);
+  $('aiSourceCard').classList.toggle('hidden', !infoLoaded);
+  $('aiTransGroup').classList.toggle('hidden', !infoLoaded);
+  $('aiTools').classList.toggle('hidden', !infoLoaded);
+  if (infoLoaded) {
+    $('aiSourceName').textContent = $('title').textContent;
+    $('aiSourceMeta').textContent = $('meta').textContent;
+  }
+
+  const ready = !!aiSegments;
+  $('aiTransBadge').textContent = ready ? 'Transkript hazır' : 'Transkript yok';
+  $('aiTransBadge').classList.toggle('ready', ready);
+
+  const planned = infoLoaded ? aiPlannedSource() : null;
+  $('aiModelSeg').classList.toggle('hidden', !planned || planned.source !== 'whisper');
+  if (ready) {
+    $('aiTransInfo').textContent = aiTransSource === 'youtube'
+      ? `Hazır · YouTube altyazısından · ${aiSegments.length} bölüm`
+      : `Hazır · Whisper · ${aiSegments.length} bölüm`;
+    $('aiTransNote').textContent = '';
+  } else {
+    $('aiTransInfo').textContent = 'Hazır değil';
+    $('aiTransNote').textContent = !planned ? ''
+      : planned.source === 'youtube'
+        ? 'Bu videonun YouTube altyazısı var — transkript saniyeler içinde hazırlanır.'
+        : 'Altyazı bulunamadı — ses Whisper ile yazıya dökülür (ilk kullanımda model indirilir; süre video uzunluğuyla orantılıdır).';
+  }
+  aiRefreshButtons();
+}
+
+function aiRefreshButtons() {
+  const ready = !!aiSegments;
+  const tBtn = $('aiTransBtn');
+  tBtn.textContent = aiRunning === 'transcript' ? 'Durdur' : (ready ? 'Yenile' : 'Hazırla');
+  tBtn.disabled = !infoLoaded || (!!aiRunning && aiRunning !== 'transcript');
+
+  const map = { titles: 'aiTitlesBtn', search: 'aiSearchBtn', hooks: 'aiHooksBtn', adcheck: 'aiAdBtn' };
+  const labels = { titles: 'Üret', search: 'Ara', hooks: 'Analiz et', adcheck: 'Tara' };
+  for (const [tool, id] of Object.entries(map)) {
+    const b = $(id);
+    b.textContent = aiRunning === tool ? 'Durdur' : labels[tool];
+    b.disabled = aiRunning ? aiRunning !== tool : !ready;
+  }
+}
+
+const AI_PHASE_LABELS = {
+  subdl: 'YouTube altyazısı indiriliyor…',
+  download: 'Ses indiriliyor…',
+  audio: 'Ses çıkarılıyor…',
+  model: 'Model hazırlanıyor…',
+  transcribe: 'Konuşma çözümleniyor…',
+  energy: 'Ses enerjisi ölçülüyor…',
+  think: 'Gemini düşünüyor…'
+};
+
+window.api.onAiProgress((p) => {
+  if (!aiRunning) return;
+  $('aiPhaseLabel').textContent = AI_PHASE_LABELS[p.stage] || 'İşleniyor…';
+  const fill = $('aiProgressFill');
+  if (typeof p.pct === 'number') {
+    fill.classList.remove('indet');
+    fill.style.width = p.pct + '%';
+    $('aiProgressText').textContent = '%' + Math.round(p.pct);
+  } else {
+    // Süresi öngörülemeyen aşama (altyazı indirme, Gemini isteği): kayan dolgu
+    fill.style.width = '';
+    fill.classList.add('indet');
+    $('aiProgressText').textContent = '';
+  }
+});
+
+function aiSetRunning(tool) {
+  aiRunning = tool;
+  $('aiProgress').classList.toggle('hidden', !tool);
+  if (tool) {
+    $('aiProgressFill').classList.remove('indet');
+    $('aiProgressFill').style.width = '0%';
+    $('aiProgressText').textContent = '';
+    $('aiPhaseLabel').textContent = 'Hazırlanıyor…';
+  }
+  aiRefreshButtons();
+}
+
+// ---- transkript hazırlama ----
+
+$('aiTransBtn').addEventListener('click', async () => {
+  if (aiRunning === 'transcript') { window.api.aiCancel(); return; }
+  if (aiRunning || !infoLoaded) return;
+  aiClearError();
+  aiClearOutputs();
+  aiSegments = null;
+  aiTransSource = null;
+  aiSetRunning('transcript');
+
+  const src = aiPlannedSource();
+  let r;
+  try {
+    r = await window.api.aiTranscript({
+      url: $('url').value.trim() || null,
+      videoId: currentVideoId,
+      localFile: currentLocalFile,
+      ...src
+    });
+  } catch (err) {
+    r = { error: 'Beklenmeyen hata: ' + (err.message || String(err)) };
+  }
+  aiSetRunning(null);
+  if (r.cancelled) { aiRefreshView(); return; }
+  if (r.error) { aiShowError(r.error); aiRefreshView(); return; }
+  aiSegments = r.segments || [];
+  aiTransSource = r.source;
+  aiRefreshView();
+  if (r.cachedHit) showToast('Transkript önbellekten yüklendi');
+});
+
+document.querySelectorAll('#aiModelSeg .seg').forEach(btn => {
+  btn.addEventListener('click', () => {
+    if (aiRunning) return;
+    aiModelValue = btn.dataset.aiModel;
+    document.querySelectorAll('#aiModelSeg .seg').forEach(b => b.classList.toggle('active', b === btn));
+  });
+});
+
+// ---- araç seçici ----
+
+const AI_PANELS = { titles: 'aiPanelTitles', search: 'aiPanelSearch', hooks: 'aiPanelHooks', adcheck: 'aiPanelAdcheck' };
+document.querySelectorAll('#aiToolSeg .seg').forEach(btn => {
+  btn.addEventListener('click', () => {
+    aiTool = btn.dataset.aiTool;
+    document.querySelectorAll('#aiToolSeg .seg').forEach(b => b.classList.toggle('active', b === btn));
+    Object.entries(AI_PANELS).forEach(([k, id]) => $(id).classList.toggle('hidden', k !== aiTool));
+  });
+});
+
+// ---- ortak yardımcılar ----
+
+// Başlık/reklam araçları kesim aralığı açıkken yalnızca o aralığı kullanır
+function aiCurrentRange() {
+  if ($('trimEnable').checked) {
+    const s = +$('rangeStart').value, e = +$('rangeEnd').value;
+    if (e > s) return { start: s, end: e };
+  }
+  return null;
+}
+
+// Arama/hook sonucunu kesim aralığına uygula ve Video Kes ekranına dön
+function aiApplyRange(start, end) {
+  start = Math.max(0, Math.floor(start));
+  end = Math.min(videoDuration, Math.ceil(end));
+  if (end <= start) end = Math.min(videoDuration, start + 1);
+  if (!$('trimEnable').checked) {
+    $('trimEnable').checked = true;
+    $('trimEnable').dispatchEvent(new Event('change'));
+  }
+  $('startTime').value = fmtTime(start);
+  $('endTime').value = fmtTime(end);
+  syncFromInputs();
+  computeZoomWindow();
+  switchView('cutter');
+  seekPreview(start);
+  showToast(`Aralık uygulandı: ${fmtTime(start)} – ${fmtTime(end)}`);
+}
+
+async function aiCopy(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    showToast('Panoya kopyalandı');
+  } catch {
+    aiShowError('Panoya kopyalanamadı.');
+  }
+}
+
+// Ortak araç akışı: aynı düğme Durdur'a döner, hata tek yerde gösterilir
+async function aiRunTool(tool, call, render) {
+  if (aiRunning === tool) { window.api.aiCancel(); return; }
+  if (aiRunning || !aiSegments) return;
+  aiClearError();
+  aiSetRunning(tool);
+  let r;
+  try { r = await call(); }
+  catch (err) { r = { error: 'Beklenmeyen hata: ' + (err.message || String(err)) }; }
+  aiSetRunning(null);
+  if (r.cancelled) return;
+  if (r.error) { aiShowError(r.error); return; }
+  render(r);
+}
+
+function aiEmptyNote(wrap, text) {
+  const div = document.createElement('div');
+  div.className = 'ai-empty';
+  div.textContent = text;
+  wrap.appendChild(div);
+}
+
+// ---- 1) başlık / açıklama / hashtag ----
+
+$('aiTitlesBtn').addEventListener('click', () => aiRunTool('titles',
+  () => window.api.aiTitles({ segments: aiSegments, videoTitle: $('title').textContent, range: aiCurrentRange() }),
+  (r) => {
+    const wrap = $('aiTitlesOut');
+    wrap.innerHTML = '';
+    const addRow = (label, text) => {
+      const row = document.createElement('div');
+      row.className = 'ai-item';
+      row.innerHTML = '<div class="ai-item-main"><span class="ai-item-label"></span><span class="ai-item-text"></span></div><button class="btn-ghost small">Kopyala</button>';
+      row.querySelector('.ai-item-label').textContent = label;
+      row.querySelector('.ai-item-text').textContent = text;
+      row.querySelector('button').addEventListener('click', () => aiCopy(text));
+      wrap.appendChild(row);
+    };
+    r.titles.forEach((t, i) => addRow(`Başlık ${i + 1}`, t));
+    if (r.caption) addRow('Açıklama', r.caption);
+    if (r.hashtags.length) addRow('Hashtag', r.hashtags.join(' '));
+    const all = document.createElement('button');
+    all.className = 'btn-ghost small ai-copy-all';
+    all.textContent = 'Tümünü kopyala';
+    all.addEventListener('click', () => aiCopy([
+      ...r.titles.map((t, i) => `${i + 1}. ${t}`),
+      '',
+      r.caption,
+      '',
+      r.hashtags.join(' ')
+    ].join('\n').trim()));
+    wrap.appendChild(all);
+    wrap.classList.remove('hidden');
+  }
+));
+
+// ---- 2) semantik konu arama ----
+
+$('aiSearchInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('aiSearchBtn').click(); });
+$('aiSearchBtn').addEventListener('click', () => {
+  const q = $('aiSearchInput').value.trim();
+  if (!q && aiRunning !== 'search') { aiShowError('Aranacak bir konu yazın.'); return; }
+  aiRunTool('search',
+    () => window.api.aiSearch({ segments: aiSegments, query: q }),
+    (r) => {
+      const wrap = $('aiSearchOut');
+      wrap.innerHTML = '';
+      if (!r.matches.length) aiEmptyNote(wrap, 'Bu konudan bahsedilen bir bölüm bulunamadı.');
+      r.matches.forEach(m => {
+        const row = document.createElement('div');
+        row.className = 'ai-item';
+        row.innerHTML = '<div class="ai-item-main"><span class="ai-item-label"></span><span class="ai-item-text"></span></div><button class="btn-ghost small">Aralığı uygula</button>';
+        row.querySelector('.ai-item-label').textContent = `${fmtClock(m.start)} – ${fmtClock(m.end)}`;
+        row.querySelector('.ai-item-text').textContent = m.quote ? `"${m.quote}" — ${m.reason}` : m.reason;
+        row.querySelector('button').addEventListener('click', () => aiApplyRange(m.start, m.end));
+        wrap.appendChild(row);
+      });
+      wrap.classList.remove('hidden');
+    }
+  );
+});
+
+// ---- 3) hook bulucu ----
+
+$('aiHooksBtn').addEventListener('click', () => aiRunTool('hooks',
+  () => window.api.aiHooks({ segments: aiSegments, videoId: currentVideoId, localFile: currentLocalFile }),
+  (r) => {
+    const wrap = $('aiHooksOut');
+    wrap.innerHTML = '';
+    if (!r.hooks.length) aiEmptyNote(wrap, 'Öne çıkan bir an bulunamadı.');
+    r.hooks.forEach(h => {
+      const row = document.createElement('div');
+      row.className = 'ai-item';
+      row.innerHTML = '<span class="ai-score"></span><div class="ai-item-main"><span class="ai-item-label"></span><span class="ai-item-text"></span></div><button class="btn-ghost small">Aralığı uygula</button>';
+      row.querySelector('.ai-score').textContent = h.score;
+      row.querySelector('.ai-item-label').textContent = `${h.title} · ${fmtClock(h.start)} – ${fmtClock(h.end)}`;
+      row.querySelector('.ai-item-text').textContent = h.reason;
+      row.querySelector('button').addEventListener('click', () => aiApplyRange(h.start, h.end));
+      wrap.appendChild(row);
+    });
+    if (r.hooks.length && !r.energyUsed) {
+      aiEmptyNote(wrap, 'Not: yerel ses bulunamadığı için puanlama yalnızca transkripte dayanıyor.');
+    }
+    wrap.classList.remove('hidden');
+  }
+));
+
+// ---- 4) reklam dostu içerik taraması ----
+
+const AI_VERDICTS = {
+  uygun: { label: 'Reklam dostu görünüyor', cls: 'ok' },
+  'sınırlı': { label: 'Sınırlı reklam riski', cls: 'warn' },
+  riskli: { label: 'Reklam kapatılma riski yüksek', cls: 'bad' }
+};
+
+$('aiAdBtn').addEventListener('click', () => aiRunTool('adcheck',
+  () => window.api.aiAdCheck({ segments: aiSegments, range: aiCurrentRange() }),
+  (r) => {
+    const v = AI_VERDICTS[r.verdict] || AI_VERDICTS['sınırlı'];
+    const card = $('aiAdVerdict');
+    card.classList.remove('hidden', 'ok', 'warn', 'bad');
+    card.classList.add(v.cls);
+    $('aiAdIcon').textContent = v.cls === 'ok' ? '✓' : '!';
+    $('aiAdTitle').textContent = v.label;
+    $('aiAdSub').textContent = r.summary || '';
+    const wrap = $('aiAdOut');
+    wrap.innerHTML = '';
+    r.findings.forEach(f => {
+      const row = document.createElement('div');
+      row.className = 'ai-item';
+      row.innerHTML = '<span class="ai-severity"></span><div class="ai-item-main"><span class="ai-item-label"></span><span class="ai-item-text"></span></div>';
+      const sev = row.querySelector('.ai-severity');
+      sev.textContent = f.severity;
+      sev.dataset.sev = f.severity;
+      row.querySelector('.ai-item-label').textContent = `${fmtClock(f.start)} – ${fmtClock(f.end)}${f.category ? ' · ' + f.category : ''}`;
+      row.querySelector('.ai-item-text').textContent = f.quote ? `"${f.quote}"` : '';
+      wrap.appendChild(row);
+    });
+    wrap.classList.toggle('hidden', !r.findings.length);
+  }
+));
+
+$('aiGoSettings').addEventListener('click', () => switchView('settings'));
+$('aiGoCutter').addEventListener('click', () => switchView('cutter'));
 
 initSettings();

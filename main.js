@@ -40,7 +40,9 @@ const SETTINGS_DEFAULTS = {
   defaultQuality: 'best',
   defaultFormats: ['original'],
   lastFolder: null,
-  sidebarOpen: false      // sol navigasyon menüsü (v1.12.0): kapalı başlar
+  sidebarOpen: false,     // sol navigasyon menüsü (v1.12.0): kapalı başlar
+  geminiKey: '',          // Faz 14: kullanıcının kendi Gemini API anahtarı (yalnızca yerelde durur)
+  elevenKey: ''           // Faz 15 hazırlığı: ElevenLabs anahtarı (seslendirme)
 };
 let settingsCache = null;
 function settingsPath() { return path.join(app.getPath('userData'), 'settings.json'); }
@@ -720,7 +722,10 @@ function shiftSrt(content, startSec, durSec) {
 
 // Altyazıyı indirip önbelleğe alır (videonun kendisi gibi altyazı da
 // tekrar klip kesimlerinde yeniden indirilmesin)
-async function fetchSubtitle(url, videoId, lang, isAuto) {
+// runner: alt süreci hangi takiple çalıştıracağı (varsayılan ana kuyruk —
+// currentProc; AI araçları kendi bağımsız takibini [runAiProc] geçirir ki
+// kuyruğun Durdur'u AI'ın altyazı indirmesini öldürmesin, tersi de olmasın).
+async function fetchSubtitle(url, videoId, lang, isAuto, runner = runProc) {
   const cacheDir = path.join(app.getPath('userData'), 'cache');
   fs.mkdirSync(cacheDir, { recursive: true });
   const cached = path.join(cacheDir, `${videoId}_sub_${lang}${isAuto ? '.auto' : ''}.srt`);
@@ -733,7 +738,7 @@ async function fetchSubtitle(url, videoId, lang, isAuto) {
     '--sub-langs', lang, '--convert-subs', 'srt',
     '--ffmpeg-location', FFMPEG, '-o', outBase, url
   ];
-  await runProc(YTDLP, args, () => {});
+  await runner(YTDLP, args, () => {});
 
   const produced = `${outBase}.${lang}.srt`;
   if (fs.existsSync(produced)) { fs.renameSync(produced, cached); return cached; }
@@ -843,7 +848,7 @@ function pruneCache(cacheDir, keep) {
   const limit = Math.max(1, loadSettings().cacheLimit || 2);
   try {
     fs.readdirSync(cacheDir)
-      .filter(f => f !== keep && !f.endsWith('.part') && !f.includes('_sub'))
+      .filter(f => f !== keep && !f.endsWith('.part') && !f.includes('_sub') && !f.includes('_ai_'))
       .map(f => ({ f, t: fs.statSync(path.join(cacheDir, f)).mtimeMs }))
       .sort((a, b) => b.t - a.t)
       .slice(limit - 1) // keep dışında (limit-1) video daha kalsın
@@ -1828,4 +1833,484 @@ ipcMain.handle('smarttrim-apply', async (e, { file, duration, cuts }) => {
     cleanup();
     return { error: err.message };
   }
+});
+
+// --- Faz 14: AI Altyapısı ve İlk Meyveler (Gemini) ---
+// Dört araç (başlık/hashtag üretimi, semantik konu arama, hook bulucu, reklam
+// dostu içerik taraması) tek bir transkript üzerinde çalışır. Gemini çağrıları
+// burada (main) yapılır: renderer CSP'si (default-src 'self') dışa istek
+// yasaklar; anahtar kullanıcının kendisinindir ve yalnızca settings.json'da
+// yerel durur. İndirme/sıkıştırma/akıllı kırpma işlerinden bağımsız kendi
+// süreç takibi + fetch iptali vardır (compress/smarttrim ile aynı desen).
+const GEMINI_MODEL = 'gemini-2.5-flash';
+const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta';
+
+let aiProc = null;
+let aiCancelled = false;
+let aiAbort = null; // süren Gemini isteğinin iptali (AbortController)
+
+function runAiProc(cmd, args, onLine, cwd) {
+  return new Promise((resolve) => {
+    const proc = spawn(cmd, args, { windowsHide: true, env: procEnv, cwd });
+    aiProc = proc;
+    const dec = new StringDecoder('utf8');
+    let buf = '';
+    let errBuf = '';
+    proc.stdout.on('data', (d) => {
+      buf += dec.write(d);
+      const lines = buf.split(/\r?\n/);
+      buf = lines.pop();
+      lines.forEach((l) => { if (l.trim()) onLine(l); });
+    });
+    proc.stderr.on('data', (d) => { errBuf += d.toString('utf8'); });
+    proc.on('close', (code) => { if (aiProc === proc) aiProc = null; resolve({ code, stderr: errBuf }); });
+    proc.on('error', (err) => { if (aiProc === proc) aiProc = null; resolve({ code: -1, stderr: err.message }); });
+  });
+}
+
+ipcMain.handle('ai-cancel', () => {
+  aiCancelled = true;
+  if (aiProc) {
+    if (process.platform === 'win32') {
+      spawn('taskkill', ['/pid', String(aiProc.pid), '/T', '/F'], { windowsHide: true });
+    } else {
+      try { aiProc.kill(); } catch {}
+    }
+  }
+  if (aiAbort) { try { aiAbort.abort(); } catch {} }
+});
+
+function aiSend(p) { try { win.webContents.send('ai-progress', p); } catch {} }
+
+// Gemini HTTP hatalarını kullanıcıya gösterilebilir Türkçe mesaja çevirir
+function geminiErrorMessage(status, body) {
+  const raw = String(body || '');
+  if (status === 400 && /API_KEY_INVALID|API key not valid/i.test(raw)) {
+    return 'Gemini API anahtarı geçersiz. Ayarlar ekranından kontrol edin.';
+  }
+  if (status === 401 || status === 403) return 'Gemini API anahtarı reddedildi (yetki yok). Anahtarı Ayarlar ekranından kontrol edin.';
+  if (status === 429) return 'Gemini kota sınırına takıldı (ücretsiz katmanda dakika başına istek sınırı vardır). Bir dakika sonra tekrar deneyin.';
+  if (status === 404) return `Gemini modeli bulunamadı (${GEMINI_MODEL}). Uygulama güncellemesi gerekebilir.`;
+  if (status >= 500) return 'Gemini hizmeti şu an yanıt veremiyor. Birkaç dakika sonra tekrar deneyin.';
+  const m = raw.match(/"message"\s*:\s*"([^"]+)"/);
+  return `Gemini isteği başarısız (${status})` + (m ? `: ${m[1]}` : '');
+}
+
+// Tek Gemini çağrısı: prompt → JSON. Yanıt responseMimeType ile JSON istenir;
+// yine de kod bloğu çitleriyle gelirse temizlenip öyle parse edilir.
+async function geminiGenerate(prompt, temperature) {
+  const key = (loadSettings().geminiKey || '').trim();
+  if (!key) return { error: 'Gemini API anahtarı girilmemiş. Ayarlar ekranından ücretsiz bir anahtar ekleyin.' };
+  aiAbort = new AbortController();
+  const timer = setTimeout(() => { try { aiAbort.abort(); } catch {} }, 120000);
+  try {
+    const res = await fetch(`${GEMINI_BASE}/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(key)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: aiAbort.signal,
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { temperature, responseMimeType: 'application/json' }
+      })
+    });
+    if (!res.ok) return { error: geminiErrorMessage(res.status, await res.text().catch(() => '')) };
+    const j = await res.json();
+    const parts = (((j.candidates || [])[0] || {}).content || {}).parts || [];
+    const text = parts.map(p => p.text || '').join('').trim();
+    if (!text) return { error: 'AI boş yanıt döndürdü — içerik güvenlik filtresine takılmış olabilir.' };
+    const clean = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+    try { return { data: JSON.parse(clean) }; }
+    catch { return { error: 'AI yanıtı çözümlenemedi (beklenmeyen biçim). Tekrar deneyin.' }; }
+  } catch (err) {
+    if (aiCancelled) return { cancelled: true };
+    if (err && err.name === 'AbortError') return { error: 'Gemini isteği zaman aşımına uğradı (120 sn).' };
+    return { error: 'Gemini bağlantısı kurulamadı: ' + (err && err.message ? err.message : err) };
+  } finally {
+    clearTimeout(timer);
+    aiAbort = null;
+  }
+}
+
+// Anahtar doğrulama: modele küçük bir GET (üretim maliyeti olmadan)
+ipcMain.handle('ai-test-key', async (e, key) => {
+  key = String(key || '').trim();
+  if (!key) return { error: 'Anahtar boş.' };
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => { try { ctrl.abort(); } catch {} }, 15000);
+  try {
+    const res = await fetch(`${GEMINI_BASE}/models/${GEMINI_MODEL}?key=${encodeURIComponent(key)}`, { signal: ctrl.signal });
+    if (res.ok) return { ok: true };
+    return { error: geminiErrorMessage(res.status, await res.text().catch(() => '')) };
+  } catch (err) {
+    return { error: err && err.name === 'AbortError' ? 'Doğrulama zaman aşımına uğradı.' : 'Bağlantı kurulamadı: ' + err.message };
+  } finally {
+    clearTimeout(timer);
+  }
+});
+
+ipcMain.handle('open-gemini-key-page', () => shell.openExternal('https://aistudio.google.com/apikey'));
+
+// SRT içeriğini {start, end, text} segment dizisine çevirir. YouTube otomatik
+// (ASR) altyazılarında birebir yinelenen bloklar tek segmentte birleştirilir.
+function parseSrtSegments(content) {
+  const toS = (h, m, s, ms) => (+h) * 3600 + (+m) * 60 + (+s) + (+ms) / 1000;
+  const segs = [];
+  for (const block of String(content || '').split(/\r?\n\r?\n/)) {
+    const m = block.match(/(\d{2}):(\d{2}):(\d{2})[,.](\d{3})\s*-->\s*(\d{2}):(\d{2}):(\d{2})[,.](\d{3})/);
+    if (!m) continue;
+    const lines = block.split(/\r?\n/);
+    const text = lines.slice(lines.findIndex(l => l.includes('-->')) + 1)
+      .join(' ').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+    if (!text) continue;
+    const start = toS(m[1], m[2], m[3], m[4]);
+    const end = toS(m[5], m[6], m[7], m[8]);
+    const last = segs[segs.length - 1];
+    if (last && text === last.text) { last.end = Math.max(last.end, +end.toFixed(2)); continue; }
+    segs.push({ start: +start.toFixed(2), end: +end.toFixed(2), text });
+  }
+  return segs;
+}
+
+// AI araçları için kullanılabilir yerel medya: yerel dosya > önbellekteki tam
+// video > daha önce indirilmiş yalnız-ses (_ai_audio) dosyası
+function findAiMedia(videoId, localFile) {
+  if (localFile && fs.existsSync(localFile)) return localFile;
+  const hit = findCachedMedia(videoId);
+  if (hit) return hit;
+  if (!videoId) return null;
+  try {
+    const dir = cacheDirPath();
+    const f = fs.readdirSync(dir).find(n => n.startsWith(`${videoId}_ai_audio`));
+    return f ? path.join(dir, f) : null;
+  } catch {
+    return null;
+  }
+}
+
+// Transkript hazırlama — tüm AI araçlarının ortak ön koşulu. YouTube altyazısı
+// varsa onu indirir (saniyeler sürer, anahtar gerektirmez); yoksa sesi (gerekirse
+// tam videoyu indirmeden yalnız-ses indirmesiyle) Whisper'a verir. Sonuç
+// id+kaynak anahtarıyla önbelleğe yazılır; _ai_ dosyaları pruneCache'ten muaftır.
+ipcMain.handle('ai-transcript', async (e, opts) => {
+  aiCancelled = false;
+  const id = opts.videoId;
+  if (!id) return { error: 'Önce bir video yükleyin.' };
+  const cacheDir = cacheDirPath();
+  fs.mkdirSync(cacheDir, { recursive: true });
+  const isYt = opts.source === 'youtube';
+  const model = opts.model || 'small';
+  const cacheKey = isYt
+    ? `${id}_ai_transcript_yt_${opts.lang}${opts.auto ? '.auto' : ''}.json`
+    : `${id}_ai_transcript_${model}.json`;
+  const cached = path.join(cacheDir, cacheKey);
+  if (fs.existsSync(cached)) {
+    try { return { ok: true, cachedHit: true, ...JSON.parse(fs.readFileSync(cached, 'utf8')) }; } catch {}
+  }
+
+  const url = opts.url || `https://www.youtube.com/watch?v=${id}`;
+  let tmpDir = null;
+  const cleanup = () => { if (tmpDir) { try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {} } };
+
+  try {
+    let segments;
+    let doc;
+    if (isYt) {
+      aiSend({ stage: 'subdl' });
+      const srtPath = await fetchSubtitle(url, id, opts.lang, opts.auto, runAiProc);
+      if (aiCancelled) return { cancelled: true };
+      if (!srtPath) return { error: 'YouTube altyazısı indirilemedi. Tekrar deneyin; sorun sürerse video altyazısız olabilir.' };
+      segments = parseSrtSegments(fs.readFileSync(srtPath, 'utf8'));
+      doc = { source: 'youtube', lang: opts.lang, auto: !!opts.auto, segments };
+    } else {
+      // 1) Medya: yerel dosya / önbellekteki video / yalnız-ses indirmesi
+      let media = findAiMedia(id, opts.localFile);
+      if (!media) {
+        aiSend({ stage: 'download', pct: 0 });
+        const outBase = path.join(cacheDir, `${id}_ai_audio`);
+        const dl = await runAiProc(YTDLP, [
+          '--no-playlist', '--newline', '--progress', '--no-warnings',
+          '-f', 'bestaudio[ext=m4a]/bestaudio',
+          '--ffmpeg-location', FFMPEG, '-o', `${outBase}.%(ext)s`, url
+        ], (line) => {
+          const m = line.match(/\[download\]\s+(\d+(?:\.\d+)?)%/);
+          if (m) aiSend({ stage: 'download', pct: parseFloat(m[1]) });
+        });
+        if (aiCancelled) return { cancelled: true };
+        if (dl.code !== 0) return { error: extractError(dl.stderr) };
+        media = findAiMedia(id, null);
+        if (!media) return { error: 'Ses indirildi ama dosya bulunamadı.' };
+      }
+
+      // 2) 16 kHz mono WAV (whisper'ın beklediği biçim)
+      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yt-ai-'));
+      aiSend({ stage: 'audio' });
+      const wav = path.join(tmpDir, 'aud.wav');
+      const ex = await runAiProc(FFMPEG, ['-y', '-i', media, '-vn', '-ac', '1', '-ar', '16000', '-c:a', 'pcm_s16le', wav], () => {});
+      if (aiCancelled) return { cancelled: true };
+      if (ex.code !== 0 || !fs.existsSync(wav)) return { error: 'Ses çıkarılamadı.' };
+
+      // 3) subtitle.py → SRT → segmentler (akıllı kırpmadaki çıktı sözleşmesinin aynısı)
+      aiSend({ stage: 'model', pct: 0 });
+      const modelDir = path.join(app.getPath('userData'), 'whisper-models');
+      fs.mkdirSync(modelDir, { recursive: true });
+      const outSrt = path.join(tmpDir, 'ai.srt');
+      const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
+      let errLine = '';
+      const tr = await runAiProc(pythonCmd, [
+        path.join(__dirname, 'subtitle.py'), wav,
+        '--out', outSrt, '--model', model, '--model-dir', modelDir
+      ], (line) => {
+        const m = line.match(/^PROGRESS (\d+)/);
+        if (m) { aiSend({ stage: 'transcribe', pct: +m[1] }); return; }
+        if (line.startsWith('STATUS model')) aiSend({ stage: 'model' });
+        else if (line.startsWith('STATUS transcribe')) aiSend({ stage: 'transcribe', pct: 0 });
+        else if (line.startsWith('ERROR ')) errLine = line.slice(6).trim();
+      });
+      if (aiCancelled) return { cancelled: true };
+      if (tr.code !== 0 || !fs.existsSync(outSrt)) {
+        let msg = errLine;
+        if (!msg) {
+          if (/ENOENT/.test(tr.stderr)) msg = 'Python bulunamadı. Transkript için Python 3 kurulu olmalı.';
+          else msg = tr.stderr.split(/\r?\n/).filter(Boolean).slice(-2).join('\n') || 'Bilinmeyen hata.';
+        }
+        return { error: 'Transkript başarısız: ' + msg };
+      }
+      segments = parseSrtSegments(fs.readFileSync(outSrt, 'utf8'));
+      doc = { source: 'whisper', model, segments };
+    }
+    if (!segments.length) return { error: 'Bu videoda kullanılabilir konuşma/altyazı metni bulunamadı.' };
+    try { fs.writeFileSync(cached, JSON.stringify(doc), 'utf8'); } catch {}
+    return { ok: true, ...doc };
+  } catch (err) {
+    return { error: err.message };
+  } finally {
+    cleanup();
+  }
+});
+
+// Segmentleri "[başlangıç-bitiş] metin" satırlarına çevirir; istenirse aralık
+// filtresi ve segment başına enerji etiketi eklenir. Aşırı uzun transkriptler
+// kabaca kırpılır (Gemini bağlamı geniş ama sınırsız değil).
+const AI_MAX_CHARS = 250000;
+
+function aiTranscriptBlock(segments, range, energyLabels) {
+  const list = Array.isArray(segments) ? segments : [];
+  let idxs = list.map((s, i) => i);
+  if (range) idxs = idxs.filter(i => list[i].end > range.start && list[i].start < range.end);
+  const lines = idxs.map(i => {
+    const s = list[i];
+    const en = energyLabels && energyLabels[i] ? ` (enerji: ${energyLabels[i]})` : '';
+    return `[${(+s.start).toFixed(1)}-${(+s.end).toFixed(1)}]${en} ${s.text}`;
+  });
+  let text = lines.join('\n');
+  let truncated = false;
+  if (text.length > AI_MAX_CHARS) { text = text.slice(0, AI_MAX_CHARS); truncated = true; }
+  return { count: idxs.length, text, truncated };
+}
+
+// Başlık/açıklama/hashtag üretici (kesim aralığı verilirse yalnız o aralık)
+ipcMain.handle('ai-titles', async (e, { segments, videoTitle, range }) => {
+  aiCancelled = false;
+  const t = aiTranscriptBlock(segments, range || null);
+  if (!t.count) return { error: 'Seçili aralıkta transkript metni yok.' };
+  aiSend({ stage: 'think' });
+  const prompt = [
+    'Sen YouTube Shorts için çalışan usta bir içerik editörüsün. Aşağıda bir video',
+    'klibinin transkripti var. Çıktıyı TÜRKÇE üret.',
+    '',
+    'İstenenler:',
+    '- "titles": 3 vurucu Shorts başlığı (her biri en fazla 60 karakter; merak uyandıran ama yanıltıcı/tıklama tuzağı olmayan)',
+    '- "caption": 1-2 cümlelik açıklama + izleyiciyi yoruma/etkileşime çağıran kısa bir soru',
+    '- "hashtags": 8-12 hashtag (# ile; Türkçe ağırlıklı, konuya uygunsa birkaç İngilizce)',
+    '',
+    'Yalnızca şu JSON şemasıyla yanıt ver: {"titles":["...","...","..."],"caption":"...","hashtags":["#..."]}',
+    '',
+    videoTitle ? `Videonun özgün başlığı: ${videoTitle}` : '',
+    'Transkript:',
+    t.text
+  ].filter(Boolean).join('\n');
+  const r = await geminiGenerate(prompt, 0.7);
+  if (r.error || r.cancelled) return r;
+  const d = r.data || {};
+  if (!Array.isArray(d.titles) || !d.titles.length) return { error: 'AI yanıtı beklenen biçimde değil, tekrar deneyin.' };
+  return {
+    ok: true,
+    titles: d.titles.slice(0, 5).map(String),
+    caption: String(d.caption || ''),
+    hashtags: Array.isArray(d.hashtags) ? d.hashtags.map(String) : []
+  };
+});
+
+// Semantik konu arama: "X'ten bahsettiği yerleri bul" → eşleşen zaman aralıkları
+ipcMain.handle('ai-search', async (e, { segments, query }) => {
+  aiCancelled = false;
+  query = String(query || '').trim();
+  if (!query) return { error: 'Aranacak bir konu yazın.' };
+  const t = aiTranscriptBlock(segments, null);
+  if (!t.count) return { error: 'Transkript boş.' };
+  aiSend({ stage: 'think' });
+  const prompt = [
+    'Görev: aşağıdaki video transkriptinde, kullanıcının aradığı konudan gerçekten',
+    'bahsedilen bölümleri bulmak. Satırlar "[başlangıç-bitiş] metin" biçiminde,',
+    'zamanlar saniye cinsindendir. Yanıt dili TÜRKÇE.',
+    '',
+    `Kullanıcının aradığı: "${query}"`,
+    '',
+    'Kurallar:',
+    '- Bitişik satırlar aynı konuyu sürdürüyorsa TEK bölümde birleştir (start=ilk satırın başlangıcı, end=son satırın bitişi).',
+    '- Yalnızca gerçekten ilgili bölümleri döndür; zayıf/uzak çağrışımları alma.',
+    '- Hiç eşleşme yoksa boş dizi döndür.',
+    '- En fazla 10 sonuç.',
+    '',
+    'Yalnızca şu JSON şemasıyla yanıt ver:',
+    '{"matches":[{"start":sayı,"end":sayı,"quote":"ilgili kısa alıntı","reason":"bir cümlelik gerekçe"}]}',
+    '',
+    'Transkript:',
+    t.text
+  ].join('\n');
+  const r = await geminiGenerate(prompt, 0.2);
+  if (r.error || r.cancelled) return r;
+  const d = r.data || {};
+  const matches = (Array.isArray(d.matches) ? d.matches : [])
+    .filter(m => isFinite(+m.start) && isFinite(+m.end) && +m.end > +m.start)
+    .map(m => ({ start: +m.start, end: +m.end, quote: String(m.quote || ''), reason: String(m.reason || '') }))
+    .sort((a, b) => a.start - b.start)
+    .slice(0, 10);
+  return { ok: true, matches, truncated: t.truncated };
+});
+
+// Ses enerjisi profili: saniye başına ortalama RMS (dB). astats her saniyelik
+// pencere (asetnsamples=16000 @ 16 kHz mono) için seviyeyi metadata olarak
+// stdout'a yazar; -inf (mutlak sessizlik) -90 dB'ye sabitlenir.
+async function computeEnergyProfile(file) {
+  const vals = [];
+  let lastT = 0;
+  const r = await runAiProc(FFMPEG, [
+    '-i', file, '-vn', '-ac', '1', '-ar', '16000',
+    '-af', 'asetnsamples=16000,astats=metadata=1:reset=1,ametadata=mode=print:key=lavfi.astats.Overall.RMS_level:file=-',
+    '-f', 'null', '-'
+  ], (line) => {
+    const tm = line.match(/pts_time:([\d.]+)/);
+    if (tm) { lastT = parseFloat(tm[1]); return; }
+    const vm = line.match(/RMS_level=(-?[\d.]+|-?inf|nan)/i);
+    if (vm) {
+      const v = parseFloat(vm[1]);
+      vals.push({ t: lastT, db: isFinite(v) ? v : -90 });
+    }
+  });
+  return (r.code === 0 && vals.length) ? vals : null;
+}
+
+// Her segmentin ortalama dB'sini videonun kendi dağılımına göre üç kademeye
+// ayırır — mutlak eşik yerine görece eşik: kısık kayıtlı videolarda da çalışır.
+function energyLabelsFor(segments, prof) {
+  const avgs = segments.map(s => {
+    const inSeg = prof.filter(p => p.t >= s.start && p.t < Math.max(s.start + 1, s.end));
+    if (!inSeg.length) return null;
+    return inSeg.reduce((a, b) => a + b.db, 0) / inSeg.length;
+  });
+  const valid = avgs.filter(a => a !== null).slice().sort((a, b) => a - b);
+  if (valid.length < 6) return segments.map(() => null); // anlamlı dağılım için çok az örnek
+  const lo = valid[Math.floor(valid.length / 3)];
+  const hi = valid[Math.floor((valid.length * 2) / 3)];
+  return avgs.map(a => a === null ? null : (a <= lo ? 'düşük' : a >= hi ? 'yüksek' : 'orta'));
+}
+
+// AI Hook Finder: viral potansiyelli anları transkript + ses enerjisiyle puanlar.
+// Yerel medya yoksa (YouTube + yalnız altyazı yolu) enerji atlanır, yalnız
+// transkriptle devam edilir — sonuç yine üretilir, renderer'da not gösterilir.
+ipcMain.handle('ai-hooks', async (e, { segments, videoId, localFile }) => {
+  aiCancelled = false;
+  if (!Array.isArray(segments) || !segments.length) return { error: 'Transkript boş.' };
+
+  let energyLabels = null;
+  const media = findAiMedia(videoId, localFile);
+  if (media) {
+    aiSend({ stage: 'energy' });
+    const prof = await computeEnergyProfile(media);
+    if (aiCancelled) return { cancelled: true };
+    if (prof) energyLabels = energyLabelsFor(segments, prof);
+  }
+
+  const t = aiTranscriptBlock(segments, null, energyLabels);
+  aiSend({ stage: 'think' });
+  const prompt = [
+    'Sen viral kısa video (Shorts/Reels/TikTok) uzmanısın. Aşağıdaki transkriptte',
+    'izleyiciyi İLK SANİYEDE yakalayacak "hook" anlarını bul. Satırlar',
+    '"[başlangıç-bitiş] (enerji: …) metin" biçiminde; enerji etiketi o anın ses',
+    'yoğunluğunu gösterir (yüksek enerji genelde vurgulu/duygusal anlardır).',
+    'Yanıt dili TÜRKÇE.',
+    '',
+    'Kurallar:',
+    '- Her hook 15-60 saniyelik, kendi başına anlamlı bir kesit olmalı (start/end\'i buna göre genişlet).',
+    '- Değerlendir: merak uyandırma, duygusal/komik yoğunluk, şaşırtıcı ifade, ses enerjisi.',
+    '- "score" 0-100 arası viral potansiyel puanı; en iyi en fazla 5 anı döndür, puana göre sırala.',
+    '- "title" o kesit için 3-6 kelimelik etiket; "reason" bir cümlelik gerekçe.',
+    '',
+    'Yalnızca şu JSON şemasıyla yanıt ver:',
+    '{"hooks":[{"start":sayı,"end":sayı,"score":sayı,"title":"...","reason":"..."}]}',
+    '',
+    'Transkript:',
+    t.text
+  ].join('\n');
+  const r = await geminiGenerate(prompt, 0.4);
+  if (r.error || r.cancelled) return r;
+  const d = r.data || {};
+  const hooks = (Array.isArray(d.hooks) ? d.hooks : [])
+    .filter(h => isFinite(+h.start) && isFinite(+h.end) && +h.end > +h.start)
+    .map(h => ({
+      start: +h.start,
+      end: +h.end,
+      score: Math.max(0, Math.min(100, Math.round(+h.score || 0))),
+      title: String(h.title || ''),
+      reason: String(h.reason || '')
+    }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 5);
+  return { ok: true, hooks, energyUsed: !!energyLabels };
+});
+
+// Reklam dostu içerik taraması. Not: Content ID / telif taraması teknik olarak
+// yapılamaz (YouTube'un parmak izi veritabanına dış erişim yok); bu araç yalnız
+// transkript içeriğini reklamveren yönergelerine göre değerlendirir.
+ipcMain.handle('ai-adcheck', async (e, { segments, range }) => {
+  aiCancelled = false;
+  const t = aiTranscriptBlock(segments, range || null);
+  if (!t.count) return { error: 'Seçili aralıkta transkript metni yok.' };
+  aiSend({ stage: 'think' });
+  const prompt = [
+    'YouTube\'un "reklamveren dostu içerik" yönergelerine göre aşağıdaki video',
+    'transkriptini tara. Aranan sorunlar: küfür/argo, şiddet ve ağır betimlemeler,',
+    'yetişkin/cinsel içerik, uyuşturucu/alkol/sigara övgüsü, nefret söylemi/aşağılama,',
+    'hassas güncel olaylar, tehlikeli davranışlar. Yanıt dili TÜRKÇE.',
+    '',
+    'Kurallar:',
+    '- Her bulgu için transkriptteki zaman aralığını ve kısa alıntıyı ver.',
+    '- "severity": "düşük" (tek/hafif küfür, ima) | "orta" (tekrarlı küfür, tartışmalı konu) | "yüksek" (ağır küfür, açık şiddet/cinsellik, nefret söylemi).',
+    '- "verdict": "uygun" (bulgu yok/önemsiz) | "sınırlı" (sınırlı reklam riski) | "riskli" (reklam kapatılma riski yüksek).',
+    '- "summary": 1-2 cümlelik genel değerlendirme.',
+    '- Bulgu yoksa "findings" boş dizi olsun.',
+    '',
+    'Yalnızca şu JSON şemasıyla yanıt ver:',
+    '{"verdict":"uygun|sınırlı|riskli","summary":"...","findings":[{"start":sayı,"end":sayı,"quote":"...","category":"...","severity":"düşük|orta|yüksek"}]}',
+    '',
+    'Transkript:',
+    t.text
+  ].join('\n');
+  const r = await geminiGenerate(prompt, 0.2);
+  if (r.error || r.cancelled) return r;
+  const d = r.data || {};
+  const verdict = ['uygun', 'sınırlı', 'riskli'].includes(d.verdict) ? d.verdict : 'sınırlı';
+  const findings = (Array.isArray(d.findings) ? d.findings : [])
+    .filter(f => isFinite(+f.start) && isFinite(+f.end))
+    .map(f => ({
+      start: +f.start,
+      end: +f.end,
+      quote: String(f.quote || ''),
+      category: String(f.category || ''),
+      severity: ['düşük', 'orta', 'yüksek'].includes(f.severity) ? f.severity : 'orta'
+    }))
+    .sort((a, b) => a.start - b.start)
+    .slice(0, 30);
+  return { ok: true, verdict, summary: String(d.summary || ''), findings };
 });

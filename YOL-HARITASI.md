@@ -80,13 +80,14 @@ Saha geri bildirimi: 3 dk'lık klip ~350MB çıkabiliyor (donanım kodlayıcı b
 - [x] "Akıllı Kırpma" ekranı sol menüde; bağımsız akış (dosya seç → Tespit et → gözden geçir → Kırp ve Kaydet), kendi ilerleme/iptal kanalı
 - _Bu fazın concat/montaj zinciri, Faz 15 ve 16'nın altyapısını kurdu._
 
-### Faz 14 — AI Altyapısı ve İlk Meyveler
-- [ ] Ayarlara API anahtarları: Gemini + ElevenLabs/Google TTS (kullanıcının kendi anahtarı — sunucu maliyeti yok)
-- [ ] Başlık/açıklama/hashtag üretici: transkript → Gemini → 3 Shorts başlığı + caption + hashtag'ler, panoya kopyala
-- [ ] Semantik arama ile kırpma: "X'ten bahsettiği yerleri bul ve kes"
-- [ ] AI Hook Finder: viral potansiyelli anları skorlayıp öne çıkarma (transkript + ses enerjisi analizi)
-- [ ] "Reklam dostu içerik" uyarısı: transkriptten küfür/hassas kelime taraması
+### Faz 14 — AI Altyapısı ve İlk Meyveler · `v1.14.0` (kod tamam — saha testi bekliyor)
+- [x] Ayarlara API anahtarları: Gemini + ElevenLabs (kullanıcının kendi anahtarı — sunucu maliyeti yok; yalnız yerelde saklanır, "Doğrula" düğmesi var)
+- [x] Başlık/açıklama/hashtag üretici: transkript → Gemini → 3 Shorts başlığı + caption + hashtag'ler, panoya kopyala
+- [x] Semantik arama ile kırpma: "X'ten bahsettiği yerleri bul" → sonuç tek tıkla kesim aralığına uygulanır
+- [x] AI Hook Finder: viral potansiyelli anları skorlayıp öne çıkarma (transkript + ses enerjisi analizi)
+- [x] "Reklam dostu içerik" uyarısı: transkriptten küfür/hassas kelime taraması
   - _Not: Content ID (telif) simülasyonu teknik olarak yapılamaz — YouTube'un parmak izi veritabanına dış erişim yok; fikir bu şekilde daraltıldı._
+- _Hepsi yeni "AI Araçları" ekranında (sol menü), ortak bir transkript adımı üzerinde: YouTube altyazısı varsa saniyeler, yoksa Whisper._
 
 ### Faz 15 — Moodlar & AI Director *(zirve özellik)*
 - [ ] Moodlar sekmesi: bölüm yükle → mood seç (Komedi/Drama/…) → Whisper ile zaman damgalı diyalog haritası → Gemini'den 1 dk'lık anlatıcılı hikaye kurgusu (JSON: anlatıcı metinleri + kesit aralıkları)
@@ -118,4 +119,4 @@ Saha geri bildirimi: 3 dk'lık klip ~350MB çıkabiliyor (donanım kodlayıcı b
 
 ---
 
-*Son güncelleme: Faz 13 (Kurgu Motoru — Akıllı Kırpma) v1.13.0 olarak yayınlandı ve saha testinden geçti. Sıradaki: Faz 14 (AI Altyapısı).*
+*Son güncelleme: Faz 14 (AI Altyapısı ve İlk Meyveler) kodu tamamlandı — saha testi ve v1.14.0 yayın kararı bekliyor. Sıradaki: Faz 15 (Moodlar & AI Director).*
