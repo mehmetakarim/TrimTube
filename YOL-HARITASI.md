@@ -74,10 +74,11 @@ Saha geri bildirimi: 3 dk'lık klip ~350MB çıkabiliyor (donanım kodlayıcı b
 - [x] Zaman çizelgesine kare önizlemeli şerit: ana kaydırıcının üstünde 12 karelik bant (hızlı sarma ile — uzak akışta da saniyeler içinde)
 - _Not: MP3 kesit ve waveform/timeline (Faz 1) zaten yayında._
 
-### Faz 13 — Kurgu Motoru
-- [ ] Akıllı sessizlik ayıklama: Whisper zaman damgalarından uzun sessizlik/duraksamaları tespit edip tek tıkla kesme (ffmpeg concat)
-- [ ] Dolgu kelimesi ayıklama: "eee", "yani", "şey" vb. (kelime bazlı zaman damgası)
-- _Bu faz, Faz 15 ve 16'nın ihtiyacı olan concat/montaj altyapısını kurar._
+### Faz 13 — Kurgu Motoru · `v1.13.0` ✅ (kod tamam + otomatik testler geçti; saha testi yayın sonrası yapılacak)
+- [x] Akıllı sessizlik ayıklama: Whisper kelime zaman damgalarından sessizlik tespiti (hassasiyet: Sıkı 0.4 / Dengeli 0.7 / Gevşek 1.2 sn), onay kutulu aday listesi, trim/atrim/concat ile tek geçişte kırpma
+- [x] Dolgu kelimesi ayıklama: yalnız temiz dolgu sesleri ("ıı", "eee", "hmm"…) — "yani/şey/işte" yanlış-pozitif riski nedeniyle bilinçli hariç (kullanıcı kararı)
+- [x] "Akıllı Kırpma" ekranı sol menüde; bağımsız akış (dosya seç → Tespit et → gözden geçir → Kırp ve Kaydet), kendi ilerleme/iptal kanalı
+- _Bu fazın concat/montaj zinciri, Faz 15 ve 16'nın altyapısını kurdu._
 
 ### Faz 14 — AI Altyapısı ve İlk Meyveler
 - [ ] Ayarlara API anahtarları: Gemini + ElevenLabs/Google TTS (kullanıcının kendi anahtarı — sunucu maliyeti yok)
@@ -117,4 +118,4 @@ Saha geri bildirimi: 3 dk'lık klip ~350MB çıkabiliyor (donanım kodlayıcı b
 
 ---
 
-*Son güncelleme: Faz 11 + Faz 12 tamamlandı ve saha testinden geçti — v1.12.0 olarak birlikte yayınlandı. Sıradaki: Faz 13 (Kurgu Motoru).*
+*Son güncelleme: Faz 13 (Kurgu Motoru — Akıllı Kırpma) v1.13.0 olarak yayınlandı; saha testi yayın sonrası. Sıradaki: Faz 14 (AI Altyapısı).*

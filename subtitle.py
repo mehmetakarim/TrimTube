@@ -17,7 +17,11 @@
 # --lang:  konusma dili (ISO kodu). Verilmezse otomatik algilanir.
 # --model-dir: model indirme/onbellek konumu (uygulama userData'sina yonlendirilir
 #          ki her calismada yeniden indirilmesin).
+# --words-out: verilirse kelime-duzeyi zaman damgalari {duration, words:[{start,end,
+#          word,prob}]} JSON olarak da yazilir (Faz 13: akilli kirpma - sessizlik/
+#          dolgu kelime tespiti bu dosyayi kullanir). SRT uretimini etkilemez.
 import argparse
+import json
 import sys
 
 
@@ -48,6 +52,7 @@ def main():
     ap.add_argument("--model", default="small")
     ap.add_argument("--lang", default=None)
     ap.add_argument("--model-dir", default=None, dest="model_dir")
+    ap.add_argument("--words-out", default=None, dest="words_out")
     args = ap.parse_args()
 
     try:
@@ -70,12 +75,14 @@ def main():
     except Exception as e:
         fail(f"Model yuklenemedi: {e}")
 
+    want_words = args.words_out is not None
     try:
         segments, info = model.transcribe(
             args.input,
             language=args.lang,
             vad_filter=True,   # sessizlikleri atlar: daha iyi zamanlama, daha az halusinasyon
             beam_size=5,
+            word_timestamps=want_words,
         )
     except Exception as e:
         fail(f"Ses cozumlenemedi: {e}")
@@ -85,6 +92,7 @@ def main():
     log("STATUS transcribe")
     idx = 1
     last_pct = -1
+    words = []
     try:
         # segments tembel bir ureteçtir; asil ses cozumleme bu dongude olur.
         with open(args.out, "w", encoding="utf-8") as f:
@@ -93,6 +101,14 @@ def main():
                 if text:
                     f.write(f"{idx}\n{fmt_ts(seg.start)} --> {fmt_ts(seg.end)}\n{text}\n\n")
                     idx += 1
+                if want_words and seg.words:
+                    for w in seg.words:
+                        words.append({
+                            "start": round(w.start, 3),
+                            "end": round(w.end, 3),
+                            "word": w.word.strip(),
+                            "prob": round(w.probability, 3),
+                        })
                 pct = int(min(99, seg.end / total * 100))
                 if pct != last_pct:
                     log(f"PROGRESS {pct}")
@@ -102,6 +118,10 @@ def main():
 
     if idx == 1:
         fail("Bu klipte konusma bulunamadi.")
+
+    if want_words:
+        with open(args.words_out, "w", encoding="utf-8") as f:
+            json.dump({"duration": total, "words": words}, f, ensure_ascii=False)
 
     log("PROGRESS 100")
     log("DONE")

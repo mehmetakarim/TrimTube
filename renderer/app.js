@@ -1039,14 +1039,17 @@ $('openFileBtn').addEventListener('click', async () => {
 
 const dropOverlay = $('dropOverlay');
 let dragDepth = 0;
-// Sıkıştırma ekranındayken bırakılan dosya ana boru hattına değil sıkıştırmaya
-// gider; tam ekran katman yerine ekrandaki bırakma alanı vurgulanır.
+// Sıkıştır/Akıllı Kırpma ekranındayken bırakılan dosya ana boru hattına değil
+// o ekrana gider; tam ekran katman yerine ekrandaki bırakma alanı vurgulanır.
 const onCompressView = () => currentView === 'compress';
+const onSmartTrimView = () => currentView === 'smarttrim';
+const dropTargetEl = () => onCompressView() ? $('cmpDrop') : onSmartTrimView() ? $('stDrop') : null;
 window.addEventListener('dragenter', (e) => {
   if (!Array.from(e.dataTransfer.types || []).includes('Files')) return;
   e.preventDefault();
   dragDepth++;
-  if (onCompressView()) $('cmpDrop').classList.add('drag');
+  const dt = dropTargetEl();
+  if (dt) dt.classList.add('drag');
   else dropOverlay.classList.remove('hidden');
 });
 window.addEventListener('dragover', (e) => {
@@ -1056,13 +1059,18 @@ window.addEventListener('dragover', (e) => {
 });
 window.addEventListener('dragleave', () => {
   dragDepth = Math.max(0, dragDepth - 1);
-  if (dragDepth === 0) { dropOverlay.classList.add('hidden'); $('cmpDrop').classList.remove('drag'); }
+  if (dragDepth === 0) {
+    dropOverlay.classList.add('hidden');
+    $('cmpDrop').classList.remove('drag');
+    $('stDrop').classList.remove('drag');
+  }
 });
 window.addEventListener('drop', (e) => {
   e.preventDefault();
   dragDepth = 0;
   dropOverlay.classList.add('hidden');
   $('cmpDrop').classList.remove('drag');
+  $('stDrop').classList.remove('drag');
   const file = e.dataTransfer.files && e.dataTransfer.files[0];
   if (!file) return;
   // .trimtube projesi her ekrandan bırakılabilir (Faz 12)
@@ -1073,12 +1081,15 @@ window.addEventListener('drop', (e) => {
   }
   if (!isVideoFile(file.name)) {
     const msg = 'Desteklenmeyen dosya türü. MP4, MKV, MOV, WEBM, M4V veya AVI bırakın.';
-    if (onCompressView()) cmpShowError(msg); else setStatus('err', msg);
+    if (onCompressView()) cmpShowError(msg);
+    else if (onSmartTrimView()) stShowError(msg);
+    else setStatus('err', msg);
     return;
   }
   const p = window.api.pathForFile(file);
   if (!p) return;
   if (onCompressView()) cmpSetFile(p);
+  else if (onSmartTrimView()) stSetFile(p);
   else loadLocalFile(p);
 });
 
@@ -1641,7 +1652,7 @@ $('cacheClearBtn').addEventListener('click', async () => {
 // Her menü öğesi bir ekran gösterir; ana ekran kalabalıklaşmadan yeni özellikler
 // (Faz 12+: GIF, Moodlar…) kendi ekranlarıyla eklenir. Ayarlar ve Sıkıştır
 // eskiden modaldı, artık birer ekran.
-const VIEWS = { cutter: 'viewCutter', compress: 'viewCompress', settings: 'viewSettings' };
+const VIEWS = { cutter: 'viewCutter', compress: 'viewCompress', smarttrim: 'viewSmartTrim', settings: 'viewSettings' };
 let currentView = 'cutter';
 
 function switchView(name) {
@@ -1799,6 +1810,217 @@ $('cmpStartBtn').addEventListener('click', async () => {
   const outDir = r.outFile.slice(0, r.outFile.length - r.outFile.split(/[\\/]/).pop().length - 1);
   $('cmpOpenFolderBtn').onclick = () => window.api.openFolder(outDir);
   $('cmpOpenFolderBtn').classList.remove('hidden');
+});
+
+// ---- Faz 13: Akıllı Kırpma (Kurgu Motoru) ----
+// Whisper kelime zaman damgalarından sessizlik + dolgu kelime adayı çıkarır;
+// kullanıcı onay kutulu listede gözden geçirip yalnızca işaretlileri kırpar.
+// Sıkıştır ile aynı bağımsız-ekran/kendi-çıktısı deseni; kendi ilerleme kanalı
+// ve iptali vardır, ana kuyruğa dokunmaz.
+
+let stFile = null;
+let stDuration = 0;
+let stCandidates = []; // {id, type, start, end, text, included}
+let stRunning = false;
+let stSensValue = 0.7;
+let stModelValue = 'small';
+let stEta = null;
+
+function stShowError(msg) {
+  const el = $('stError');
+  el.textContent = msg;
+  el.classList.remove('hidden');
+}
+function stClearError() { $('stError').classList.add('hidden'); }
+
+function stResetResults() {
+  stCandidates = [];
+  $('stResults').classList.add('hidden');
+  $('stList').innerHTML = '';
+  $('stApplyBtn').classList.add('hidden');
+  $('stAnalyzeBtn').classList.remove('hidden');
+  $('stResultCard').classList.add('hidden');
+  $('stOpenFolderBtn').classList.add('hidden');
+}
+
+async function stSetFile(p) {
+  if (stRunning) return; // iş sürerken dosya değiştirilemez
+  stClearError();
+  stResetResults();
+  const info = await window.api.localInfo(p);
+  if (info.error) { stShowError(info.error); return; }
+  stFile = p;
+  stDuration = info.duration;
+  $('stFileName').textContent = p.split(/[\\/]/).pop();
+  const parts = [fmtBytes(info.size), fmtClock(info.duration)];
+  if (info.w && info.h) parts.push(`${info.w}×${info.h}`);
+  $('stFileMeta').textContent = parts.join(' · ');
+  $('stDrop').classList.add('hidden');
+  $('stFileCard').classList.remove('hidden');
+  $('stAnalyzeBtn').disabled = false;
+}
+
+function stResetFile() {
+  if (stRunning) return;
+  stFile = null;
+  stDuration = 0;
+  $('stFileCard').classList.add('hidden');
+  $('stDrop').classList.remove('hidden');
+  $('stAnalyzeBtn').disabled = true;
+  stClearError();
+  stResetResults();
+}
+
+$('stChooseBtn').addEventListener('click', async () => {
+  const p = await window.api.chooseVideo();
+  if (p) stSetFile(p);
+});
+$('stFileChange').addEventListener('click', stResetFile);
+
+document.querySelectorAll('#stSensSeg .seg').forEach(btn => {
+  btn.addEventListener('click', () => {
+    if (stRunning) return;
+    stSensValue = parseFloat(btn.dataset.stSens);
+    document.querySelectorAll('#stSensSeg .seg').forEach(b => b.classList.toggle('active', b === btn));
+  });
+});
+document.querySelectorAll('#stModelSeg .seg').forEach(btn => {
+  btn.addEventListener('click', () => {
+    if (stRunning) return;
+    stModelValue = btn.dataset.stModel;
+    document.querySelectorAll('#stModelSeg .seg').forEach(b => b.classList.toggle('active', b === btn));
+  });
+});
+
+const ST_TYPE_LABEL = { silence: 'Sessizlik', filler: 'Dolgu kelime' };
+const ST_TYPE_ICON = { silence: '🔇', filler: '💬' };
+
+// Aday listesini ve özet satırını (canlı, onay kutusu her değişince) çizer
+function stRenderList() {
+  const list = $('stList');
+  list.innerHTML = '';
+  stCandidates.forEach((c) => {
+    const row = document.createElement('div');
+    row.className = 'pl-item';
+    row.innerHTML = '<input type="checkbox"><span class="pl-item-title"></span><span class="pl-item-dur"></span>';
+    row.querySelector('input').checked = c.included;
+    row.querySelector('input').addEventListener('change', (e) => {
+      c.included = e.target.checked;
+      stUpdateSummary();
+    });
+    const label = c.type === 'filler' ? `${ST_TYPE_ICON.filler} "${c.text}"` : `${ST_TYPE_ICON.silence} ${ST_TYPE_LABEL.silence}`;
+    row.querySelector('.pl-item-title').textContent = `${label} · ${fmtClock(c.start)}–${fmtClock(c.end)}`;
+    row.querySelector('.pl-item-dur').textContent = fmtClock(c.end - c.start);
+    list.appendChild(row);
+  });
+  stUpdateSummary();
+  $('stResults').classList.remove('hidden');
+}
+
+function stUpdateSummary() {
+  const included = stCandidates.filter(c => c.included);
+  const cutSec = included.reduce((s, c) => s + (c.end - c.start), 0);
+  const afterSec = Math.max(0, stDuration - cutSec);
+  $('stSummary').textContent = stCandidates.length
+    ? `${included.length}/${stCandidates.length} kesim seçili · ${fmtClock(cutSec)} kısalacak (${fmtClock(stDuration)} → ${fmtClock(afterSec)})`
+    : 'Sessizlik veya dolgu kelime bulunamadı.';
+  $('stApplyBtn').classList.toggle('hidden', included.length === 0);
+}
+
+window.api.onSmartTrimProgress((p) => {
+  if (p.eta !== undefined) stEta = p.eta;
+  const label = p.stage === 'audio' ? 'Ses çıkarılıyor…'
+    : p.stage === 'model' ? 'Model hazırlanıyor…'
+    : p.stage === 'transcribe' ? 'Konuşma çözümleniyor…'
+    : 'Kırpılıyor…';
+  $('stPhaseLabel').textContent = label;
+  const pct = p.pct || 0;
+  $('stProgressFill').style.width = pct + '%';
+  $('stProgressText').textContent = '%' + pct.toFixed(1) + (stEta ? ` · kalan ${stEta}` : '');
+});
+
+// İki ayrı eylem (Tespit et / Kırp ve Kaydet) tek seferde biri çalışabilir;
+// başlatan düğme "Durdur"a döner, diğeri o sürece kilitlenir (Sıkıştır'daki
+// tek-düğme aç/kapa deseninin iki düğmeli hali).
+let stActivePhase = null; // 'analyze' | 'apply' | null
+
+function stSetRunning(running, phase) {
+  stRunning = running;
+  stActivePhase = running ? phase : null;
+  const aBtn = $('stAnalyzeBtn');
+  aBtn.textContent = (running && phase === 'analyze') ? 'Durdur' : 'Tespit et';
+  aBtn.disabled = running ? phase !== 'analyze' : !stFile;
+  const pBtn = $('stApplyBtn');
+  pBtn.textContent = (running && phase === 'apply') ? 'Durdur' : 'Kırp ve Kaydet';
+  pBtn.disabled = running && phase !== 'apply';
+  $('stFileChange').disabled = running;
+  $('stProgress').classList.toggle('hidden', !running);
+}
+
+$('stAnalyzeBtn').addEventListener('click', async () => {
+  if (stRunning && stActivePhase === 'analyze') { window.api.smartTrimCancel(); return; }
+  if (stRunning || !stFile) return;
+  stClearError();
+  stResetResults();
+  stEta = null;
+  $('stProgressFill').style.width = '0%';
+  $('stProgressText').textContent = '%0';
+  stSetRunning(true, 'analyze');
+
+  let r;
+  try {
+    r = await window.api.smartTrimAnalyze({
+      file: stFile,
+      model: stModelValue,
+      threshold: stSensValue,
+      includeFillers: $('stFillerCheck').checked
+    });
+  } catch (err) {
+    r = { error: 'Beklenmeyen hata: ' + (err.message || String(err)) };
+  }
+
+  stSetRunning(false);
+  if (r.cancelled) return;
+  if (r.error) { stShowError(r.error); return; }
+
+  stDuration = r.duration;
+  stCandidates = r.candidates.map(c => ({ ...c, included: true }));
+  stRenderList();
+});
+
+const ST_OK_SVG = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#34C759" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
+
+$('stApplyBtn').addEventListener('click', async () => {
+  if (stRunning && stActivePhase === 'apply') { window.api.smartTrimCancel(); return; }
+  if (stRunning) return;
+  const cuts = stCandidates.filter(c => c.included).map(c => ({ start: c.start, end: c.end }));
+  if (!cuts.length || !stFile) return;
+  stClearError();
+  stEta = null;
+  $('stProgressFill').style.width = '0%';
+  $('stProgressText').textContent = '%0';
+  $('stResultCard').classList.add('hidden');
+  $('stOpenFolderBtn').classList.add('hidden');
+  stSetRunning(true, 'apply');
+
+  let r;
+  try {
+    r = await window.api.smartTrimApply({ file: stFile, duration: stDuration, cuts });
+  } catch (err) {
+    r = { error: 'Beklenmeyen hata: ' + (err.message || String(err)) };
+  }
+
+  stSetRunning(false);
+  if (r.cancelled) return;
+  if (r.error) { stShowError(r.error); return; }
+
+  $('stResultIcon').innerHTML = ST_OK_SVG;
+  $('stResultTitle').textContent = `Kırpıldı — ${r.outFile.split(/[\\/]/).pop()}`;
+  $('stResultSub').textContent = `${fmtClock(r.beforeDuration)} → ${fmtClock(r.afterDuration)}`;
+  $('stResultCard').classList.remove('hidden');
+  const outDir = r.outFile.slice(0, r.outFile.length - r.outFile.split(/[\\/]/).pop().length - 1);
+  $('stOpenFolderBtn').onclick = () => window.api.openFolder(outDir);
+  $('stOpenFolderBtn').classList.remove('hidden');
 });
 
 initSettings();

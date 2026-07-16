@@ -51,5 +51,11 @@ contextBridge.exposeInMainWorld('api', {
   projectSave: (data) => ipcRenderer.invoke('project-save', data),
   projectOpen: (path) => ipcRenderer.invoke('project-open', path),
   projectAskMode: () => ipcRenderer.invoke('project-ask-mode'),
-  getFilmstrip: (opts) => ipcRenderer.invoke('filmstrip', opts)
+  getFilmstrip: (opts) => ipcRenderer.invoke('filmstrip', opts),
+
+  // Faz 13: Kurgu Motoru — Akıllı Kırpma (sessizlik + dolgu kelime tespiti/kırpma)
+  smartTrimAnalyze: (opts) => ipcRenderer.invoke('smarttrim-analyze', opts),
+  smartTrimApply: (opts) => ipcRenderer.invoke('smarttrim-apply', opts),
+  smartTrimCancel: () => ipcRenderer.invoke('smarttrim-cancel'),
+  onSmartTrimProgress: (cb) => ipcRenderer.on('smarttrim-progress', (e, p) => cb(p))
 });

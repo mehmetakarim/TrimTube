@@ -1583,3 +1583,249 @@ ipcMain.handle('compress-video', async (e, { file, mode, targetMB, hevc }) => {
     return { error: err.message };
   }
 });
+
+// --- Faz 13: Kurgu Motoru — Akıllı Kırpma (Smart Trim) ---
+// Whisper kelime zaman damgalarından sessizlik ve dolgu kelime (ıı, eee, hmm…)
+// adayları çıkarır; kullanıcı onayladıktan sonra ffmpeg trim/atrim/concat filtre
+// zinciriyle (dosyasız, kare-hassas) tek dosyada birleştirir. Bu zincir aynı
+// zamanda Faz 15/16'nın (Moodlar, J/L-cut) ihtiyaç duyacağı montaj altyapısının
+// ilk halidir. İndirme/sıkıştırma işlerinden bağımsız kendi süreç takibini
+// kullanır (compress ile aynı desen — Durdur bunu, bu da Durdur'u öldürmesin).
+let smartTrimProc = null;
+let smartTrimCancelled = false;
+
+function runSmartTrimProc(cmd, args, onLine, cwd) {
+  return new Promise((resolve) => {
+    const proc = spawn(cmd, args, { windowsHide: true, env: procEnv, cwd });
+    smartTrimProc = proc;
+    const dec = new StringDecoder('utf8');
+    let buf = '';
+    let errBuf = '';
+    proc.stdout.on('data', (d) => {
+      buf += dec.write(d);
+      const lines = buf.split(/\r?\n/);
+      buf = lines.pop();
+      lines.forEach((l) => { if (l.trim()) onLine(l); });
+    });
+    proc.stderr.on('data', (d) => { errBuf += d.toString('utf8'); });
+    proc.on('close', (code) => { if (smartTrimProc === proc) smartTrimProc = null; resolve({ code, stderr: errBuf }); });
+    proc.on('error', (err) => { if (smartTrimProc === proc) smartTrimProc = null; resolve({ code: -1, stderr: err.message }); });
+  });
+}
+
+ipcMain.handle('smarttrim-cancel', () => {
+  smartTrimCancelled = true;
+  if (smartTrimProc) {
+    if (process.platform === 'win32') {
+      spawn('taskkill', ['/pid', String(smartTrimProc.pid), '/T', '/F'], { windowsHide: true });
+    } else {
+      try { smartTrimProc.kill(); } catch {}
+    }
+  }
+});
+
+// Temiz/anlamsız dolgu sesleri — "yani/şey/işte" gibi gerçek anlam taşıyabilecek
+// kelimeler bilinçli olarak dışarıda bırakıldı (yanlış-pozitif riski).
+const FILLER_WORDS = new Set(['ıı', 'ııı', 'eee', 'ee', 'öö', 'aa', 'ahh', 'hmm', 'hm', 'hıı', 'hı']);
+
+function normalizeWord(w) {
+  return String(w || '')
+    .trim()
+    .toLocaleLowerCase('tr')
+    .replace(/^[.,!?;:…"'“”‘’]+|[.,!?;:…"'“”‘’]+$/g, '');
+}
+
+// Kelime dizisinden sessizlik + dolgu kelime adaylarını çıkarır; bitişik/örtüşen
+// adaylar (epsilon 0.05s) tek adaya birleştirilir.
+function buildSmartTrimCandidates(words, duration, threshold, includeFillers) {
+  const raw = [];
+  let prevEnd = 0;
+  for (const w of words) {
+    const gap = w.start - prevEnd;
+    if (gap >= threshold) raw.push({ type: 'silence', start: prevEnd, end: w.start });
+    if (includeFillers && FILLER_WORDS.has(normalizeWord(w.word))) {
+      raw.push({ type: 'filler', start: w.start, end: w.end, text: w.word.trim() });
+    }
+    prevEnd = Math.max(prevEnd, w.end);
+  }
+  const trailingGap = duration - prevEnd;
+  if (trailingGap >= threshold) raw.push({ type: 'silence', start: prevEnd, end: duration });
+
+  raw.sort((a, b) => a.start - b.start);
+  const merged = [];
+  for (const c of raw) {
+    const last = merged[merged.length - 1];
+    if (last && c.start - last.end <= 0.05) {
+      last.end = Math.max(last.end, c.end);
+      // Sessizlik+dolgu çakışırsa dolgu bilgisini koru (kullanıcıya daha anlamlı)
+      if (c.type === 'filler' && last.type === 'silence') { last.type = 'filler'; last.text = c.text; }
+    } else {
+      merged.push({ ...c });
+    }
+  }
+  return merged.map((c, i) => ({ id: i, type: c.type, start: +c.start.toFixed(2), end: +c.end.toFixed(2), text: c.text }));
+}
+
+ipcMain.handle('smarttrim-analyze', async (e, { file, model, threshold, includeFillers }) => {
+  smartTrimCancelled = false;
+  if (!file || !fs.existsSync(file)) return { error: 'Dosya bulunamadı.' };
+  const meta = await probeMedia(file);
+  if (!meta.duration || !meta.w) return { error: 'Video bilgisi okunamadı — dosya bozuk veya desteklenmiyor olabilir.' };
+
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yt-smarttrim-'));
+  const cleanup = () => { try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {} };
+  const send = (p) => { try { win.webContents.send('smarttrim-progress', p); } catch {} };
+
+  try {
+    send({ stage: 'audio', pct: 0 });
+    const audioFile = path.join(tmpDir, 'aud.wav');
+    const ex = await runSmartTrimProc(FFMPEG, ['-y', '-i', file, '-vn', '-ac', '1', '-ar', '16000', '-c:a', 'pcm_s16le', audioFile], () => {});
+    if (smartTrimCancelled) { cleanup(); return { cancelled: true }; }
+    if (ex.code !== 0 || !fs.existsSync(audioFile)) { cleanup(); return { error: 'Ses çıkarılamadı.' }; }
+
+    send({ stage: 'model', pct: 0 });
+    const modelDir = path.join(app.getPath('userData'), 'whisper-models');
+    fs.mkdirSync(modelDir, { recursive: true });
+    const wordsJson = path.join(tmpDir, 'words.json');
+    const throwawaySrt = path.join(tmpDir, 'throwaway.srt');
+    const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
+    let errLine = '';
+    const tr = await runSmartTrimProc(pythonCmd, [
+      path.join(__dirname, 'subtitle.py'), audioFile,
+      '--out', throwawaySrt, '--words-out', wordsJson, '--model', model || 'small', '--model-dir', modelDir
+    ], (line) => {
+      const m = line.match(/^PROGRESS (\d+)/);
+      if (m) { send({ stage: 'transcribe', pct: +m[1] }); return; }
+      if (line.startsWith('STATUS model')) send({ stage: 'model', pct: 0 });
+      else if (line.startsWith('STATUS transcribe')) send({ stage: 'transcribe', pct: 0 });
+      else if (line.startsWith('ERROR ')) errLine = line.slice(6).trim();
+    });
+    if (smartTrimCancelled) { cleanup(); return { cancelled: true }; }
+    if (tr.code !== 0 || !fs.existsSync(wordsJson)) {
+      let msg = errLine;
+      if (!msg) {
+        if (/ENOENT/.test(tr.stderr)) msg = 'Python bulunamadı. Akıllı kırpma için Python 3 kurulu olmalı.';
+        else msg = tr.stderr.split(/\r?\n/).filter(Boolean).slice(-2).join('\n') || 'Bilinmeyen hata.';
+      }
+      cleanup();
+      return { error: 'Analiz başarısız: ' + msg };
+    }
+
+    const data = JSON.parse(fs.readFileSync(wordsJson, 'utf8'));
+    const candidates = buildSmartTrimCandidates(data.words || [], meta.duration, threshold || 0.7, includeFillers !== false);
+    cleanup();
+    return { ok: true, duration: meta.duration, candidates };
+  } catch (err) {
+    cleanup();
+    return { error: err.message };
+  }
+});
+
+// cuts: [{start,end}] (kaldırılacak aralıklar) → tümleyeni alıp keep segmentlerini
+// hesaplar; birbirine değen/örtüşen kesimler birleştirilir, çok kısa kalıntı
+// parçalar (<0.12s — ffmpeg trim'de artefakta yol açabilir) komşusuna katılır.
+function computeKeepSegments(cuts, duration) {
+  const sorted = [...cuts].filter(c => c.end > c.start).sort((a, b) => a.start - b.start);
+  const merged = [];
+  for (const c of sorted) {
+    const last = merged[merged.length - 1];
+    if (last && c.start <= last.end) last.end = Math.max(last.end, c.end);
+    else merged.push({ ...c });
+  }
+  const keep = [];
+  let cursor = 0;
+  for (const c of merged) {
+    if (c.start > cursor) keep.push({ start: cursor, end: c.start });
+    cursor = Math.max(cursor, c.end);
+  }
+  if (cursor < duration) keep.push({ start: cursor, end: duration });
+  const MIN = 0.12;
+  const cleaned = [];
+  for (const k of keep) {
+    if (k.end - k.start < MIN && cleaned.length) cleaned[cleaned.length - 1].end = k.end;
+    else cleaned.push(k);
+  }
+  return cleaned.filter(k => k.end - k.start >= 0.02);
+}
+
+ipcMain.handle('smarttrim-apply', async (e, { file, duration, cuts }) => {
+  smartTrimCancelled = false;
+  if (!file || !fs.existsSync(file)) return { error: 'Dosya bulunamadı.' };
+  // Savunmacı: analiz sırasında ölçülen süre yerine dosyayı yeniden ölçmeyi
+  // dene — aradan başka bir dosya seçilmiş olsa bile tutarlılık bozulmasın
+  const meta = await probeMedia(file);
+  const dur = meta.duration || duration;
+  if (!dur || dur <= 0) return { error: 'Video süresi geçersiz.' };
+
+  const keep = computeKeepSegments(Array.isArray(cuts) ? cuts : [], dur);
+  if (!keep.length) return { error: 'Tüm video kırpılamaz — en az bir aday işaretini kaldırın.' };
+  if (keep.length > 200) return { error: `Çok fazla kesim noktası (${keep.length}) — sessizlik eşiğini yükseltip tekrar deneyin.` };
+
+  const target = uniquePath(path.join(
+    path.dirname(file),
+    `${path.basename(file, path.extname(file))} [kırpıldı].mp4`
+  ));
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yt-smarttrim-out-'));
+  const cleanup = () => { try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {} };
+  const send = (p) => { try { win.webContents.send('smarttrim-progress', p); } catch {} };
+
+  const keptTotal = keep.reduce((s, k) => s + (k.end - k.start), 0);
+  let speed = 0;
+  const onLine = (line) => {
+    const sp = line.match(/^speed=\s*([\d.]+)x/);
+    if (sp) { speed = parseFloat(sp[1]); return; }
+    const m = line.match(/^out_time=(\d+):(\d+):(\d+)/);
+    if (m) {
+      const t = (+m[1]) * 3600 + (+m[2]) * 60 + (+m[3]);
+      const pct = Math.min(99.9, (t / keptTotal) * 100);
+      let eta = null;
+      if (speed > 0) {
+        const remain = Math.max(0, Math.round((keptTotal - t) / speed));
+        eta = `${String(Math.floor(remain / 60)).padStart(2, '0')}:${String(remain % 60).padStart(2, '0')}`;
+      }
+      send({ stage: 'render', pct, eta });
+    }
+  };
+
+  // Dosyasız, kare-hassas concat: her keep segmenti kendi trim/atrim'ini alır,
+  // ardından tek concat düğümünde birleşir (mevcut watermark overlay zincirinde
+  // de kanıtlanmış hwaccel+filter_complex kombinasyonu — bkz. format döngüsü).
+  const parts = [];
+  const labels = [];
+  keep.forEach((k, i) => {
+    parts.push(`[0:v]trim=${k.start}:${k.end},setpts=PTS-STARTPTS[v${i}]`);
+    parts.push(`[0:a]atrim=${k.start}:${k.end},asetpts=PTS-STARTPTS[a${i}]`);
+    labels.push(`[v${i}][a${i}]`);
+  });
+  const filter = `${parts.join(';')};${labels.join('')}concat=n=${keep.length}:v=1:a=1[outv][outa]`;
+
+  const buildArgs = (hwaccel, venc) => [
+    '-y', ...hwaccel, '-i', file,
+    '-filter_complex', filter, '-map', '[outv]', '-map', '[outa]',
+    ...venc, '-c:a', 'aac', '-b:a', '192k',
+    '-progress', 'pipe:1', '-nostats', target
+  ];
+
+  try {
+    // runEncodeWithFallback'in GPU→CPU düşme mantığı, kendi süreç takibimizle
+    // (runSmartTrimProc) tekrarlanır: paylaşılan currentProc'a bağlanırsa ana
+    // kuyruğun Durdur'u bu render'ı da öldürür — bağımsızlık bozulur.
+    const encoder = await getEncoder();
+    let r = await runSmartTrimProc(FFMPEG, buildArgs(hwaccelArgs(encoder), videoEncodeArgs(encoder, 20)), onLine, tmpDir);
+    if (!smartTrimCancelled && r.code !== 0 && encoder !== 'libx264') {
+      win.webContents.send('log', `GPU kodlama (${encoder}) başarısız oldu, CPU ile devam ediliyor…`);
+      r = await runSmartTrimProc(FFMPEG, buildArgs([], videoEncodeArgs('libx264', 20)), onLine, tmpDir);
+    }
+    if (smartTrimCancelled) { try { fs.rmSync(target, { force: true }); } catch {} cleanup(); return { cancelled: true }; }
+    if (r.code !== 0) {
+      cleanup();
+      return { error: 'Kırpma başarısız:\n' + r.stderr.split(/\r?\n/).filter(Boolean).slice(-4).join('\n') };
+    }
+    cleanup();
+    return { ok: true, outFile: target, beforeDuration: dur, afterDuration: keptTotal };
+  } catch (err) {
+    try { fs.rmSync(target, { force: true }); } catch {}
+    cleanup();
+    return { error: err.message };
+  }
+});

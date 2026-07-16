@@ -22,6 +22,10 @@
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14h6v6"/><path d="M20 10h-6V4"/><path d="m14 10 7-7"/><path d="m3 21 7-7"/></svg>
           <span>Sıkıştır</span>
         </button>
+        <button class="nav-item" data-view="smarttrim">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 4 1 2 2 1-2 1-1 2-1-2-2-1 2-1 1-2Z" fill="currentColor" stroke="none"/><path d="M5 20 19 6"/><path d="m6 15-1 2-2 1 2 1 1 2 1-2 2-1-2-1-1-2Z" fill="currentColor" stroke="none"/></svg>
+          <span>Akıllı Kırpma</span>
+        </button>
         <div class="nav-spacer"></div>
         <button class="nav-item" data-view="settings">
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
@@ -133,6 +137,84 @@
           <span id="cmpFootHint" class="cmp-foot-hint">Uygulamanın ürettiği büyük klipleri paylaşım öncesi küçültmek için idealdir.</span>
           <button id="cmpOpenFolderBtn" class="btn-ghost small hidden">Klasörü aç</button>
           <button id="cmpStartBtn" class="btn-primary small" disabled>Sıkıştır</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Akıllı Kırpma ekranı (Faz 13): Whisper zaman damgalarından sessizlik +
+         dolgu kelime tespiti, onay kutulu liste, ardından tek dosyada kırpma.
+         Sıkıştır ile aynı desen: bağımsız ekran, yerel dosya, kendi çıktısı. -->
+    <section id="viewSmartTrim" class="view view-scroll hidden">
+      <div class="view-inner">
+        <div class="view-head">
+          <span class="view-title">Akıllı Kırpma</span>
+          <span class="view-sub">Sessizlikleri ve dolgu kelimelerini tespit edip kırp</span>
+        </div>
+
+        <!-- 1) Dosya: bırakma alanı ↔ seçilen dosya kartı (Sıkıştır ile aynı sınıflar) -->
+        <div id="stDrop" class="cmp-drop">
+          <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M12 3v13"/><path d="m7 8 5-5 5 5"/></svg>
+          <div class="cmp-drop-title">Videoyu buraya bırakın</div>
+          <button id="stChooseBtn" class="btn-ghost small">ya da dosya seçin…</button>
+        </div>
+        <div id="stFileCard" class="cmp-file hidden">
+          <div class="cmp-file-text">
+            <span id="stFileName" class="cmp-file-name"></span>
+            <span id="stFileMeta" class="cmp-file-meta"></span>
+          </div>
+          <button id="stFileChange" class="btn-ghost small">Değiştir</button>
+        </div>
+
+        <!-- 2) Seçenekler -->
+        <div id="stOptions" class="setting-group">
+          <span class="label">Hassasiyet</span>
+          <div class="segmented" id="stSensSeg">
+            <button class="seg" data-st-sens="0.4">Sıkı</button>
+            <button class="seg active" data-st-sens="0.7">Dengeli</button>
+            <button class="seg" data-st-sens="1.2">Gevşek</button>
+          </div>
+          <span class="label">Ses tanıma modeli</span>
+          <div class="segmented" id="stModelSeg">
+            <button class="seg" data-st-model="base">Hızlı</button>
+            <button class="seg active" data-st-model="small">Dengeli</button>
+            <button class="seg" data-st-model="medium">En iyi</button>
+          </div>
+          <label class="cmp-check"><input type="checkbox" id="stFillerCheck" checked> Temiz dolgu seslerini de temizle <span class="cmp-check-sub">(ıı, eee, hmm…)</span></label>
+          <div class="setting-note">İlk kullanımda ses tanıma modeli indirilir. Uzun videolarda birkaç dakika sürebilir.</div>
+        </div>
+
+        <!-- 3) İlerleme (analiz + kırpma aynı çubuğu paylaşır) -->
+        <div id="stProgress" class="progress-block hidden">
+          <div class="progress-head">
+            <span id="stPhaseLabel" class="pulse">Analiz ediliyor…</span>
+            <span id="stProgressText">%0</span>
+          </div>
+          <div class="progress-bar"><div id="stProgressFill"></div></div>
+        </div>
+
+        <!-- 4) Sonuçlar: özet + onay kutulu aday listesi (playlist seçici ile aynı desen) -->
+        <div id="stResults" class="hidden">
+          <div class="pl-toolbar">
+            <span id="stSummary" class="cache-info"></span>
+          </div>
+          <div id="stList" class="pl-list"></div>
+        </div>
+
+        <!-- 5) Kırpma sonuç kartı -->
+        <div id="stResultCard" class="cmp-result hidden">
+          <span id="stResultIcon" class="cmp-result-icon"></span>
+          <div class="cmp-result-text">
+            <span id="stResultTitle" class="cmp-result-title"></span>
+            <span id="stResultSub" class="cmp-result-sub"></span>
+          </div>
+        </div>
+        <div id="stError" class="error-banner hidden"></div>
+
+        <div class="cmp-foot">
+          <span id="stFootHint" class="cmp-foot-hint">Uzun konuşmalı videolarda (podcast, röportaj) sessizlikleri ve dolgu kelimeleri temizler.</span>
+          <button id="stOpenFolderBtn" class="btn-ghost small hidden">Klasörü aç</button>
+          <button id="stApplyBtn" class="btn-primary small hidden">Kırp ve Kaydet</button>
+          <button id="stAnalyzeBtn" class="btn-primary small" disabled>Tespit et</button>
         </div>
       </div>
     </section>
