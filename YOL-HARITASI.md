@@ -89,7 +89,7 @@ Saha geri bildirimi: 3 dk'lık klip ~350MB çıkabiliyor (donanım kodlayıcı b
   - _Not: Content ID (telif) simülasyonu teknik olarak yapılamaz — YouTube'un parmak izi veritabanına dış erişim yok; fikir bu şekilde daraltıldı._
 - _Hepsi yeni "AI Araçları" ekranında (sol menü), ortak bir transkript adımı üzerinde: YouTube altyazısı varsa saniyeler, yoksa Whisper._
 
-### Faz 15 — Moodlar & AI Director *(zirve özellik)* · `v1.15.0` (kod tamam — saha testi bekliyor)
+### Faz 15 — Moodlar & AI Director *(zirve özellik)* · `v1.15.0` ✅ (tamamlandı, saha testinden geçti, yayınlandı)
 - [x] Moodlar sekmesi: bölüm yükle → mood seç (Komedi/Dram/Gerilim/Duygusal/Özet) + hedef süre (30/60/90 sn) → zaman damgalı diyalog haritası → Gemini'den anlatıcılı hikaye kurgusu (JSON: sahne aralıkları + anlatıcı metinleri; plan ekranda önizlenir)
 - [x] Video Kes'teki yüklü kaynak Moodlar'da otomatik kaynak olur; YouTube altyazısı varsa transkript Whisper'a girmeden saniyeler içinde hazırlanır (saha geri bildirimi — gereksiz sistem yükü kalktı); montaj videosu gerekirse önbelleğe indirilir
 - [x] TTS seslendirme: **Google (Gemini TTS — mevcut Gemini anahtarıyla, varsayılan)** ya da ElevenLabs `eleven_multilingual_v2`; ses seçici + tercih hatırlanır
@@ -124,4 +124,4 @@ Saha geri bildirimi: 3 dk'lık klip ~350MB çıkabiliyor (donanım kodlayıcı b
 
 ---
 
-*Son güncelleme: Faz 15 (Moodlar & AI Director) kodu tamamlandı — gerçek anahtarlarla saha testi ve v1.15.0 yayın kararı bekliyor. Sıradaki: Faz 16 (İleri Kurgu).*
+*Son güncelleme: Faz 15 (Moodlar & AI Director) v1.15.0 olarak yayınlandı — üç tur saha geri bildirimi (hızlı transkript, altyazı sağlamlaştırma, susturma/Google TTS/altyazı/düzenle) yayın öncesi işlendi. Sıradaki: Faz 16 (İleri Kurgu).*
