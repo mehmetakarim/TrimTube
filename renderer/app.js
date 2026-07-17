@@ -548,8 +548,17 @@ $('titleEnable').addEventListener('change', () => {
 // ---- altyazı ----
 
 let subPick = null; // { source, ... } — video için seçilen altyazı kaynağı
+let subAllLangs = { manual: [], auto: [] }; // videonun tüm altyazı varyantları (alternatif deneme için)
 let subStyleValue = 'klasik';
 let subModelValue = 'small'; // Whisper model boyutu (yalnızca source==='whisper')
+
+// Seçilen dilin alternatif varyantları (ör. tr-orig ↔ tr): altyazı indirme
+// geçici hata verirse main tarafı (ensureTranscript) sırayla bunları da dener
+function subAltLangs() {
+  if (!subPick || subPick.source !== 'youtube') return [];
+  const pool = subPick.auto ? (subAllLangs.auto || []) : (subAllLangs.manual || []);
+  return pool.filter(l => l !== subPick.lang);
+}
 
 // Kaynak seçimi. Tercih: manuel Türkçe > herhangi bir manuel > otomatik (ASR)
 // Türkçe > (hiçbiri yoksa) Whisper ile sesten otomatik oluşturma.
@@ -565,6 +574,7 @@ function pickSubtitle(info) {
 
 function updateSubCard(info) {
   subPick = pickSubtitle(info);
+  subAllLangs = { manual: info.subLangs || [], auto: info.autoLangs || [] };
   $('subCard').classList.remove('hidden');
   $('subEnable').checked = false;
   $('subEnable').disabled = false;
@@ -2081,7 +2091,9 @@ function aiHasKey() { return !!(settings && (settings.geminiKey || '').trim()); 
 // Transkript kaynağı kararı: videoda YouTube altyazısı varsa (subPick) onu
 // kullan — saniyeler sürer ve API anahtarı gerektirmez; yoksa Whisper.
 function aiPlannedSource() {
-  if (subPick && subPick.source === 'youtube') return { source: 'youtube', lang: subPick.lang, auto: subPick.auto };
+  if (subPick && subPick.source === 'youtube') {
+    return { source: 'youtube', lang: subPick.lang, auto: subPick.auto, altLangs: subAltLangs() };
+  }
   return { source: 'whisper', model: aiModelValue };
 }
 
@@ -2706,6 +2718,7 @@ function mdBuildContext() {
       source: yt ? 'youtube' : 'whisper',
       lang: yt ? subPick.lang : undefined,
       auto: yt ? subPick.auto : undefined,
+      altLangs: yt ? subAltLangs() : undefined,
       outDir: $('folder').textContent || null, // kayıt klasörü (indirme çıktılarıyla aynı yer)
       baseName: $('title').textContent || 'kurgu'
     };
@@ -2726,7 +2739,7 @@ $('mdPlanBtn').addEventListener('click', async () => {
   try {
     r = await window.api.moodPlan({
       file: ctx.file, url: ctx.url, videoId: ctx.videoId, duration: ctx.duration,
-      source: ctx.source, lang: ctx.lang, auto: ctx.auto,
+      source: ctx.source, lang: ctx.lang, auto: ctx.auto, altLangs: ctx.altLangs,
       mood: mdMood, targetSec: mdTarget, model: 'small'
     });
   } catch (err) {

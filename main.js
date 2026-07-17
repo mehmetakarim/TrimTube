@@ -726,11 +726,13 @@ function shiftSrt(content, startSec, durSec) {
 // runner: alt süreci hangi takiple çalıştıracağı (varsayılan ana kuyruk —
 // currentProc; AI araçları kendi bağımsız takibini [runAiProc] geçirir ki
 // kuyruğun Durdur'u AI'ın altyazı indirmesini öldürmesin, tersi de olmasın).
+// Dönüş: { path } | { error } — hata nedeni yutulmaz (saha bulgusu: otomatik
+// altyazı uçları geçici 429 verebiliyor; genel "indirilemedi" mesajı yanıltıcıydı).
 async function fetchSubtitle(url, videoId, lang, isAuto, runner = runProc) {
   const cacheDir = path.join(app.getPath('userData'), 'cache');
   fs.mkdirSync(cacheDir, { recursive: true });
   const cached = path.join(cacheDir, `${videoId}_sub_${lang}${isAuto ? '.auto' : ''}.srt`);
-  if (fs.existsSync(cached)) return cached;
+  if (fs.existsSync(cached)) return { path: cached };
 
   const outBase = path.join(cacheDir, `${videoId}_subdl`);
   const args = [
@@ -739,16 +741,16 @@ async function fetchSubtitle(url, videoId, lang, isAuto, runner = runProc) {
     '--sub-langs', lang, '--convert-subs', 'srt',
     '--ffmpeg-location', FFMPEG, '-o', outBase, url
   ];
-  await runner(YTDLP, args, () => {});
+  const r = await runner(YTDLP, args, () => {});
 
   const produced = `${outBase}.${lang}.srt`;
-  if (fs.existsSync(produced)) { fs.renameSync(produced, cached); return cached; }
+  if (fs.existsSync(produced)) { fs.renameSync(produced, cached); return { path: cached }; }
   // Dil kodu varyasyonu (ör. tr-TR) — üretilen ilk srt'yi kabul et
   try {
     const alt = fs.readdirSync(cacheDir).find(f => f.startsWith(`${videoId}_subdl`) && f.endsWith('.srt'));
-    if (alt) { fs.renameSync(path.join(cacheDir, alt), cached); return cached; }
+    if (alt) { fs.renameSync(path.join(cacheDir, alt), cached); return { path: cached }; }
   } catch {}
-  return null;
+  return { error: r.code !== 0 ? extractError(r.stderr) : 'Altyazı dosyası üretilemedi.' };
 }
 
 // --- Faz 7: Whisper ile otomatik altyazı ---
@@ -1051,10 +1053,10 @@ ipcMain.handle('download', async (e, opts) => {
       if (res.error) { cleanupTmp(); return { ok: false, error: res.error }; }
       content = fs.readFileSync(res.path, 'utf8'); // zaten klip-göreli
     } else {
-      const srtPath = await fetchSubtitle(url, id, subtitle.lang, subtitle.auto);
+      const sub = await fetchSubtitle(url, id, subtitle.lang, subtitle.auto);
       if (cancelRequested) { cleanupTmp(); return { ok: false, cancelled: true }; }
-      if (srtPath) {
-        const raw = fs.readFileSync(srtPath, 'utf8');
+      if (sub.path) {
+        const raw = fs.readFileSync(sub.path, 'utf8');
         content = trim ? shiftSrt(raw, toSec(trim.start), clipSec) : raw;
       }
     }
@@ -2045,14 +2047,18 @@ async function ensureTranscript(opts, runner, sendStage, isCancelled) {
   if (!id) return { error: 'Önce bir video yükleyin.' };
   const cacheDir = cacheDirPath();
   fs.mkdirSync(cacheDir, { recursive: true });
-  const isYt = opts.source === 'youtube';
+  let isYt = opts.source === 'youtube';
   const model = opts.model || 'small';
-  const cacheKey = isYt
-    ? `${id}_ai_transcript_yt_${opts.lang}${opts.auto ? '.auto' : ''}.json`
-    : `${id}_ai_transcript_${model}.json`;
-  const cached = path.join(cacheDir, cacheKey);
-  if (fs.existsSync(cached)) {
-    try { return { ok: true, cachedHit: true, ...JSON.parse(fs.readFileSync(cached, 'utf8')) }; } catch {}
+  const ytCached = isYt
+    ? path.join(cacheDir, `${id}_ai_transcript_yt_${opts.lang}${opts.auto ? '.auto' : ''}.json`)
+    : null;
+  const whisperCached = path.join(cacheDir, `${id}_ai_transcript_${model}.json`);
+  // YouTube istendiğinde daha önce üretilmiş bir Whisper transkripti de kabul
+  // edilir (aynı videonun metni — yeniden üretim gereksiz yük olur)
+  for (const c of [ytCached, whisperCached].filter(Boolean)) {
+    if (fs.existsSync(c)) {
+      try { return { ok: true, cachedHit: true, ...JSON.parse(fs.readFileSync(c, 'utf8')) }; } catch {}
+    }
   }
 
   const url = opts.url || `https://www.youtube.com/watch?v=${id}`;
@@ -2063,13 +2069,33 @@ async function ensureTranscript(opts, runner, sendStage, isCancelled) {
     let segments;
     let doc;
     if (isYt) {
+      // Hızlı yol: istenen dil + alternatif varyantlar (ör. tr-orig ↔ tr).
+      // Otomatik altyazı uçları geçici hata verebildiği için toplam iki tur
+      // denenir; hepsi başarısız olursa gerçek neden saklanıp Whisper'a düşülür
+      // (akış çıkmaza girmez; aşama etiketleri geçişi kullanıcıya gösterir).
       sendStage({ stage: 'subdl' });
-      const srtPath = await fetchSubtitle(url, id, opts.lang, opts.auto, runner);
-      if (isCancelled()) return { cancelled: true };
-      if (!srtPath) return { error: 'YouTube altyazısı indirilemedi. Tekrar deneyin; sorun sürerse video altyazısız olabilir.' };
-      segments = parseSrtSegments(fs.readFileSync(srtPath, 'utf8'));
-      doc = { source: 'youtube', lang: opts.lang, auto: !!opts.auto, segments };
-    } else {
+      const langs = [opts.lang, ...(Array.isArray(opts.altLangs) ? opts.altLangs : [])]
+        .filter((l, i, a) => l && a.indexOf(l) === i);
+      let sub = null;
+      let lastErr = '';
+      for (let round = 0; round < 2 && !(sub && sub.path); round++) {
+        for (const lang of langs) {
+          sub = await fetchSubtitle(url, id, lang, opts.auto, runner);
+          if (isCancelled()) return { cancelled: true };
+          if (sub.path) break;
+          lastErr = sub.error || lastErr;
+        }
+      }
+      if (sub && sub.path) {
+        segments = parseSrtSegments(fs.readFileSync(sub.path, 'utf8'));
+        doc = { source: 'youtube', lang: opts.lang, auto: !!opts.auto, segments };
+      } else {
+        // Whisper'a düşülür (aşağıdaki !doc bloğu); neden teşhis için loglanır
+        // ve F12 konsoluna da düşer
+        reportFatal('[transcript] YouTube altyazısı alınamadı, Whisper\'a geçiliyor:', lastErr);
+      }
+    }
+    if (!doc) {
       // 1) Medya: yerel dosya / önbellekteki video / yalnız-ses indirmesi
       let media = findAiMedia(id, opts.localFile);
       if (!media) {
@@ -2097,7 +2123,10 @@ async function ensureTranscript(opts, runner, sendStage, isCancelled) {
       doc = { source: 'whisper', model, segments };
     }
     if (!segments.length) return { error: 'Bu videoda kullanılabilir konuşma/altyazı metni bulunamadı.' };
-    try { fs.writeFileSync(cached, JSON.stringify(doc), 'utf8'); } catch {}
+    // Üretilen kaynağa göre doğru önbellek anahtarına yaz (yt yolu Whisper'a
+    // düşmüşse whisper anahtarı kullanılır)
+    const cacheTo = doc.source === 'youtube' ? ytCached : whisperCached;
+    try { fs.writeFileSync(cacheTo, JSON.stringify(doc), 'utf8'); } catch {}
     return { ok: true, ...doc };
   } catch (err) {
     return { error: err.message };
@@ -2467,7 +2496,7 @@ function probeDurationPrecise(file) {
 // Kurgu planı: transkript (YouTube altyazısı hızlı yolu ya da Whisper — AI
 // Araçları ile paylaşılan ensureTranscript/önbellek) → Gemini → doğrulanmış
 // sahne listesi. Plan kullanıcıya gösterilir; montaj ayrı adımda (mood-render).
-ipcMain.handle('mood-plan', async (e, { file, url, videoId, duration, mood, targetSec, model, source, lang, auto }) => {
+ipcMain.handle('mood-plan', async (e, { file, url, videoId, duration, mood, targetSec, model, source, lang, auto, altLangs }) => {
   moodCancelled = false;
   const moodDesc = MOODS[mood];
   if (!moodDesc) return { error: 'Geçersiz mood seçimi.' };
@@ -2494,6 +2523,7 @@ ipcMain.handle('mood-plan', async (e, { file, url, videoId, duration, mood, targ
       source: source === 'youtube' ? 'youtube' : 'whisper',
       lang,
       auto,
+      altLangs,
       model: model || 'small'
     }, runMoodProc, moodSend, () => moodCancelled);
     if (tr.cancelled || tr.error) return tr;
