@@ -391,14 +391,24 @@
             <button class="seg" data-md-target="90">90 sn</button>
           </div>
           <span class="label">Anlatıcı sesi</span>
+          <div class="segmented" id="mdTtsSeg">
+            <button class="seg active" data-md-tts="gemini">Google (Gemini)</button>
+            <button class="seg" data-md-tts="eleven">ElevenLabs</button>
+          </div>
           <div class="md-voice-row">
             <div class="select-wrap md-voice-select">
               <select id="mdVoice"><option value="">Ses listesi yüklenmedi</option></select>
               <svg width="10" height="14" viewBox="0 0 10 14" fill="none" stroke="#86868b" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 5 5 2l3 3M2 9l3 3 3-3"/></svg>
             </div>
-            <button id="mdVoiceReload" class="btn-ghost small">Yenile</button>
+            <button id="mdVoiceReload" class="btn-ghost small hidden">Yenile</button>
           </div>
-          <div class="setting-note ai-note-left">Plan için Gemini, seslendirme için ElevenLabs anahtarı gerekir (Ayarlar). İlk kullanımda ses tanıma modeli indirilir; uzun bölümlerde çözümleme dakikalar sürebilir.</div>
+          <label class="cmp-check"><input type="checkbox" id="mdSubCheck"> Altyazı ekle <span class="cmp-check-sub">(Reels/TikTok/Shorts güvenli alanlarına taşmaz)</span></label>
+          <div class="segmented sub-styles hidden" id="mdSubStyleSeg">
+            <button class="seg" data-md-substyle="klasik">Klasik</button>
+            <button class="seg active" data-md-substyle="kutulu">Kutulu</button>
+            <button class="seg" data-md-substyle="dolgun">Dolgun</button>
+          </div>
+          <div class="setting-note ai-note-left">Google seslendirmesi mevcut Gemini anahtarınla çalışır (ek üyelik gerekmez); ElevenLabs için Ayarlar'da anahtar gerekir. İlk kullanımda ses tanıma modeli indirilir; uzun bölümlerde çözümleme dakikalar sürebilir.</div>
         </div>
 
         <!-- 3) İlerleme (plan + seslendirme + montaj aynı bloğu paylaşır) -->
@@ -433,6 +443,7 @@
         <div class="cmp-foot">
           <span id="mdFootHint" class="cmp-foot-hint">Dizi bölümlerinden "önceki bölümlerde" tarzı, anlatıcılı mood kurguları üretir.</span>
           <button id="mdOpenFolderBtn" class="btn-ghost small hidden">Klasörü aç</button>
+          <button id="mdEditBtn" class="btn-ghost small hidden" title="Kurguyu Video Kes ekranına yükleyip ince ayar yap">Videoyu Düzenle</button>
           <button id="mdRenderBtn" class="btn-primary small hidden">Seslendir ve Montajla</button>
           <button id="mdPlanBtn" class="btn-primary small" disabled>Kurgu planı oluştur</button>
         </div>

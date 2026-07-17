@@ -43,7 +43,10 @@ const SETTINGS_DEFAULTS = {
   sidebarOpen: false,     // sol navigasyon menüsü (v1.12.0): kapalı başlar
   geminiKey: '',          // Faz 14: kullanıcının kendi Gemini API anahtarı (yalnızca yerelde durur)
   elevenKey: '',          // Faz 15: ElevenLabs anahtarı (seslendirme)
-  moodVoice: null         // Faz 15: son seçilen anlatıcı sesi (voice_id)
+  moodVoice: null,        // Faz 15: son seçilen ElevenLabs sesi (voice_id)
+  moodTtsProvider: 'gemini', // Faz 15: TTS sağlayıcısı — gemini (varsayılan, ek üyelik gerekmez) | eleven
+  moodVoiceGemini: 'Kore', // Faz 15: son seçilen Google (Gemini) sesi
+  moodSubtitle: false     // Faz 15: kurguya altyazı gömme tercihi
 };
 let settingsCache = null;
 function settingsPath() { return path.join(app.getPath('userData'), 'settings.json'); }
@@ -2478,6 +2481,65 @@ async function elevenTts(text, voiceId, outFile) {
   }
 }
 
+// Google TTS — Gemini TTS modeli üzerinden (kullanıcının MEVCUT Gemini
+// anahtarıyla çalışır; ayrı Google Cloud hesabı/anahtarı gerekmez — saha
+// geri bildirimi: herkesin ElevenLabs üyeliği yok). Yanıt ham PCM döner
+// (audio/L16), ffmpeg ile MP3'e çevrilir ki montaj boru hattı (süre ölçümü,
+// adelay/amix) ElevenLabs çıktısıyla birebir aynı kalsın.
+const GEMINI_TTS_MODEL = 'gemini-2.5-flash-preview-tts';
+
+async function geminiTts(text, voiceName, outFile, tmpDir) {
+  const key = (loadSettings().geminiKey || '').trim();
+  if (!key) return { error: 'Gemini API anahtarı girilmemiş — Google seslendirmesi için gerekli. Ayarlar ekranından ekleyin.' };
+  const ctrl = new AbortController();
+  moodAbort = ctrl;
+  const timer = setTimeout(() => { try { ctrl.abort(); } catch {} }, 60000);
+  try {
+    const res = await fetch(`${GEMINI_BASE}/models/${GEMINI_TTS_MODEL}:generateContent?key=${encodeURIComponent(key)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: ctrl.signal,
+      body: JSON.stringify({
+        contents: [{ parts: [{ text }] }],
+        generationConfig: {
+          responseModalities: ['AUDIO'],
+          speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voiceName || 'Kore' } } }
+        }
+      })
+    });
+    if (!res.ok) {
+      if (res.status === 404) return { error: `Google TTS modeli bulunamadı (${GEMINI_TTS_MODEL}) — uygulama güncellemesi gerekebilir.` };
+      return { error: geminiErrorMessage(res.status, await res.text().catch(() => '')) };
+    }
+    const j = await res.json();
+    const parts = (((j.candidates || [])[0] || {}).content || {}).parts || [];
+    const audio = parts.find(p => p.inlineData && p.inlineData.data);
+    if (!audio) return { error: 'Google TTS ses üretmedi — metni değiştirip tekrar deneyin.' };
+    const rate = (String(audio.inlineData.mimeType || '').match(/rate=(\d+)/) || [])[1] || '24000';
+    const pcm = path.join(tmpDir, `gtts-${Date.now()}.pcm`);
+    fs.writeFileSync(pcm, Buffer.from(audio.inlineData.data, 'base64'));
+    const cv = await runMoodProc(FFMPEG, ['-y', '-f', 's16le', '-ar', rate, '-ac', '1', '-i', pcm, '-c:a', 'libmp3lame', '-q:a', '2', outFile], () => {});
+    try { fs.rmSync(pcm, { force: true }); } catch {}
+    if (moodCancelled) return { cancelled: true };
+    if (cv.code !== 0 || !fs.existsSync(outFile)) return { error: 'Google TTS sesi dönüştürülemedi.' };
+    return { ok: true };
+  } catch (err) {
+    if (moodCancelled) return { cancelled: true };
+    if (err && err.name === 'AbortError') return { error: 'Google TTS isteği zaman aşımına uğradı.' };
+    return { error: 'Google TTS bağlantısı kurulamadı: ' + (err && err.message ? err.message : err) };
+  } finally {
+    clearTimeout(timer);
+    moodAbort = null;
+  }
+}
+
+// Sağlayıcıya göre TTS dağıtımı (gemini varsayılan — anahtar zaten planda gerekli)
+function moodTts(provider, text, voiceId, outFile, tmpDir) {
+  return provider === 'eleven'
+    ? elevenTts(text, voiceId, outFile)
+    : geminiTts(text, voiceId, outFile, tmpDir);
+}
+
 // Hassas süre (ondalıklı saniye) — anlatım ofset/ducking hesapları kare
 // hassasiyeti ister; probeMedia'nın tam-saniye değeri yetmez.
 function probeDurationPrecise(file) {
@@ -2584,7 +2646,9 @@ ipcMain.handle('mood-plan', async (e, { file, url, videoId, duration, mood, targ
 // Montaj filter_complex grafiğini kurar (saf fonksiyon — testte doğrudan sınanır).
 // Girdi 0 = kaynak video; 1..N = anlatım sesleri (narrItems sırası girdi sırasıdır).
 // narrItems: [{offset, dur}] — offset çıktı zaman çizelgesindeki saniye.
-function buildMoodFilterGraph(scenes, narrItems) {
+// subFilter: varsa concat SONRASI görüntüye uygulanacak altyazı filtresi
+// (subtitles=subs.srt:… — cwd=tmpDir ile göreli ad; sendcmd/altyazı deseninin aynısı).
+function buildMoodFilterGraph(scenes, narrItems, subFilter) {
   const parts = [];
   const labels = [];
   scenes.forEach((s, i) => {
@@ -2592,14 +2656,17 @@ function buildMoodFilterGraph(scenes, narrItems) {
     parts.push(`[0:a]atrim=${s.start}:${s.end},asetpts=PTS-STARTPTS[a${i}]`);
     labels.push(`[v${i}][a${i}]`);
   });
-  parts.push(`${labels.join('')}concat=n=${scenes.length}:v=1:a=1[outv][ca]`);
+  parts.push(`${labels.join('')}concat=n=${scenes.length}:v=1:a=1[vcat][ca]`);
+  // Altyazı her zaman zincirin sonunda: konum nihai kareye göre hesaplanır
+  parts.push(subFilter ? `[vcat]${subFilter}[outv]` : '[vcat]null[outv]');
   if (!narrItems.length) {
     parts.push('[ca]anull[outa]');
     return parts.join(';');
   }
-  // Ducking: anlatım çalarken özgün ses kısılır (0.22), bitince kendiliğinden döner
+  // Anlatım çalarken özgün ses TAMAMEN susturulur (saha bulgusu: kısık arka
+  // plan sesi anlatımın altında gürültü gibi duyuluyordu), bitince geri döner
   const spans = narrItems.map(n => `between(t,${n.offset.toFixed(2)},${(n.offset + n.dur).toFixed(2)})`).join('+');
-  parts.push(`[ca]aformat=sample_rates=48000:channel_layouts=stereo,volume=0.22:enable='${spans}'[duck]`);
+  parts.push(`[ca]aformat=sample_rates=48000:channel_layouts=stereo,volume=0:enable='${spans}'[duck]`);
   const mixIns = ['[duck]'];
   narrItems.forEach((n, i) => {
     parts.push(`[${i + 1}:a]aformat=sample_rates=48000:channel_layouts=stereo,adelay=${Math.round(n.offset * 1000)}:all=1[n${i}]`);
@@ -2609,6 +2676,38 @@ function buildMoodFilterGraph(scenes, narrItems) {
   parts.push(`${mixIns.join('')}amix=inputs=${narrItems.length + 1}:duration=first:normalize=0[outa]`);
   return parts.join(';');
 }
+
+// Sahne içine düşen transkript satırlarını çıktı zaman çizelgesine kaydırıp
+// SRT üretir (montaja gömülecek altyazı). Sahne sınırında kırpılır.
+function buildSceneSrt(segments, scenes) {
+  const fmt = (sec) => {
+    let ms = Math.max(0, Math.round(sec * 1000));
+    const h = Math.floor(ms / 3600000); ms %= 3600000;
+    const m = Math.floor(ms / 60000); ms %= 60000;
+    const s = Math.floor(ms / 1000);
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')},${String(ms % 1000).padStart(3, '0')}`;
+  };
+  const out = [];
+  let idx = 1;
+  let acc = 0;
+  for (const sc of scenes) {
+    for (const sg of segments) {
+      if (sg.end <= sc.start || sg.start >= sc.end) continue;
+      const s = Math.max(sg.start, sc.start) - sc.start + acc;
+      const e = Math.min(sg.end, sc.end) - sc.start + acc;
+      if (e - s < 0.2) continue;
+      out.push(`${idx++}\n${fmt(s)} --> ${fmt(e)}\n${sg.text}`);
+    }
+    acc += sc.end - sc.start;
+  }
+  return out.length ? out.join('\n\n') + '\n' : '';
+}
+
+// Moodlar altyazı kenar boşlukları (PlayRes 384x288 ölçeği): üç platformun
+// (TikTok/Shorts/Reels — bkz. Safe Zone şablonları) güvenli alan KESİŞİMİ —
+// alt ~%22 açıklama şeridi (MarginV 66 ≈ %23) ve sağ ~%16 eylem sütunu
+// (MarginL/R 64 ≈ %17) dışında kalır; altyazı hiçbir platform arayüzüne taşmaz.
+const MOOD_SUB_MARGINS = 'MarginV=66,MarginL=64,MarginR=64';
 
 // Montaj için video dosyası arar: önbellekteki tam video (mp4). _ai_audio
 // yalnız-ses dosyası montaja yetmez (görüntü akışı yok) — bilinçli hariç.
@@ -2626,7 +2725,7 @@ function findCachedVideo(videoId) {
 // Montaj robotu: medya çözümü (yerel dosya > önbellek videosu > tam indirme) →
 // TTS (sahne başına) → filter graph → tek geçişte render. GPU→CPU düşüşü
 // smarttrim-apply'daki gibi kendi süreç takibiyle yapılır.
-ipcMain.handle('mood-render', async (e, { file, url, videoId, scenes, voiceId, mood, outDir, baseName }) => {
+ipcMain.handle('mood-render', async (e, { file, url, videoId, scenes, voiceId, ttsProvider, mood, outDir, baseName, subtitle, trans }) => {
   moodCancelled = false;
   const valid = (Array.isArray(scenes) ? scenes : [])
     .filter(s => isFinite(+s.start) && isFinite(+s.end) && +s.end > +s.start)
@@ -2685,7 +2784,7 @@ ipcMain.handle('mood-render', async (e, { file, url, videoId, scenes, voiceId, m
       done++;
       moodSend({ stage: 'tts', idx: done, total: narrScenes.length });
       const mp3 = path.join(tmpDir, `narr${i}.mp3`);
-      const t = await elevenTts(valid[i].narration, voiceId, mp3);
+      const t = await moodTts(ttsProvider, valid[i].narration, voiceId, mp3, tmpDir);
       if (moodCancelled || t.cancelled) { cleanup(); return { cancelled: true }; }
       if (t.error) { cleanup(); return t; }
       const dur = await probeDurationPrecise(mp3);
@@ -2693,8 +2792,28 @@ ipcMain.handle('mood-render', async (e, { file, url, videoId, scenes, voiceId, m
       narrItems.push({ file: mp3, offset: offsets[i], dur });
     }
 
+    // 1b) Altyazı (isteğe bağlı): plan transkripti önbellekten geri yüklenir
+    // (cache isabeti — yeniden üretim yok), sahne aralıklarına düşen satırlar
+    // çıktı zaman çizelgesine kaydırılıp gömülür. Transkript alınamazsa montaj
+    // altyazısız sürer (süs katmanı, akışı düşürmez).
+    let subFilter = null;
+    if (subtitle && trans) {
+      const tr = await ensureTranscript({ videoId, url, localFile: file || null, ...trans }, runMoodProc, moodSend, () => moodCancelled);
+      if (moodCancelled || tr.cancelled) { cleanup(); return { cancelled: true }; }
+      if (tr.segments && tr.segments.length) {
+        const srt = buildSceneSrt(tr.segments, valid);
+        if (srt) {
+          fs.writeFileSync(path.join(tmpDir, 'subs.srt'), srt, 'utf8');
+          const styleBase = SUBTITLE_STYLES[subtitle.style] || SUBTITLE_STYLES.kutulu;
+          subFilter = `subtitles=subs.srt:force_style='${styleBase},${MOOD_SUB_MARGINS}'`;
+        }
+      } else {
+        console.error('[mood] altyazı için transkript alınamadı, altyazısız sürülüyor:', tr.error || '');
+      }
+    }
+
     // 2) Render
-    const graph = buildMoodFilterGraph(valid, narrItems);
+    const graph = buildMoodFilterGraph(valid, narrItems, subFilter);
     let speed = 0;
     const onLine = (line) => {
       const sp = line.match(/^speed=\s*([\d.]+)x/);

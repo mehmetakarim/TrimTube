@@ -1615,6 +1615,8 @@ async function initSettings() {
   // API anahtarları (Faz 14)
   $('setGeminiKey').value = settings.geminiKey || '';
   $('setElevenKey').value = settings.elevenKey || '';
+  // Moodlar tercihleri (Faz 15)
+  mdInitFromSettings();
 }
 
 // ---- API anahtarları (Faz 14) ----
@@ -2455,7 +2457,22 @@ let mdTarget = 60;
 let mdPlanData = null;   // { title, scenes:[{start,end,narration}], totalSec, transSource }
 let mdPlanContext = null; // planın üretildiği kaynak (render aynı kaynağı kullanır)
 let mdRunning = null;    // 'plan' | 'render' | null
-let mdVoicesLoaded = false;
+let mdVoicesLoaded = false; // ElevenLabs ses listesi (API'den) yüklendi mi
+let mdTtsProvider = 'gemini'; // gemini (varsayılan — ek üyelik gerekmez) | eleven
+let mdSubStyle = 'kutulu';
+let mdOutFile = null;    // son üretilen kurgu ("Videoyu Düzenle" için)
+
+// Google (Gemini) TTS hazır sesleri — API'den liste gerekmez, model sabittir
+const GEMINI_VOICES = [
+  { id: 'Kore', name: 'Kore — kadın, net' },
+  { id: 'Aoede', name: 'Aoede — kadın, sıcak' },
+  { id: 'Leda', name: 'Leda — kadın, genç' },
+  { id: 'Zephyr', name: 'Zephyr — kadın, parlak' },
+  { id: 'Puck', name: 'Puck — erkek, enerjik' },
+  { id: 'Charon', name: 'Charon — erkek, derin' },
+  { id: 'Fenrir', name: 'Fenrir — erkek, güçlü' },
+  { id: 'Enceladus', name: 'Enceladus — erkek, yumuşak' }
+];
 
 // Kaynak modu: açık dosya > Video Kes'te yüklü kaynak > yok.
 // Yüklü YouTube kaynağında transkript, altyazı varsa Whisper'a hiç girmeden
@@ -2481,26 +2498,30 @@ function mdClearError() { $('mdError').classList.add('hidden'); }
 function mdResetPlan() {
   mdPlanData = null;
   mdPlanContext = null;
+  mdOutFile = null;
   $('mdPlan').classList.add('hidden');
   $('mdSceneList').innerHTML = '';
   $('mdRenderBtn').classList.add('hidden');
   $('mdResult').classList.add('hidden');
   $('mdOpenFolderBtn').classList.add('hidden');
+  $('mdEditBtn').classList.add('hidden');
 }
 
-// Anahtar durumu uyarısı: plan için Gemini, seslendirme için ElevenLabs
+// Anahtar durumu uyarısı: Gemini her zaman gerekli (plan + varsayılan Google
+// TTS); ElevenLabs yalnızca o sağlayıcı seçiliyken gerekir
 function mdRefreshView() {
   const gemOk = !!(settings && (settings.geminiKey || '').trim());
   const elvOk = !!(settings && (settings.elevenKey || '').trim());
+  const needEleven = mdTtsProvider === 'eleven';
   const warn = $('mdKeyWarn');
-  if (gemOk && elvOk) {
+  if (gemOk && (!needEleven || elvOk)) {
     warn.classList.add('hidden');
   } else {
-    const missing = [!gemOk && 'Gemini (kurgu planı)', !elvOk && 'ElevenLabs (seslendirme)'].filter(Boolean).join(' ve ');
+    const missing = [!gemOk && 'Gemini (kurgu planı + Google sesi)', needEleven && !elvOk && 'ElevenLabs (seslendirme)'].filter(Boolean).join(' ve ');
     $('mdKeyWarnText').textContent = `Eksik API anahtarı: ${missing}. Ayarlar ekranından ekleyin.`;
     warn.classList.remove('hidden');
   }
-  if (elvOk && !mdVoicesLoaded) mdLoadVoices();
+  mdApplyVoiceUi();
 
   // Kaynak kartları: açık dosya > yüklü kaynak > bırakma alanı
   const mode = mdSourceMode();
@@ -2527,6 +2548,30 @@ function mdRefreshButtons() {
   rBtn.classList.toggle('hidden', !mdPlanData);
   $('mdFileChange').disabled = !!mdRunning;
   $('mdUseFileBtn').disabled = !!mdRunning;
+  $('mdEditBtn').disabled = !!mdRunning;
+}
+
+// Ses seçiciyi sağlayıcıya göre kurar: Google → sabit Gemini ses listesi
+// (anında, ağ gerekmez); ElevenLabs → API'den yüklenen liste + Yenile düğmesi
+function mdApplyVoiceUi() {
+  const sel = $('mdVoice');
+  $('mdVoiceReload').classList.toggle('hidden', mdTtsProvider !== 'eleven');
+  if (mdTtsProvider === 'gemini') {
+    sel.innerHTML = '';
+    GEMINI_VOICES.forEach(v => {
+      const o = document.createElement('option');
+      o.value = v.id;
+      o.textContent = v.name;
+      sel.appendChild(o);
+    });
+    if (settings && settings.moodVoiceGemini && GEMINI_VOICES.some(v => v.id === settings.moodVoiceGemini)) {
+      sel.value = settings.moodVoiceGemini;
+    }
+  } else {
+    const elvOk = !!(settings && (settings.elevenKey || '').trim());
+    if (elvOk && !mdVoicesLoaded) mdLoadVoices();
+    else if (!elvOk) sel.innerHTML = '<option value="">ElevenLabs anahtarı gerekli (Ayarlar)</option>';
+  }
 }
 
 // Video Kes'e yeni kaynak yüklendi: açık dosya seçilmediyse Moodlar artık o
@@ -2563,12 +2608,52 @@ async function mdLoadVoices() {
 }
 
 $('mdVoice').addEventListener('change', () => {
-  if ($('mdVoice').value) {
-    settings.moodVoice = $('mdVoice').value;
-    window.api.setSettings({ moodVoice: settings.moodVoice });
+  const v = $('mdVoice').value;
+  if (!v) return;
+  // Tercih sağlayıcı bazında hatırlanır (Google ↔ ElevenLabs geçişinde korunur)
+  if (mdTtsProvider === 'gemini') {
+    settings.moodVoiceGemini = v;
+    window.api.setSettings({ moodVoiceGemini: v });
+  } else {
+    settings.moodVoice = v;
+    window.api.setSettings({ moodVoice: v });
   }
 });
 $('mdVoiceReload').addEventListener('click', () => { mdVoicesLoaded = false; mdLoadVoices(); });
+
+// TTS sağlayıcı seçimi
+document.querySelectorAll('#mdTtsSeg .seg').forEach(btn => {
+  btn.addEventListener('click', () => {
+    if (mdRunning) return;
+    mdTtsProvider = btn.dataset.mdTts;
+    document.querySelectorAll('#mdTtsSeg .seg').forEach(b => b.classList.toggle('active', b === btn));
+    settings.moodTtsProvider = mdTtsProvider;
+    window.api.setSettings({ moodTtsProvider: mdTtsProvider });
+    mdRefreshView();
+  });
+});
+
+// Altyazı gömme tercihi + stil
+$('mdSubCheck').addEventListener('change', () => {
+  $('mdSubStyleSeg').classList.toggle('hidden', !$('mdSubCheck').checked);
+  settings.moodSubtitle = $('mdSubCheck').checked;
+  window.api.setSettings({ moodSubtitle: settings.moodSubtitle });
+});
+document.querySelectorAll('#mdSubStyleSeg .seg').forEach(btn => {
+  btn.addEventListener('click', () => {
+    if (mdRunning) return;
+    mdSubStyle = btn.dataset.mdSubstyle;
+    document.querySelectorAll('#mdSubStyleSeg .seg').forEach(b => b.classList.toggle('active', b === btn));
+  });
+});
+
+// Kalıcı tercihleri arayüze uygula (initSettings çağırır)
+function mdInitFromSettings() {
+  mdTtsProvider = settings.moodTtsProvider === 'eleven' ? 'eleven' : 'gemini';
+  document.querySelectorAll('#mdTtsSeg .seg').forEach(b => b.classList.toggle('active', b.dataset.mdTts === mdTtsProvider));
+  $('mdSubCheck').checked = !!settings.moodSubtitle;
+  $('mdSubStyleSeg').classList.toggle('hidden', !settings.moodSubtitle);
+}
 
 async function mdSetFile(p) {
   if (mdRunning) return;
@@ -2761,7 +2846,9 @@ $('mdRenderBtn').addEventListener('click', async () => {
   if (mdRunning || !mdPlanData || !mdPlanContext) return;
   const ctx = mdPlanContext;
   const needVoice = mdPlanData.scenes.some(s => s.narration);
-  const voiceId = $('mdVoice').value;
+  // Google sağlayıcısında ses her zaman seçilidir (sabit liste, varsayılan Kore);
+  // ElevenLabs'ta liste yüklenememişse boş kalabilir
+  const voiceId = $('mdVoice').value || (mdTtsProvider === 'gemini' ? 'Kore' : '');
   if (needVoice && !voiceId) {
     mdShowError('Anlatıcı sesi seçilmedi — ElevenLabs anahtarını girip ses listesini yenileyin.');
     return;
@@ -2769,6 +2856,7 @@ $('mdRenderBtn').addEventListener('click', async () => {
   mdClearError();
   $('mdResult').classList.add('hidden');
   $('mdOpenFolderBtn').classList.add('hidden');
+  $('mdEditBtn').classList.add('hidden');
   mdSetRunning('render');
 
   let r;
@@ -2776,7 +2864,10 @@ $('mdRenderBtn').addEventListener('click', async () => {
     r = await window.api.moodRender({
       file: ctx.file, url: ctx.url, videoId: ctx.videoId,
       outDir: ctx.outDir, baseName: ctx.baseName,
-      scenes: mdPlanData.scenes, voiceId, mood: mdMood
+      scenes: mdPlanData.scenes, voiceId, ttsProvider: mdTtsProvider, mood: mdMood,
+      subtitle: $('mdSubCheck').checked ? { style: mdSubStyle } : null,
+      // Altyazı için plan transkripti önbellekten geri yüklenir (aynı anahtar)
+      trans: { source: ctx.source, lang: ctx.lang, auto: ctx.auto, altLangs: ctx.altLangs, model: 'small' }
     });
   } catch (err) {
     r = { error: 'Beklenmeyen hata: ' + (err.message || String(err)) };
@@ -2785,13 +2876,23 @@ $('mdRenderBtn').addEventListener('click', async () => {
   if (r.cancelled) return;
   if (r.error) { mdShowError(r.error); return; }
 
+  mdOutFile = r.outFile;
   $('mdResultIcon').innerHTML = MD_OK_SVG;
   $('mdResultTitle').textContent = `Kurgu hazır — ${r.outFile.split(/[\\/]/).pop()}`;
-  $('mdResultSub').textContent = `~${fmtClock(r.duration)} · ${r.narrated} anlatım`;
+  $('mdResultSub').textContent = `~${fmtClock(r.duration)} · ${r.narrated} anlatım${$('mdSubCheck').checked ? ' · altyazılı' : ''}`;
   $('mdResult').classList.remove('hidden');
   const outDir = r.outFile.slice(0, r.outFile.length - r.outFile.split(/[\\/]/).pop().length - 1);
   $('mdOpenFolderBtn').onclick = () => window.api.openFolder(outDir);
   $('mdOpenFolderBtn').classList.remove('hidden');
+  $('mdEditBtn').classList.remove('hidden');
+});
+
+// Videoyu Düzenle: üretilen kurgu Video Kes ekranına yüklenir — kesim/format/
+// marka gibi ince ayarlar oradan sürdürülür (altyazı seçildiyse zaten gömülü)
+$('mdEditBtn').addEventListener('click', async () => {
+  if (!mdOutFile || mdRunning) return;
+  await loadLocalFile(mdOutFile);
+  switchView('cutter');
 });
 
 $('mdGoSettings').addEventListener('click', () => switchView('settings'));

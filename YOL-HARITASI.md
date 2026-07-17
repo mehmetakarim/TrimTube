@@ -92,7 +92,10 @@ Saha geri bildirimi: 3 dk'lık klip ~350MB çıkabiliyor (donanım kodlayıcı b
 ### Faz 15 — Moodlar & AI Director *(zirve özellik)* · `v1.15.0` (kod tamam — saha testi bekliyor)
 - [x] Moodlar sekmesi: bölüm yükle → mood seç (Komedi/Dram/Gerilim/Duygusal/Özet) + hedef süre (30/60/90 sn) → zaman damgalı diyalog haritası → Gemini'den anlatıcılı hikaye kurgusu (JSON: sahne aralıkları + anlatıcı metinleri; plan ekranda önizlenir)
 - [x] Video Kes'teki yüklü kaynak Moodlar'da otomatik kaynak olur; YouTube altyazısı varsa transkript Whisper'a girmeden saniyeler içinde hazırlanır (saha geri bildirimi — gereksiz sistem yükü kalktı); montaj videosu gerekirse önbelleğe indirilir
-- [x] TTS seslendirme (ElevenLabs `eleven_multilingual_v2`) → dış ses üretimi; ses seçici API'deki seslerden, tercih hatırlanır
+- [x] TTS seslendirme: **Google (Gemini TTS — mevcut Gemini anahtarıyla, varsayılan)** ya da ElevenLabs `eleven_multilingual_v2`; ses seçici + tercih hatırlanır
+- [x] Anlatım çalarken özgün ses tamamen susturulur (saha geri bildirimi: kısık ses gürültü yapıyordu)
+- [x] Kurguya isteğe bağlı altyazı gömme — kenar boşlukları Reels/TikTok/Shorts güvenli alanlarına taşmayacak şekilde (Safe Zone kesişimi)
+- [x] "Videoyu Düzenle": üretilen kurgu tek tıkla Video Kes ekranına yüklenir, ince ayar orada sürer
 - [x] Montaj robotu: kesitler concat + anlatım çalarken audio ducking (`volume enable`) + `adelay`+`amix` bindirme; GPU→CPU düşüşlü
   - _Not: "Faz 9 kuyruğunda" yerine Sıkıştır/Akıllı Kırpma'daki bağımsız-ekran deseni seçildi (kendi kanalı/iptali; kuyrukla eşzamanlı çalışabilir) — kuyruğa taşımak gereksiz bağımlılık yaratıyordu._
 - _Tuzaklar: uzun bölüm dökümü için Gemini'nin geniş context'i tercih nedeni; prompt'ta "yalnızca güçlü diyaloglu sahneler" kısıtı; maliyet kullanıcının kendi anahtarında._
