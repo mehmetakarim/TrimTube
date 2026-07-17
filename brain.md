@@ -9,6 +9,8 @@ Bu dosya, farklı ortamlardaki (ev: macOS M-serisi, ofis: Windows 11) geliştirm
 **Yayındaki sürüm:** `v1.15.0` · Windows/macOS(arm64)/Linux · GitHub: mehmetakarim/TrimTube
 **Yapılacaklar listesi (asıl kaynak):** proje kökündeki `YOL-HARITASI.md` (onay kutulu, faz faz).
 
+**⏭ DEVİR NOTU (17 Tem 2026, Windows → ev/macOS):** Faz 15 kapandı, sıradaki iş **Faz 16 — İleri Kurgu** (henüz başlanmadı). macOS oturumunda dikkat: (1) **API anahtarları makine-yerel** (settings.json) — Gemini/ElevenLabs anahtarlarını Mac'te Ayarlar'a yeniden girmek gerekir; (2) transkript/`_ai_` önbelleği de makine-yerel, ilk kullanımda yeniden üretilir; (3) faster-whisper Mac'e Faz 13 oturumunda `--break-system-packages` ile kurulmuştu (bkz. aşağıdaki macOS notu) — çalışır durumda olmalı.
+
 **Tamamlanan fazlar (detayları aşağıda):**
 - Faz 1 (v1.1.0) kesim deneyimi · Faz 2 (v1.2.0) GPU · Faz 3 (v1.3.0) altyazı · Faz 4 (v1.4.0) çoklu üretim · Faz 5 (v1.5.0) cila · Faz 6 (v1.6.0) marka & netlik · v1.6.1 macOS güncelleme geçişi · **Faz 7 + Faz 8 (v1.8.0) Whisper altyazı + yerel dosya & kadraj önizlemesi** · **v1.8.1 kadraj önizleme MODAL revizyonu** — YAYINLANDI
 
