@@ -90,7 +90,8 @@ Saha geri bildirimi: 3 dk'lık klip ~350MB çıkabiliyor (donanım kodlayıcı b
 - _Hepsi yeni "AI Araçları" ekranında (sol menü), ortak bir transkript adımı üzerinde: YouTube altyazısı varsa saniyeler, yoksa Whisper._
 
 ### Faz 15 — Moodlar & AI Director *(zirve özellik)* · `v1.15.0` (kod tamam — saha testi bekliyor)
-- [x] Moodlar sekmesi: bölüm yükle → mood seç (Komedi/Dram/Gerilim/Duygusal/Özet) + hedef süre (30/60/90 sn) → Whisper ile zaman damgalı diyalog haritası → Gemini'den anlatıcılı hikaye kurgusu (JSON: sahne aralıkları + anlatıcı metinleri; plan ekranda önizlenir)
+- [x] Moodlar sekmesi: bölüm yükle → mood seç (Komedi/Dram/Gerilim/Duygusal/Özet) + hedef süre (30/60/90 sn) → zaman damgalı diyalog haritası → Gemini'den anlatıcılı hikaye kurgusu (JSON: sahne aralıkları + anlatıcı metinleri; plan ekranda önizlenir)
+- [x] Video Kes'teki yüklü kaynak Moodlar'da otomatik kaynak olur; YouTube altyazısı varsa transkript Whisper'a girmeden saniyeler içinde hazırlanır (saha geri bildirimi — gereksiz sistem yükü kalktı); montaj videosu gerekirse önbelleğe indirilir
 - [x] TTS seslendirme (ElevenLabs `eleven_multilingual_v2`) → dış ses üretimi; ses seçici API'deki seslerden, tercih hatırlanır
 - [x] Montaj robotu: kesitler concat + anlatım çalarken audio ducking (`volume enable`) + `adelay`+`amix` bindirme; GPU→CPU düşüşlü
   - _Not: "Faz 9 kuyruğunda" yerine Sıkıştır/Akıllı Kırpma'daki bağımsız-ekran deseni seçildi (kendi kanalı/iptali; kuyrukla eşzamanlı çalışabilir) — kuyruğa taşımak gereksiz bağımlılık yaratıyordu._

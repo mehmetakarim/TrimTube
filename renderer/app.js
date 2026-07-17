@@ -878,6 +878,7 @@ function populateFromInfo(info) {
   $('addQueueBtn').disabled = false;
   updateChapters(info); // yerel dosyada info.chapters yok → menü gizli
   aiSourceChanged(); // yeni kaynak → eski transkript/AI sonuçları geçersiz (Faz 14)
+  mdCutterSourceChanged(); // Moodlar yüklü kaynağı gösteriyorsa planı tazele (Faz 15)
   clearStatus();
   $('progressWrap').classList.add('hidden');
 }
@@ -2434,14 +2435,29 @@ $('aiGoCutter').addEventListener('click', () => switchView('cutter'));
 // → plan önizlemesi → "Seslendir ve Montajla" (ElevenLabs TTS + montaj robotu).
 // Sıkıştır/Akıllı Kırpma ile aynı bağımsız-ekran deseni; kendi kanalı/iptali var.
 
-let mdFile = null;
+let mdFile = null;       // açıkça seçilen/bırakılan dosya (yüklü kaynağı geçersiz kılar)
 let mdVideoId = null;    // localInfo'nun kararlı kimliği (transkript önbelleği için)
 let mdDuration = 0;
 let mdMood = 'komedi';
 let mdTarget = 60;
-let mdPlanData = null;   // { title, scenes:[{start,end,narration}], totalSec }
+let mdPlanData = null;   // { title, scenes:[{start,end,narration}], totalSec, transSource }
+let mdPlanContext = null; // planın üretildiği kaynak (render aynı kaynağı kullanır)
 let mdRunning = null;    // 'plan' | 'render' | null
 let mdVoicesLoaded = false;
+
+// Kaynak modu: açık dosya > Video Kes'te yüklü kaynak > yok.
+// Yüklü YouTube kaynağında transkript, altyazı varsa Whisper'a hiç girmeden
+// YouTube altyazısından gelir (kullanıcı geri bildirimi: gereksiz yük olmasın).
+function mdSourceMode() {
+  if (mdFile) return 'file';
+  if (infoLoaded) return 'loaded';
+  return 'none';
+}
+
+// Yüklü kaynak için planlanan transkript yolu (AI Araçları ile aynı karar)
+function mdLoadedUsesYtSubs() {
+  return !currentLocalFile && subPick && subPick.source === 'youtube';
+}
 
 function mdShowError(msg) {
   const el = $('mdError');
@@ -2452,6 +2468,7 @@ function mdClearError() { $('mdError').classList.add('hidden'); }
 
 function mdResetPlan() {
   mdPlanData = null;
+  mdPlanContext = null;
   $('mdPlan').classList.add('hidden');
   $('mdSceneList').innerHTML = '';
   $('mdRenderBtn').classList.add('hidden');
@@ -2472,18 +2489,42 @@ function mdRefreshView() {
     warn.classList.remove('hidden');
   }
   if (elvOk && !mdVoicesLoaded) mdLoadVoices();
+
+  // Kaynak kartları: açık dosya > yüklü kaynak > bırakma alanı
+  const mode = mdSourceMode();
+  $('mdDrop').classList.toggle('hidden', mode !== 'none');
+  $('mdFileCard').classList.toggle('hidden', mode !== 'file');
+  $('mdLoadedCard').classList.toggle('hidden', mode !== 'loaded');
+  if (mode === 'loaded') {
+    $('mdLoadedName').textContent = $('title').textContent;
+    $('mdLoadedMeta').textContent = $('meta').textContent;
+    const yt = mdLoadedUsesYtSubs();
+    $('mdTransBadge').textContent = yt ? 'YouTube altyazısı — hızlı transkript' : 'Whisper ile çözümlenir';
+    $('mdTransBadge').classList.toggle('ready', yt);
+  }
   mdRefreshButtons();
 }
 
 function mdRefreshButtons() {
   const pBtn = $('mdPlanBtn');
   pBtn.textContent = mdRunning === 'plan' ? 'Durdur' : (mdPlanData ? 'Planı yenile' : 'Kurgu planı oluştur');
-  pBtn.disabled = mdRunning ? mdRunning !== 'plan' : !mdFile;
+  pBtn.disabled = mdRunning ? mdRunning !== 'plan' : mdSourceMode() === 'none';
   const rBtn = $('mdRenderBtn');
   rBtn.textContent = mdRunning === 'render' ? 'Durdur' : 'Seslendir ve Montajla';
   rBtn.disabled = !!mdRunning && mdRunning !== 'render';
   rBtn.classList.toggle('hidden', !mdPlanData);
   $('mdFileChange').disabled = !!mdRunning;
+  $('mdUseFileBtn').disabled = !!mdRunning;
+}
+
+// Video Kes'e yeni kaynak yüklendi: açık dosya seçilmediyse Moodlar artık o
+// kaynağı gösterir — eski plan geçersiz (populateFromInfo çağırır)
+function mdCutterSourceChanged() {
+  if (!mdFile) {
+    mdResetPlan();
+    mdClearError();
+  }
+  mdRefreshView();
 }
 
 async function mdLoadVoices() {
@@ -2530,24 +2571,25 @@ async function mdSetFile(p) {
   const parts = [fmtBytes(info.size), fmtClock(info.duration)];
   if (info.w && info.h) parts.push(`${info.w}×${info.h}`);
   $('mdFileMeta').textContent = parts.join(' · ');
-  $('mdDrop').classList.add('hidden');
-  $('mdFileCard').classList.remove('hidden');
-  mdRefreshButtons();
+  mdRefreshView();
 }
 
+// "Değiştir": açık dosyayı bırak — yüklü kaynak varsa ona, yoksa bırakma alanına döner
 function mdResetFile() {
   if (mdRunning) return;
   mdFile = null;
   mdVideoId = null;
   mdDuration = 0;
-  $('mdFileCard').classList.add('hidden');
-  $('mdDrop').classList.remove('hidden');
   mdClearError();
   mdResetPlan();
-  mdRefreshButtons();
+  mdRefreshView();
 }
 
 $('mdChooseBtn').addEventListener('click', async () => {
+  const p = await window.api.chooseVideo();
+  if (p) mdSetFile(p);
+});
+$('mdUseFileBtn').addEventListener('click', async () => {
   const p = await window.api.chooseVideo();
   if (p) mdSetFile(p);
 });
@@ -2569,6 +2611,9 @@ document.querySelectorAll('#mdTargetSeg .seg').forEach(btn => {
 });
 
 const MD_PHASE_LABELS = {
+  subdl: 'YouTube altyazısı indiriliyor…',
+  download: 'Ses indiriliyor…',
+  fetch: 'Video önbelleğe indiriliyor…',
   audio: 'Ses çıkarılıyor…',
   model: 'Model hazırlanıyor…',
   transcribe: 'Diyalog haritası çıkarılıyor…',
@@ -2615,7 +2660,8 @@ function mdRenderPlan() {
   const p = mdPlanData;
   $('mdPlanTitle').textContent = p.title ? `"${p.title}" · ${MD_MOOD_LABELS[mdMood] || mdMood}` : (MD_MOOD_LABELS[mdMood] || mdMood);
   const narrCount = p.scenes.filter(s => s.narration).length;
-  $('mdPlanSummary').textContent = `${p.scenes.length} sahne · ${narrCount} anlatım · ~${fmtClock(p.totalSec)}`;
+  const src = p.transSource === 'youtube' ? ' · transkript: YouTube altyazısı' : '';
+  $('mdPlanSummary').textContent = `${p.scenes.length} sahne · ${narrCount} anlatım · ~${fmtClock(p.totalSec)}${src}`;
   const list = $('mdSceneList');
   list.innerHTML = '';
   p.scenes.forEach((s, i) => {
@@ -2631,23 +2677,66 @@ function mdRenderPlan() {
   $('mdPlan').classList.remove('hidden');
 }
 
+// Kaynak moduna göre plan/render bağlamını kurar. Render, planın üretildiği
+// kaynağı kullanır (arada Video Kes'te başka video yüklense bile tutarlı kalır).
+function mdBuildContext() {
+  const mode = mdSourceMode();
+  if (mode === 'file') {
+    const name = mdFile.split(/[\\/]/).pop();
+    return {
+      file: mdFile, url: null, videoId: mdVideoId, duration: mdDuration,
+      source: 'whisper',
+      outDir: mdFile.slice(0, mdFile.length - name.length - 1),
+      baseName: name.replace(/\.[^.]+$/, '')
+    };
+  }
+  if (mode === 'loaded') {
+    if (currentLocalFile) {
+      const name = currentLocalFile.split(/[\\/]/).pop();
+      return {
+        file: currentLocalFile, url: null, videoId: currentVideoId, duration: videoDuration,
+        source: 'whisper',
+        outDir: currentLocalFile.slice(0, currentLocalFile.length - name.length - 1),
+        baseName: name.replace(/\.[^.]+$/, '')
+      };
+    }
+    const yt = mdLoadedUsesYtSubs();
+    return {
+      file: null, url: $('url').value.trim() || null, videoId: currentVideoId, duration: videoDuration,
+      source: yt ? 'youtube' : 'whisper',
+      lang: yt ? subPick.lang : undefined,
+      auto: yt ? subPick.auto : undefined,
+      outDir: $('folder').textContent || null, // kayıt klasörü (indirme çıktılarıyla aynı yer)
+      baseName: $('title').textContent || 'kurgu'
+    };
+  }
+  return null;
+}
+
 $('mdPlanBtn').addEventListener('click', async () => {
   if (mdRunning === 'plan') { window.api.moodCancel(); return; }
-  if (mdRunning || !mdFile) return;
+  if (mdRunning) return;
+  const ctx = mdBuildContext();
+  if (!ctx) return;
   mdClearError();
   mdResetPlan();
   mdSetRunning('plan');
 
   let r;
   try {
-    r = await window.api.moodPlan({ file: mdFile, videoId: mdVideoId, mood: mdMood, targetSec: mdTarget, model: 'small' });
+    r = await window.api.moodPlan({
+      file: ctx.file, url: ctx.url, videoId: ctx.videoId, duration: ctx.duration,
+      source: ctx.source, lang: ctx.lang, auto: ctx.auto,
+      mood: mdMood, targetSec: mdTarget, model: 'small'
+    });
   } catch (err) {
     r = { error: 'Beklenmeyen hata: ' + (err.message || String(err)) };
   }
   mdSetRunning(null);
   if (r.cancelled) return;
   if (r.error) { mdShowError(r.error); return; }
-  mdPlanData = { title: r.title, scenes: r.scenes, totalSec: r.totalSec };
+  mdPlanData = { title: r.title, scenes: r.scenes, totalSec: r.totalSec, transSource: r.transSource };
+  mdPlanContext = ctx;
   mdRenderPlan();
   mdRefreshButtons();
 });
@@ -2656,7 +2745,8 @@ const MD_OK_SVG = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" s
 
 $('mdRenderBtn').addEventListener('click', async () => {
   if (mdRunning === 'render') { window.api.moodCancel(); return; }
-  if (mdRunning || !mdPlanData || !mdFile) return;
+  if (mdRunning || !mdPlanData || !mdPlanContext) return;
+  const ctx = mdPlanContext;
   const needVoice = mdPlanData.scenes.some(s => s.narration);
   const voiceId = $('mdVoice').value;
   if (needVoice && !voiceId) {
@@ -2670,7 +2760,11 @@ $('mdRenderBtn').addEventListener('click', async () => {
 
   let r;
   try {
-    r = await window.api.moodRender({ file: mdFile, scenes: mdPlanData.scenes, voiceId, mood: mdMood });
+    r = await window.api.moodRender({
+      file: ctx.file, url: ctx.url, videoId: ctx.videoId,
+      outDir: ctx.outDir, baseName: ctx.baseName,
+      scenes: mdPlanData.scenes, voiceId, mood: mdMood
+    });
   } catch (err) {
     r = { error: 'Beklenmeyen hata: ' + (err.message || String(err)) };
   }

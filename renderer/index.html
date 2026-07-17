@@ -350,11 +350,21 @@
           <button id="mdGoSettings" class="btn-ghost small">Ayarlar'a git</button>
         </div>
 
-        <!-- 1) Dosya (Sıkıştır/Akıllı Kırpma ile aynı sınıflar) -->
+        <!-- 1) Kaynak: Video Kes'te yüklü kaynak (varsa, öncelikli — YouTube
+             altyazısı hızlı transkript sağlar) ya da bırakılan/seçilen dosya -->
         <div id="mdDrop" class="cmp-drop">
           <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M12 3v13"/><path d="m7 8 5-5 5 5"/></svg>
           <div class="cmp-drop-title">Bölüm dosyasını buraya bırakın</div>
           <button id="mdChooseBtn" class="btn-ghost small">ya da dosya seçin…</button>
+          <div class="cmp-check-sub">İpucu: Video Kes ekranında URL ile yüklenen video burada otomatik kaynak olur ve YouTube altyazısı varsa transkript saniyeler sürer.</div>
+        </div>
+        <div id="mdLoadedCard" class="cmp-file hidden">
+          <div class="cmp-file-text">
+            <span id="mdLoadedName" class="cmp-file-name"></span>
+            <span id="mdLoadedMeta" class="cmp-file-meta"></span>
+          </div>
+          <span id="mdTransBadge" class="ai-badge"></span>
+          <button id="mdUseFileBtn" class="btn-ghost small" title="Yüklü kaynak yerine diskten bir dosya kullan">Dosya seç…</button>
         </div>
         <div id="mdFileCard" class="cmp-file hidden">
           <div class="cmp-file-text">

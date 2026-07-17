@@ -2035,12 +2035,12 @@ async function whisperSegments(media, model, tmpDir, runner, sendStage, isCancel
   return { segments: parseSrtSegments(fs.readFileSync(outSrt, 'utf8')) };
 }
 
-// Transkript hazırlama — tüm AI araçlarının ortak ön koşulu. YouTube altyazısı
-// varsa onu indirir (saniyeler sürer, anahtar gerektirmez); yoksa sesi (gerekirse
-// tam videoyu indirmeden yalnız-ses indirmesiyle) Whisper'a verir. Sonuç
-// id+kaynak anahtarıyla önbelleğe yazılır; _ai_ dosyaları pruneCache'ten muaftır.
-ipcMain.handle('ai-transcript', async (e, opts) => {
-  aiCancelled = false;
+// Transkript edinimi — AI Araçları (ai-transcript) ve Moodlar (mood-plan) ortak
+// gövdesi. YouTube altyazısı varsa onu indirir (saniyeler sürer, anahtar
+// gerektirmez); yoksa sesi (gerekirse tam videoyu indirmeden yalnız-ses
+// indirmesiyle) Whisper'a verir. Sonuç id+kaynak anahtarıyla önbelleğe yazılır
+// ve iki ekran arasında paylaşılır; _ai_ dosyaları pruneCache'ten muaftır.
+async function ensureTranscript(opts, runner, sendStage, isCancelled) {
   const id = opts.videoId;
   if (!id) return { error: 'Önce bir video yükleyin.' };
   const cacheDir = cacheDirPath();
@@ -2063,9 +2063,9 @@ ipcMain.handle('ai-transcript', async (e, opts) => {
     let segments;
     let doc;
     if (isYt) {
-      aiSend({ stage: 'subdl' });
-      const srtPath = await fetchSubtitle(url, id, opts.lang, opts.auto, runAiProc);
-      if (aiCancelled) return { cancelled: true };
+      sendStage({ stage: 'subdl' });
+      const srtPath = await fetchSubtitle(url, id, opts.lang, opts.auto, runner);
+      if (isCancelled()) return { cancelled: true };
       if (!srtPath) return { error: 'YouTube altyazısı indirilemedi. Tekrar deneyin; sorun sürerse video altyazısız olabilir.' };
       segments = parseSrtSegments(fs.readFileSync(srtPath, 'utf8'));
       doc = { source: 'youtube', lang: opts.lang, auto: !!opts.auto, segments };
@@ -2073,17 +2073,17 @@ ipcMain.handle('ai-transcript', async (e, opts) => {
       // 1) Medya: yerel dosya / önbellekteki video / yalnız-ses indirmesi
       let media = findAiMedia(id, opts.localFile);
       if (!media) {
-        aiSend({ stage: 'download', pct: 0 });
+        sendStage({ stage: 'download', pct: 0 });
         const outBase = path.join(cacheDir, `${id}_ai_audio`);
-        const dl = await runAiProc(YTDLP, [
+        const dl = await runner(YTDLP, [
           '--no-playlist', '--newline', '--progress', '--no-warnings',
           '-f', 'bestaudio[ext=m4a]/bestaudio',
           '--ffmpeg-location', FFMPEG, '-o', `${outBase}.%(ext)s`, url
         ], (line) => {
           const m = line.match(/\[download\]\s+(\d+(?:\.\d+)?)%/);
-          if (m) aiSend({ stage: 'download', pct: parseFloat(m[1]) });
+          if (m) sendStage({ stage: 'download', pct: parseFloat(m[1]) });
         });
-        if (aiCancelled) return { cancelled: true };
+        if (isCancelled()) return { cancelled: true };
         if (dl.code !== 0) return { error: extractError(dl.stderr) };
         media = findAiMedia(id, null);
         if (!media) return { error: 'Ses indirildi ama dosya bulunamadı.' };
@@ -2091,7 +2091,7 @@ ipcMain.handle('ai-transcript', async (e, opts) => {
 
       // 2) Whisper: WAV çıkarımı + çözümleme (paylaşılan yardımcı)
       tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yt-ai-'));
-      const w = await whisperSegments(media, model, tmpDir, runAiProc, aiSend, () => aiCancelled);
+      const w = await whisperSegments(media, model, tmpDir, runner, sendStage, isCancelled);
       if (w.cancelled || w.error) return w;
       segments = w.segments;
       doc = { source: 'whisper', model, segments };
@@ -2104,6 +2104,11 @@ ipcMain.handle('ai-transcript', async (e, opts) => {
   } finally {
     cleanup();
   }
+}
+
+ipcMain.handle('ai-transcript', async (e, opts) => {
+  aiCancelled = false;
+  return ensureTranscript(opts, runAiProc, aiSend, () => aiCancelled);
 });
 
 // Segmentleri "[başlangıç-bitiş] metin" satırlarına çevirir; istenirse aralık
@@ -2459,38 +2464,42 @@ function probeDurationPrecise(file) {
   });
 }
 
-// Kurgu planı: transkript (önbellekten ya da Whisper) → Gemini → doğrulanmış
+// Kurgu planı: transkript (YouTube altyazısı hızlı yolu ya da Whisper — AI
+// Araçları ile paylaşılan ensureTranscript/önbellek) → Gemini → doğrulanmış
 // sahne listesi. Plan kullanıcıya gösterilir; montaj ayrı adımda (mood-render).
-ipcMain.handle('mood-plan', async (e, { file, videoId, mood, targetSec, model }) => {
+ipcMain.handle('mood-plan', async (e, { file, url, videoId, duration, mood, targetSec, model, source, lang, auto }) => {
   moodCancelled = false;
-  if (!file || !fs.existsSync(file)) return { error: 'Dosya bulunamadı.' };
   const moodDesc = MOODS[mood];
   if (!moodDesc) return { error: 'Geçersiz mood seçimi.' };
-  const meta = await probeMedia(file);
-  if (!meta.duration || !meta.w) return { error: 'Video bilgisi okunamadı — dosya bozuk veya desteklenmiyor olabilir.' };
 
-  // 1) Transkript — AI Araçları ile aynı önbellek anahtarı (iki ekran paylaşır)
-  const cacheDir = cacheDirPath();
-  fs.mkdirSync(cacheDir, { recursive: true });
-  const mdl = model || 'small';
-  const cached = videoId ? path.join(cacheDir, `${videoId}_ai_transcript_${mdl}.json`) : null;
-  let segments = null;
-  if (cached && fs.existsSync(cached)) {
-    try { segments = JSON.parse(fs.readFileSync(cached, 'utf8')).segments; } catch {}
+  // Sahne kelepçesi için kaynak süresi: yerel dosyada ölçülür; YouTube
+  // kaynağında (dosya henüz inmemiş olabilir) renderer'ın bildirdiği süre esastır
+  let srcDur = 0;
+  if (file && fs.existsSync(file)) {
+    const meta = await probeMedia(file);
+    if (!meta.duration || !meta.w) return { error: 'Video bilgisi okunamadı — dosya bozuk veya desteklenmiyor olabilir.' };
+    srcDur = meta.duration;
+  } else {
+    srcDur = +duration || 0;
+    if (!srcDur || !videoId) return { error: 'Dosya bulunamadı.' };
   }
-  let tmpDir = null;
-  const cleanup = () => { if (tmpDir) { try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {} } };
+
   try {
-    if (!segments || !segments.length) {
-      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yt-mood-'));
-      const w = await whisperSegments(file, mdl, tmpDir, runMoodProc, moodSend, () => moodCancelled);
-      if (w.cancelled || w.error) return w;
-      segments = w.segments;
-      if (cached && segments.length) {
-        try { fs.writeFileSync(cached, JSON.stringify({ source: 'whisper', model: mdl, segments }), 'utf8'); } catch {}
-      }
-    }
+    // 1) Transkript: YouTube altyazısı varsa saniyeler içinde (Whisper'a hiç
+    //    girilmez — kullanıcı geri bildirimi: gereksiz sistem yükü oluşmasın)
+    const tr = await ensureTranscript({
+      videoId,
+      url,
+      localFile: file || null,
+      source: source === 'youtube' ? 'youtube' : 'whisper',
+      lang,
+      auto,
+      model: model || 'small'
+    }, runMoodProc, moodSend, () => moodCancelled);
+    if (tr.cancelled || tr.error) return tr;
+    const segments = tr.segments || [];
     if (!segments.length) return { error: 'Bu videoda kullanılabilir konuşma bulunamadı.' };
+    const meta = { duration: srcDur };
 
     // 2) Gemini kurgu planı
     moodSend({ stage: 'plan' });
@@ -2536,11 +2545,9 @@ ipcMain.handle('mood-plan', async (e, { file, videoId, mood, targetSec, model })
     scenes = scenes.filter(s => s.end - s.start >= 1.5);
     if (!scenes.length) return { error: 'Kurgu planı üretilemedi — farklı bir mood veya süre deneyin.' };
     const totalSec = scenes.reduce((s, x) => s + (x.end - x.start), 0);
-    return { ok: true, title: String(d.title || ''), scenes, totalSec };
+    return { ok: true, title: String(d.title || ''), scenes, totalSec, transSource: tr.source };
   } catch (err) {
     return { error: err.message };
-  } finally {
-    cleanup();
   }
 });
 
@@ -2573,11 +2580,24 @@ function buildMoodFilterGraph(scenes, narrItems) {
   return parts.join(';');
 }
 
-// Montaj robotu: TTS (sahne başına) → filter graph → tek geçişte render.
-// GPU→CPU düşüşü smarttrim-apply'daki gibi kendi süreç takibiyle yapılır.
-ipcMain.handle('mood-render', async (e, { file, scenes, voiceId, mood }) => {
+// Montaj için video dosyası arar: önbellekteki tam video (mp4). _ai_audio
+// yalnız-ses dosyası montaja yetmez (görüntü akışı yok) — bilinçli hariç.
+function findCachedVideo(videoId) {
+  if (!videoId) return null;
+  try {
+    const dir = cacheDirPath();
+    const hit = fs.readdirSync(dir).find(f => f.startsWith(`${videoId}_`) && f.endsWith('.mp4') && !f.includes('_ai_'));
+    return hit ? path.join(dir, hit) : null;
+  } catch {
+    return null;
+  }
+}
+
+// Montaj robotu: medya çözümü (yerel dosya > önbellek videosu > tam indirme) →
+// TTS (sahne başına) → filter graph → tek geçişte render. GPU→CPU düşüşü
+// smarttrim-apply'daki gibi kendi süreç takibiyle yapılır.
+ipcMain.handle('mood-render', async (e, { file, url, videoId, scenes, voiceId, mood, outDir, baseName }) => {
   moodCancelled = false;
-  if (!file || !fs.existsSync(file)) return { error: 'Dosya bulunamadı.' };
   const valid = (Array.isArray(scenes) ? scenes : [])
     .filter(s => isFinite(+s.start) && isFinite(+s.end) && +s.end > +s.start)
     .map(s => ({ start: +s.start, end: +s.end, narration: s.narration || null }));
@@ -2585,12 +2605,42 @@ ipcMain.handle('mood-render', async (e, { file, scenes, voiceId, mood }) => {
   const narrScenes = valid.filter(s => s.narration);
   if (narrScenes.length && !voiceId) return { error: 'Anlatıcı sesi seçilmedi.' };
 
+  // Kesitlerin alınacağı video: yerel dosya > önbellekteki tam video > indir.
+  // YouTube kaynağında video daha önce indirildiyse (kesme/kuyruk işi) önbellek
+  // isabet eder; etmezse tam video bir kez önbelleğe alınır (sonraki mood
+  // denemeleri ve kesim işleri de aynı dosyayı kullanır).
+  let media = (file && fs.existsSync(file)) ? file : findCachedVideo(videoId);
+  if (!media) {
+    if (!videoId && !url) return { error: 'Dosya bulunamadı.' };
+    const cacheDir = cacheDirPath();
+    fs.mkdirSync(cacheDir, { recursive: true });
+    const cacheName = `${videoId}_best.mp4`;
+    const cacheFile = path.join(cacheDir, cacheName);
+    moodSend({ stage: 'fetch', pct: 0 });
+    const fragments = process.platform === 'win32' ? '8' : '1';
+    const dl = await runMoodProc(YTDLP, [
+      '--no-playlist', '--newline', '--progress', '--no-warnings', '-N', fragments,
+      ...qualityArgs('best'), '--ffmpeg-location', FFMPEG,
+      '-o', path.join(cacheDir, `${videoId}_best.%(ext)s`),
+      url || `https://www.youtube.com/watch?v=${videoId}`
+    ], (line) => {
+      const m = line.match(/\[download\]\s+(\d+(?:\.\d+)?)%/);
+      if (m) moodSend({ stage: 'fetch', pct: parseFloat(m[1]) });
+    });
+    if (moodCancelled) return { cancelled: true };
+    if (dl.code !== 0) return { error: extractError(dl.stderr) };
+    if (!fs.existsSync(cacheFile)) return { error: 'İndirilen dosya bulunamadı.' };
+    pruneCache(cacheDir, cacheName);
+    media = cacheFile;
+  }
+
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yt-mood-out-'));
   const cleanup = () => { try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {} };
-  const target = uniquePath(path.join(
-    path.dirname(file),
-    `${path.basename(file, path.extname(file))} [mood-${mood || 'kurgu'}].mp4`
-  ));
+  // Çıktı yeri: renderer söylerse orası (YouTube kaynağında kayıt klasörü);
+  // yoksa kaynağın yanı. Önbellekten kesilen videoda ad, video başlığından gelir.
+  const dir = (outDir && fs.existsSync(outDir)) ? outDir : path.dirname(media);
+  const base = sanitizeName(baseName || path.basename(media, path.extname(media)));
+  const target = uniquePath(path.join(dir, `${base} [mood-${mood || 'kurgu'}].mp4`));
 
   try {
     // 1) TTS: her anlatım ayrı MP3 (süreleri ofset/ducking hesabına girer)
@@ -2631,7 +2681,7 @@ ipcMain.handle('mood-render', async (e, { file, scenes, voiceId, mood }) => {
       }
     };
     const buildArgs = (hwaccel, venc) => [
-      '-y', ...hwaccel, '-i', file,
+      '-y', ...hwaccel, '-i', media,
       ...narrItems.flatMap(n => ['-i', n.file]),
       '-filter_complex', graph, '-map', '[outv]', '-map', '[outa]',
       ...venc, '-c:a', 'aac', '-b:a', '192k',
