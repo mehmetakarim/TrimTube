@@ -100,11 +100,14 @@ Saha geri bildirimi: 3 dk'lık klip ~350MB çıkabiliyor (donanım kodlayıcı b
   - _Not: "Faz 9 kuyruğunda" yerine Sıkıştır/Akıllı Kırpma'daki bağımsız-ekran deseni seçildi (kendi kanalı/iptali; kuyrukla eşzamanlı çalışabilir) — kuyruğa taşımak gereksiz bağımlılık yaratıyordu._
 - _Tuzaklar: uzun bölüm dökümü için Gemini'nin geniş context'i tercih nedeni; prompt'ta "yalnızca güçlü diyaloglu sahneler" kısıtı; maliyet kullanıcının kendi anahtarında._
 
-### Faz 16 — İleri Kurgu
-- [ ] Kelime bazlı animasyonlu altyazı: Shorts tarzı anlık büyüme/renk vurgusu (ASS karaoke)
-- [ ] Ses efekti tetikleyicileri: vurgu/sahne geçişinde swoosh/pop gömme
+### Faz 16-A — İleri Kurgu I · `v1.16.0` (kod tamam + otomatik testler geçti; saha testi bekliyor)
+- [x] Kelime bazlı animasyonlu altyazı — iki stil: **Vurgulu** (grup ekranda, konuşulan kelime sarıya dönüp büyür) ve **Pop** (kelimeler tek tek belirir); Whisper kaynağında gerçek kelime zamanları, YouTube altyazısında uzunluk-orantılı tahmin
+- [x] Ses efekti tetikleyicileri: Akıllı Kırpma birleşim noktalarına isteğe bağlı geçiş sesi (Kapalı/Whoosh/Pop — uygulamayla gelen, sentezlenmiş telifsiz efektler)
+
+### Faz 16-B — İleri Kurgu II (sırada)
 - [ ] Otomatik J-Cut / L-Cut (araştırma — kurgu motorunun üstüne)
 - [ ] B-Roll köprüsü: transkript anahtar kelimelerine Pexels/Pixabay API ile overlay önerisi (kullanıcı onaylı)
+- [ ] Moodlar'a animasyonlu altyazı stillerinin taşınması (16-A'nın devamı)
 - [ ] Yüz imzası (face-embedding) ile takip sağlamlaştırma — gürültülü ortamlar için; ihtiyaç doğarsa
 
 ### 🔧 Paralel Bakım Kulvarı *(faz sırasından bağımsız, araya alınabilir)*

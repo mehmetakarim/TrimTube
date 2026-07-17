@@ -581,6 +581,7 @@ function updateSubCard(info) {
   $('subStyles').classList.add('hidden');
   $('subModels').classList.add('hidden');
   $('subHint').classList.add('hidden');
+  $('subAnimHint').classList.add('hidden');
   if (subPick.source === 'whisper') {
     $('subCardSub').textContent = 'Altyazı yok — konuşmadan otomatik oluştur (Whisper)';
   } else if (subPick.auto) {
@@ -590,12 +591,21 @@ function updateSubCard(info) {
   }
 }
 
+// Animasyonlu stil (Vurgulu/Pop) notu: yalnız stil seçiliyken görünür; YouTube
+// kaynağında kelime zamanlarının tahmini olduğu uyarısını da içerir (Faz 16-A)
+const ANIM_SUB_STYLES = new Set(['vurgulu', 'pop']);
+function refreshSubAnimHint() {
+  const on = $('subEnable').checked && ANIM_SUB_STYLES.has(subStyleValue);
+  $('subAnimHint').classList.toggle('hidden', !on);
+}
+
 $('subEnable').addEventListener('change', () => {
   const on = $('subEnable').checked;
   const whisper = subPick && subPick.source === 'whisper';
   $('subStyles').classList.toggle('hidden', !on);
   $('subModels').classList.toggle('hidden', !on || !whisper);
   $('subHint').classList.toggle('hidden', !on || !whisper);
+  refreshSubAnimHint();
 });
 
 for (const btn of document.querySelectorAll('#subStyles .seg')) {
@@ -603,6 +613,7 @@ for (const btn of document.querySelectorAll('#subStyles .seg')) {
     document.querySelectorAll('#subStyles .seg').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     subStyleValue = btn.dataset.substyle;
+    refreshSubAnimHint();
   });
 }
 
@@ -1946,6 +1957,16 @@ document.querySelectorAll('#stModelSeg .seg').forEach(btn => {
   });
 });
 
+// Geçiş sesi (Faz 16-A): birleşim noktalarına whoosh/pop; boş değer = kapalı
+let stSfxValue = '';
+document.querySelectorAll('#stSfxSeg .seg').forEach(btn => {
+  btn.addEventListener('click', () => {
+    if (stRunning) return;
+    stSfxValue = btn.dataset.stSfx;
+    document.querySelectorAll('#stSfxSeg .seg').forEach(b => b.classList.toggle('active', b === btn));
+  });
+});
+
 const ST_TYPE_LABEL = { silence: 'Sessizlik', filler: 'Dolgu kelime' };
 const ST_TYPE_ICON = { silence: '🔇', filler: '💬' };
 
@@ -2059,7 +2080,7 @@ $('stApplyBtn').addEventListener('click', async () => {
 
   let r;
   try {
-    r = await window.api.smartTrimApply({ file: stFile, duration: stDuration, cuts });
+    r = await window.api.smartTrimApply({ file: stFile, duration: stDuration, cuts, sfx: stSfxValue || null });
   } catch (err) {
     r = { error: 'Beklenmeyen hata: ' + (err.message || String(err)) };
   }

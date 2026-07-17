@@ -188,6 +188,13 @@
             <button class="seg" data-st-model="medium">En iyi</button>
           </div>
           <label class="cmp-check"><input type="checkbox" id="stFillerCheck" checked> Temiz dolgu seslerini de temizle <span class="cmp-check-sub">(ıı, eee, hmm…)</span></label>
+          <!-- Faz 16-A: kesim birleşim noktalarına isteğe bağlı geçiş sesi -->
+          <span class="label">Geçiş sesi</span>
+          <div class="segmented" id="stSfxSeg">
+            <button class="seg active" data-st-sfx="">Kapalı</button>
+            <button class="seg" data-st-sfx="whoosh">Whoosh</button>
+            <button class="seg" data-st-sfx="pop">Pop</button>
+          </div>
           <div class="setting-note">İlk kullanımda ses tanıma modeli indirilir. Uzun videolarda birkaç dakika sürebilir.</div>
         </div>
 
@@ -761,6 +768,12 @@
             <button class="seg active" data-substyle="klasik">Klasik</button>
             <button class="seg" data-substyle="kutulu">Kutulu</button>
             <button class="seg" data-substyle="dolgun">Dolgun</button>
+            <button class="seg" data-substyle="vurgulu">Vurgulu</button>
+            <button class="seg" data-substyle="pop">Pop</button>
+          </div>
+          <!-- Faz 16-A: animasyonlu stil + YouTube kaynağında kelime zamanı tahminidir -->
+          <div id="subAnimHint" class="track-hint hidden">
+            <b>Vurgulu/Pop</b>: konuşulan kelime canlı vurgulanır. YouTube altyazısında kelime zamanları tahminidir; en isabetli eşleme Whisper (otomatik oluşturma) kaynağındadır.
           </div>
           <!-- Yalnızca Whisper (otomatik oluşturma) kaynağında görünür -->
           <div id="subModels" class="segmented sub-styles hidden">

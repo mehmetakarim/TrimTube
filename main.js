@@ -762,14 +762,19 @@ async function fetchSubtitle(url, videoId, lang, isAuto, runner = runProc) {
 // aralığın sesi çıkarıldığı için üretilen SRT doğrudan klip başlangıcına göre
 // (0'dan) zamanlanır — shiftSrt gerekmez. Sonuç, id+model+aralık anahtarıyla
 // önbelleğe alınır (aynı klip tekrar işlenirse yeniden çözümleme yapılmaz).
-async function transcribeSubtitle(mediaFile, videoId, model, trim, clipSec, tmpDir) {
+// wantWords (Faz 16): animasyonlu altyazı stilleri kelime düzeyi zaman damgası
+// ister — subtitle.py'a --words-out da verilir, sonuç SRT'nin yanında ayrıca
+// önbellenir. SRT önbelleği varken kelime önbelleği yoksa (klip daha önce
+// statik stille işlendi) whisper bir kez yeniden çalışır.
+async function transcribeSubtitle(mediaFile, videoId, model, trim, clipSec, tmpDir, wantWords) {
   const cacheDir = path.join(app.getPath('userData'), 'cache');
   fs.mkdirSync(cacheDir, { recursive: true });
   const rangeKey = trim ? `${Math.round(toSec(trim.start))}_${Math.round(clipSec)}` : 'full';
   const cached = path.join(cacheDir, `${videoId}_sub_whisper_${model}_${rangeKey}.srt`);
-  if (fs.existsSync(cached)) {
+  const cachedWords = path.join(cacheDir, `${videoId}_sub_whisperwords_${model}_${rangeKey}.json`);
+  if (fs.existsSync(cached) && (!wantWords || fs.existsSync(cachedWords))) {
     win.webContents.send('log', 'Otomatik altyazı önbellekten alındı.');
-    return { path: cached };
+    return { path: cached, wordsPath: fs.existsSync(cachedWords) ? cachedWords : null };
   }
 
   // 1) Kesim aralığının sesini 16 kHz mono WAV'a çıkar (whisper'ın beklediği biçim;
@@ -791,9 +796,11 @@ async function transcribeSubtitle(mediaFile, videoId, model, trim, clipSec, tmpD
   const modelDir = path.join(app.getPath('userData'), 'whisper-models');
   fs.mkdirSync(modelDir, { recursive: true });
   const outSrt = path.join(tmpDir, 'whisper.srt');
+  const outWords = path.join(tmpDir, 'whisper_words.json');
   const args = [
     path.join(__dirname, 'subtitle.py'), audioFile,
-    '--out', outSrt, '--model', model, '--model-dir', modelDir
+    '--out', outSrt, '--model', model, '--model-dir', modelDir,
+    ...(wantWords ? ['--words-out', outWords] : [])
   ];
   const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
   let errLine = '';
@@ -814,7 +821,10 @@ async function transcribeSubtitle(mediaFile, videoId, model, trim, clipSec, tmpD
     return { error: 'Otomatik altyazı başarısız: ' + msg };
   }
   try { fs.copyFileSync(outSrt, cached); } catch {}
-  return { path: cached };
+  if (wantWords && fs.existsSync(outWords)) {
+    try { fs.copyFileSync(outWords, cachedWords); } catch {}
+  }
+  return { path: cached, wordsPath: fs.existsSync(cachedWords) ? cachedWords : null };
 }
 
 // yt-dlp indirme argümanları (kalite seçimine göre)
@@ -947,6 +957,126 @@ Dialogue: 0,0:00:00.00,${end},Baslik,,0,0,0,,${safe}
   return 'title.ass'; // cwd=tmpDir ile göreli kullanılacak
 }
 
+// --- Faz 16-A: Kelime bazlı animasyonlu altyazı ---
+// İki stil: 'vurgulu' (grup ekranda, konuşulan kelime sarıya dönüp büyür) ve
+// 'pop' (kelimeler tek tek belirir). Kelime zamanları Whisper'dan (kusursuz)
+// veya YouTube SRT bloklarının uzunluk-orantılı bölünmesinden (tahmini) gelir.
+const ANIMATED_SUB_STYLES = new Set(['vurgulu', 'pop']);
+
+// Klip-göreli SRT içeriğini kelime çizelgesine çevirir: her bloğun süresi
+// kelimelere uzunluk-orantılı paylaştırılır (kelime ağırlığı = harf + sabit —
+// kısa kelimeler de asgari süre alır).
+function srtToWords(content) {
+  const toSec2 = (h, m, s, ms) => (+h) * 3600 + (+m) * 60 + (+s) + (+ms) / 1000;
+  const words = [];
+  for (const block of content.split(/\r?\n\r?\n/)) {
+    const m = block.match(/(\d{2}):(\d{2}):(\d{2})[,.](\d{3})\s*-->\s*(\d{2}):(\d{2}):(\d{2})[,.](\d{3})/);
+    if (!m) continue;
+    const start = toSec2(m[1], m[2], m[3], m[4]);
+    const end = toSec2(m[5], m[6], m[7], m[8]);
+    const lines = block.split(/\r?\n/);
+    const text = lines.slice(lines.findIndex(l => l.includes('-->')) + 1).join(' ')
+      .replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    if (!text || end <= start) continue;
+    const toks = text.split(' ').filter(Boolean);
+    const weights = toks.map(t => t.length + 2);
+    const totalW = weights.reduce((a, b) => a + b, 0);
+    let t = start;
+    toks.forEach((tok, i) => {
+      const dur = (end - start) * (weights[i] / totalW);
+      words.push({ start: +t.toFixed(3), end: +(t + dur).toFixed(3), word: tok });
+      t += dur;
+    });
+  }
+  return words;
+}
+
+// ASS metin kaçışı: süslü parantez ve ters bölü stil etiketi başlatır
+function assEscape(s) {
+  return String(s).replace(/\\/g, '').replace(/[{}]/g, '');
+}
+
+// Kelimeleri altyazı gruplarına böler: ≤4 kelime, ≤2.5 sn pencere; 1.2 sn'den
+// uzun konuşma arası yeni grup başlatır (Shorts altyazı konvansiyonu).
+function groupWords(words) {
+  const groups = [];
+  let cur = null;
+  for (const w of words) {
+    const tooLong = cur && (cur.words.length >= 4 || w.end - cur.start > 2.5 || w.start - cur.end > 1.2);
+    if (!cur || tooLong) {
+      cur = { start: w.start, end: w.end, words: [w] };
+      groups.push(cur);
+    } else {
+      cur.words.push(w);
+      cur.end = w.end;
+    }
+  }
+  return groups;
+}
+
+// Animasyonlu altyazı ASS dosyası üretir; dosya adı cwd=tmpDir ile göreli
+// kullanılır. marginV, format tanımlarındaki libass PlayRes(288) ölçeğinden
+// gerçek çıktı yüksekliğine ölçeklenir (ASS'ın PlayRes'i = çıktı boyutu).
+function writeKaraokeAss(dir, words, styleName, dims, marginV288, fname) {
+  const fmtT = (sec) => {
+    const cs = Math.max(0, Math.round(sec * 100));
+    const h = Math.floor(cs / 360000);
+    const m = Math.floor((cs % 360000) / 6000);
+    const s = Math.floor((cs % 6000) / 100);
+    return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${String(cs % 100).padStart(2, '0')}`;
+  };
+  const marginV = Math.round((marginV288 / 288) * dims.h);
+  const isPop = styleName === 'pop';
+  const fontSize = Math.round(dims.h * (isPop ? 0.058 : 0.042));
+  const outline = Math.max(2, Math.round(dims.h * 0.004));
+  // Renkler ASS BGR: beyaz ana, sarı vurgu
+  const HIGHLIGHT = '\\1c&H00E5FF&';
+
+  const events = [];
+  const groups = groupWords(words);
+  for (const g of groups) {
+    if (isPop) {
+      // Kelime tek başına belirir; bir sonraki kelimeye kadar (veya kısa payla) kalır
+      g.words.forEach((w, i) => {
+        const next = g.words[i + 1];
+        const end = next ? next.start : Math.min(g.end + 0.35, w.end + 0.8);
+        if (end <= w.start) return;
+        const text = `{\\fscx55\\fscy55\\t(0,90,\\fscx100,\\fscy100)}${assEscape(w.word)}`;
+        events.push(`Dialogue: 0,${fmtT(w.start)},${fmtT(end)},Anim,,0,0,0,,${text}`);
+      });
+    } else {
+      // Grup sabit; her kelime aralığında aktif kelime sarı + hafif büyüme
+      g.words.forEach((w, i) => {
+        const next = g.words[i + 1];
+        const end = next ? next.start : g.end + 0.15;
+        if (end <= w.start) return;
+        const text = g.words.map((gw, j) => j === i
+          ? `{${HIGHLIGHT}\\t(0,80,\\fscx112,\\fscy112)}${assEscape(gw.word)}{\\r}`
+          : assEscape(gw.word)
+        ).join(' ');
+        events.push(`Dialogue: 0,${fmtT(w.start)},${fmtT(end)},Anim,,0,0,0,,${text}`);
+      });
+    }
+  }
+
+  const ass = `[Script Info]
+ScriptType: v4.00+
+PlayResX: ${dims.w}
+PlayResY: ${dims.h}
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, OutlineColour, BackColour, Bold, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV
+Style: Anim, Arial Black, ${fontSize}, &H00FFFFFF, &H00000000, &H00000000, 1, 1, ${outline}, 0, 2, 60, 60, ${marginV}
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+${events.join('\n')}
+`;
+  const p = path.join(dir, fname);
+  fs.writeFileSync(p, ass, 'utf8');
+  return fname;
+}
+
 // Çıktı formatları: her biri ayrı bir dosya üretir. Kişi takibi yalnızca
 // 9:16 çıktısına uygulanır (takip verisi o kırpma genişliği için üretilir);
 // 1:1 ve orijinal her zaman merkez kadrajdır.
@@ -1040,21 +1170,27 @@ ipcMain.handle('download', async (e, opts) => {
   const cleanupTmp = () => { if (tmpDir) { try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {} } };
 
   // Altyazı hazırsa format bazında MarginV ile filtre üretir (dikeyde daha yüksek konum)
-  let subStyleBase = null;
+  let subStyleBase = null;   // klasik/kutulu/dolgun → SRT + force_style yolu
+  let subAnimWords = null;   // vurgulu/pop → kelime çizelgesi + ASS yolu (Faz 16-A)
   if (wantSubs) {
     win.webContents.send('log', 'Altyazı hazırlanıyor…');
     const isWhisper = subtitle.source === 'whisper';
+    const wantAnim = ANIMATED_SUB_STYLES.has(subtitle.style);
     // Whisper: kesim aralığının sesinden üretir; sonuç zaten klip başına göre
     // zamanlıdır (kaydırma gerekmez). YouTube altyazısı: tam videonunkini indirip
     // kesim penceresine kaydırır.
     let content = null;
+    let whisperWords = null;
     if (isWhisper) {
       win.webContents.send('phase', 'subtitle');
       win.webContents.send('progress', 0);
-      const res = await transcribeSubtitle(cacheFile, id, subtitle.model || 'small', trim, clipSec, tmpDir);
+      const res = await transcribeSubtitle(cacheFile, id, subtitle.model || 'small', trim, clipSec, tmpDir, wantAnim);
       if (cancelRequested || res.cancelled) { cleanupTmp(); return { ok: false, cancelled: true }; }
       if (res.error) { cleanupTmp(); return { ok: false, error: res.error }; }
       content = fs.readFileSync(res.path, 'utf8'); // zaten klip-göreli
+      if (wantAnim && res.wordsPath) {
+        try { whisperWords = (JSON.parse(fs.readFileSync(res.wordsPath, 'utf8')).words || []); } catch {}
+      }
     } else {
       const sub = await fetchSubtitle(url, id, subtitle.lang, subtitle.auto);
       if (cancelRequested) { cleanupTmp(); return { ok: false, cancelled: true }; }
@@ -1064,8 +1200,18 @@ ipcMain.handle('download', async (e, opts) => {
       }
     }
     if (content && content.trim()) {
-      fs.writeFileSync(path.join(tmpDir, 'subs.srt'), content, 'utf8');
-      subStyleBase = SUBTITLE_STYLES[subtitle.style] || SUBTITLE_STYLES.klasik;
+      if (wantAnim) {
+        // Kelime kaynağı: Whisper'dan gerçek zamanlar; YouTube'da SRT bloklarının
+        // uzunluk-orantılı bölünmesi (tahmini ama akıcı)
+        subAnimWords = (whisperWords && whisperWords.length) ? whisperWords : srtToWords(content);
+        if (!subAnimWords.length) {
+          win.webContents.send('log', 'Kelime zamanları üretilemedi, altyazısız devam ediliyor.');
+          subAnimWords = null;
+        }
+      } else {
+        fs.writeFileSync(path.join(tmpDir, 'subs.srt'), content, 'utf8');
+        subStyleBase = SUBTITLE_STYLES[subtitle.style] || SUBTITLE_STYLES.klasik;
+      }
     } else if (isWhisper) {
       win.webContents.send('log', 'Seçilen aralıkta konuşma bulunmuyor.');
     } else if (content !== null) {
@@ -1080,7 +1226,7 @@ ipcMain.handle('download', async (e, opts) => {
 
   // Ortak çıktı adı parçaları
   const baseSuffix = trim ? ` [${trim.start.replace(/:/g, '.')}-${trim.end.replace(/:/g, '.')}]` : '';
-  const subSuffix = subStyleBase ? ' [altyazılı]' : '';
+  const subSuffix = (subStyleBase || subAnimWords) ? ' [altyazılı]' : '';
   const brandSuffix = (watermark || titleText) ? ' [marka]' : '';
   const targetFor = (fmt, tracked) => {
     // GIF'e altyazı/marka uygulanmadığından adına da o etiketler girmez
@@ -1214,7 +1360,7 @@ ipcMain.handle('download', async (e, opts) => {
         continue;
       }
 
-      const outDims = (watermark || titleText) ? await outDimsFor(fmt) : null;
+      const outDims = (watermark || titleText || subAnimWords) ? await outDimsFor(fmt) : null;
 
       // Temel görüntü filtre zinciri: kadraj → altyazı → başlık (hepsi [0:v] üzerinde)
       const baseParts = [];
@@ -1223,7 +1369,11 @@ ipcMain.handle('download', async (e, opts) => {
       } else if (def.vf) {
         baseParts.push(def.vf);
       }
-      const sf = subFilterFor(def.marginV);
+      // Animasyonlu stil: format başına ASS üretilir (PlayRes = çıktı boyutu,
+      // MarginV formata göre ölçekli); statik stiller SRT + force_style yolunda
+      const sf = subAnimWords
+        ? 'subtitles=' + writeKaraokeAss(tmpDir, subAnimWords, subtitle.style, outDims, def.marginV, `anim_${fmt}.ass`)
+        : subFilterFor(def.marginV);
       if (sf) baseParts.push(sf);
       if (titleText) {
         writeTitleAss(tmpDir, titleText, outDims, 3);
@@ -1759,7 +1909,7 @@ function computeKeepSegments(cuts, duration) {
   return cleaned.filter(k => k.end - k.start >= 0.02);
 }
 
-ipcMain.handle('smarttrim-apply', async (e, { file, duration, cuts }) => {
+ipcMain.handle('smarttrim-apply', async (e, { file, duration, cuts, sfx }) => {
   smartTrimCancelled = false;
   if (!file || !fs.existsSync(file)) return { error: 'Dosya bulunamadı.' };
   // Savunmacı: analiz sırasında ölçülen süre yerine dosyayı yeniden ölçmeyi
@@ -1808,11 +1958,44 @@ ipcMain.handle('smarttrim-apply', async (e, { file, duration, cuts }) => {
     parts.push(`[0:a]atrim=${k.start}:${k.end},asetpts=PTS-STARTPTS[a${i}]`);
     labels.push(`[v${i}][a${i}]`);
   });
-  const filter = `${parts.join(';')};${labels.join('')}concat=n=${keep.length}:v=1:a=1[outv][outa]`;
+  let filter = `${parts.join(';')};${labels.join('')}concat=n=${keep.length}:v=1:a=1[outv][outa]`;
+  let audioLabel = '[outa]';
+
+  // Faz 16-A: geçiş SFX — her birleşim noktasına whoosh/pop bindirilir.
+  // Efekt dosyası asar içinden okunamayacağı (ffmpeg dış süreç) için tmp'e
+  // kopyalanır; girdi cwd=tmpDir üzerinden göreli 'sfx.wav' olarak verilir.
+  const joins = [];
+  {
+    let acc = 0;
+    for (let i = 0; i < keep.length - 1; i++) {
+      acc += keep[i].end - keep[i].start;
+      joins.push(acc);
+    }
+  }
+  let sfxInput = [];
+  if (sfx && ['whoosh', 'pop'].includes(sfx) && joins.length) {
+    if (joins.length > 60) {
+      win.webContents.send('log', `Geçiş sesi atlandı: ${joins.length} birleşim noktası çok fazla.`);
+    } else {
+      const src = path.join(__dirname, 'assets', 'sfx', `${sfx}.wav`);
+      try {
+        fs.copyFileSync(src, path.join(tmpDir, 'sfx.wav'));
+        sfxInput = ['-i', 'sfx.wav'];
+        const sfxParts = [`[1:a]aformat=sample_rates=48000:channel_layouts=stereo,asplit=${joins.length}${joins.map((_, i) => `[sf${i}]`).join('')}`];
+        joins.forEach((t, i) => {
+          sfxParts.push(`[sf${i}]adelay=${Math.round(t * 1000)}:all=1,volume=0.5[sd${i}]`);
+        });
+        filter += `;${sfxParts.join(';')};[outa]${joins.map((_, i) => `[sd${i}]`).join('')}amix=inputs=${joins.length + 1}:duration=first:normalize=0[outaMix]`;
+        audioLabel = '[outaMix]';
+      } catch {
+        win.webContents.send('log', 'Geçiş sesi dosyası okunamadı, sessiz devam ediliyor.');
+      }
+    }
+  }
 
   const buildArgs = (hwaccel, venc) => [
-    '-y', ...hwaccel, '-i', file,
-    '-filter_complex', filter, '-map', '[outv]', '-map', '[outa]',
+    '-y', ...hwaccel, '-i', file, ...sfxInput,
+    '-filter_complex', filter, '-map', '[outv]', '-map', audioLabel,
     ...venc, '-c:a', 'aac', '-b:a', '192k',
     '-progress', 'pipe:1', '-nostats', target
   ];

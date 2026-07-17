@@ -874,6 +874,9 @@ button:disabled { opacity: 0.45; cursor: default; }
 .seg:disabled { opacity: 0.4; }
 
 .sub-styles { margin-top: 8px; }
+/* 5 stilli satır (Faz 16-A: + Vurgulu/Pop) dar panelde taşarsa alt satıra sarar */
+#subStyles { flex-wrap: wrap; }
+#subStyles .seg { flex: 1 1 30%; min-width: 30%; }
 
 /* ---- Marka (logo/watermark + başlık) ---- */
 #wmControls { margin-top: 10px; display: flex; flex-direction: column; gap: 10px; }
