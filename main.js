@@ -46,7 +46,8 @@ const SETTINGS_DEFAULTS = {
   moodVoice: null,        // Faz 15: son seçilen ElevenLabs sesi (voice_id)
   moodTtsProvider: 'gemini', // Faz 15: TTS sağlayıcısı — gemini (varsayılan, ek üyelik gerekmez) | eleven
   moodVoiceGemini: 'Kore', // Faz 15: son seçilen Google (Gemini) sesi
-  moodSubtitle: false     // Faz 15: kurguya altyazı gömme tercihi
+  moodSubtitle: false,    // Faz 15: kurguya altyazı gömme tercihi
+  pexelsKey: ''           // Faz 16-B: Pexels API anahtarı (B-Roll stok videoları)
 };
 let settingsCache = null;
 function settingsPath() { return path.join(app.getPath('userData'), 'settings.json'); }
@@ -1909,7 +1910,7 @@ function computeKeepSegments(cuts, duration) {
   return cleaned.filter(k => k.end - k.start >= 0.02);
 }
 
-ipcMain.handle('smarttrim-apply', async (e, { file, duration, cuts, sfx }) => {
+ipcMain.handle('smarttrim-apply', async (e, { file, duration, cuts, sfx, jcut }) => {
   smartTrimCancelled = false;
   if (!file || !fs.existsSync(file)) return { error: 'Dosya bulunamadı.' };
   // Savunmacı: analiz sırasında ölçülen süre yerine dosyayı yeniden ölçmeyi
@@ -1951,14 +1952,34 @@ ipcMain.handle('smarttrim-apply', async (e, { file, duration, cuts, sfx }) => {
   // Dosyasız, kare-hassas concat: her keep segmenti kendi trim/atrim'ini alır,
   // ardından tek concat düğümünde birleşir (mevcut watermark overlay zincirinde
   // de kanıtlanmış hwaccel+filter_complex kombinasyonu — bkz. format döngüsü).
+  //
+  // J-cut (Faz 16-B, deneysel): video ve ses zaman çizelgeleri ayrışır — her
+  // birleşimde sonraki segmentin SESİ, görüntü geçişinden `lead` kadar önce
+  // başlar (aEnd_j = end_j − lead, aStart_{j+1} = start_{j+1} − lead). Lead bir
+  // segmentin sesinden çıkıp diğerine eklendiği için toplam süre ve A/V senkron
+  // matematiksel olarak korunur. Komşu segmentlerden biri kısaysa (<1.2 sn) o
+  // birleşimde lead=0 (segment erimesin).
+  const JCUT_LEAD = 0.35;
+  const useJcut = !!jcut && keep.length > 1;
+  const aBounds = keep.map(k => ({ start: k.start, end: k.end }));
+  if (useJcut) {
+    for (let j = 0; j < keep.length - 1; j++) {
+      const okLead = (keep[j].end - keep[j].start) >= 1.2 && (keep[j + 1].end - keep[j + 1].start) >= 1.2;
+      const lead = okLead ? JCUT_LEAD : 0;
+      aBounds[j].end = keep[j].end - lead;
+      aBounds[j + 1].start = keep[j + 1].start - lead;
+    }
+  }
   const parts = [];
-  const labels = [];
+  const vLabels = [];
+  const aLabels = [];
   keep.forEach((k, i) => {
     parts.push(`[0:v]trim=${k.start}:${k.end},setpts=PTS-STARTPTS[v${i}]`);
-    parts.push(`[0:a]atrim=${k.start}:${k.end},asetpts=PTS-STARTPTS[a${i}]`);
-    labels.push(`[v${i}][a${i}]`);
+    parts.push(`[0:a]atrim=${aBounds[i].start}:${aBounds[i].end},asetpts=PTS-STARTPTS[a${i}]`);
+    vLabels.push(`[v${i}]`);
+    aLabels.push(`[a${i}]`);
   });
-  let filter = `${parts.join(';')};${labels.join('')}concat=n=${keep.length}:v=1:a=1[outv][outa]`;
+  let filter = `${parts.join(';')};${vLabels.join('')}concat=n=${keep.length}:v=1:a=0[outv];${aLabels.join('')}concat=n=${keep.length}:v=0:a=1[outa]`;
   let audioLabel = '[outa]';
 
   // Faz 16-A: geçiş SFX — her birleşim noktasına whoosh/pop bindirilir.
@@ -2146,6 +2167,7 @@ ipcMain.handle('ai-test-key', async (e, key) => {
 });
 
 ipcMain.handle('open-gemini-key-page', () => shell.openExternal('https://aistudio.google.com/apikey'));
+ipcMain.handle('open-pexels-key-page', () => shell.openExternal('https://www.pexels.com/api/'));
 
 // SRT içeriğini {start, end, text} segment dizisine çevirir. YouTube otomatik
 // (ASR) altyazılarında birebir yinelenen bloklar tek segmentte birleştirilir.
@@ -2986,9 +3008,21 @@ ipcMain.handle('mood-render', async (e, { file, url, videoId, scenes, voiceId, t
       if (tr.segments && tr.segments.length) {
         const srt = buildSceneSrt(tr.segments, valid);
         if (srt) {
-          fs.writeFileSync(path.join(tmpDir, 'subs.srt'), srt, 'utf8');
-          const styleBase = SUBTITLE_STYLES[subtitle.style] || SUBTITLE_STYLES.kutulu;
-          subFilter = `subtitles=subs.srt:force_style='${styleBase},${MOOD_SUB_MARGINS}'`;
+          if (ANIMATED_SUB_STYLES.has(subtitle.style)) {
+            // Faz 16-B: animasyonlu stiller Moodlar'da da — sahne-kaydırmalı SRT
+            // kelime çizelgesine çevrilir (segment bazlı orantısal tahmin; Moodlar
+            // transkriptinde kelime zamanı yok), ASS kaynak boyutunda üretilir.
+            // MarginV=66 (288 ölçeği) = MOOD_SUB_MARGINS'ın güvenli alan değeri.
+            const words = srtToWords(srt);
+            const dims = await probeDims(media);
+            if (words.length) {
+              subFilter = 'subtitles=' + writeKaraokeAss(tmpDir, words, subtitle.style, dims, 66, 'anim_mood.ass');
+            }
+          } else {
+            fs.writeFileSync(path.join(tmpDir, 'subs.srt'), srt, 'utf8');
+            const styleBase = SUBTITLE_STYLES[subtitle.style] || SUBTITLE_STYLES.kutulu;
+            subFilter = `subtitles=subs.srt:force_style='${styleBase},${MOOD_SUB_MARGINS}'`;
+          }
         }
       } else {
         console.error('[mood] altyazı için transkript alınamadı, altyazısız sürülüyor:', tr.error || '');
@@ -3033,6 +3067,253 @@ ipcMain.handle('mood-render', async (e, { file, url, videoId, scenes, voiceId, t
     }
     cleanup();
     return { ok: true, outFile: target, duration: totalSec, narrated: narrItems.length };
+  } catch (err) {
+    try { fs.rmSync(target, { force: true }); } catch {}
+    cleanup();
+    return { error: err.message };
+  }
+});
+
+// --- Faz 16-B: B-Roll köprüsü (Pexels) ---
+// Konuşma videosuna görsel çeşitlilik: transkriptten Gemini ile "görsel an"lar
+// çıkarılır, her biri için Pexels'tan stok video önerilir; kullanıcı onayladıklarını
+// seçer, klipler indirilip tam kare kısa kesitler (özgün ses sürer) olarak gömülür.
+// Kendi süreç/istek takibi (broll*) — diğer akışlardan tamamen bağımsız.
+let brollProc = null;
+let brollCancelled = false;
+let brollAbort = null; // süren fetch (Gemini/Pexels/indirme) iptali
+
+function runBrollProc(cmd, args, onLine, cwd) {
+  return new Promise((resolve) => {
+    const proc = spawn(cmd, args, { windowsHide: true, env: procEnv, cwd });
+    brollProc = proc;
+    const dec = new StringDecoder('utf8');
+    let buf = '';
+    let errBuf = '';
+    proc.stdout.on('data', (d) => {
+      buf += dec.write(d);
+      const lines = buf.split(/\r?\n/);
+      buf = lines.pop();
+      lines.forEach((l) => { if (l.trim()) onLine(l); });
+    });
+    proc.stderr.on('data', (d) => { errBuf += d.toString('utf8'); });
+    proc.on('close', (code) => { if (brollProc === proc) brollProc = null; resolve({ code, stderr: errBuf }); });
+    proc.on('error', (err) => { if (brollProc === proc) brollProc = null; resolve({ code: -1, stderr: err.message }); });
+  });
+}
+
+ipcMain.handle('broll-cancel', () => {
+  brollCancelled = true;
+  if (brollProc) {
+    if (process.platform === 'win32') {
+      spawn('taskkill', ['/pid', String(brollProc.pid), '/T', '/F'], { windowsHide: true });
+    } else {
+      try { brollProc.kill(); } catch {}
+    }
+  }
+  if (brollAbort) { try { brollAbort.abort(); } catch {} }
+});
+
+function brollSend(p) { try { win.webContents.send('broll-progress', p); } catch {} }
+
+function pexelsErrorMessage(status) {
+  if (status === 401 || status === 403) return 'Pexels API anahtarı geçersiz. Ayarlar ekranından kontrol edin.';
+  if (status === 429) return 'Pexels istek limiti doldu — bir süre sonra tekrar deneyin.';
+  if (status >= 500) return 'Pexels hizmetinde geçici bir sorun var, sonra tekrar deneyin.';
+  return `Pexels isteği başarısız (HTTP ${status}).`;
+}
+
+// Pexels video araması: en uygun (≤1080p, mp4) dosya + küçük görsel döner
+async function pexelsSearch(query, key) {
+  const ctrl = new AbortController();
+  brollAbort = ctrl;
+  const timer = setTimeout(() => { try { ctrl.abort(); } catch {} }, 30000);
+  try {
+    const res = await fetch(
+      `https://api.pexels.com/videos/search?query=${encodeURIComponent(query)}&per_page=3&orientation=landscape`,
+      { headers: { Authorization: key }, signal: ctrl.signal }
+    );
+    if (!res.ok) return { error: pexelsErrorMessage(res.status) };
+    const data = await res.json();
+    for (const v of (data.videos || [])) {
+      const files = (v.video_files || [])
+        .filter(f => f.file_type === 'video/mp4' && f.height && f.height <= 1080)
+        .sort((a, b) => (b.height || 0) - (a.height || 0));
+      if (files.length) {
+        return { ok: true, videoUrl: files[0].link, thumb: v.image, videoDur: v.duration, pexelsUrl: v.url };
+      }
+    }
+    return { ok: true, videoUrl: null }; // sonuç yok — aday atlanır
+  } catch (err) {
+    return { error: err.name === 'AbortError' ? 'İstek zaman aşımına uğradı.' : ('Pexels erişilemedi: ' + err.message) };
+  } finally {
+    clearTimeout(timer);
+    if (brollAbort === ctrl) brollAbort = null;
+  }
+}
+
+ipcMain.handle('broll-analyze', async (e, { file, videoId, model }) => {
+  brollCancelled = false;
+  if (!file || !fs.existsSync(file)) return { error: 'Dosya bulunamadı.' };
+  const key = (loadSettings().pexelsKey || '').trim();
+  if (!key) return { error: 'Pexels API anahtarı girilmemiş. Ayarlar ekranından ücretsiz bir anahtar ekleyin (pexels.com/api).' };
+  const meta = await probeMedia(file);
+  if (!meta.duration || !meta.w) return { error: 'Video bilgisi okunamadı — dosya bozuk veya desteklenmiyor olabilir.' };
+
+  try {
+    // 1) Transkript (ortak gövde + önbellek — AI Araçları/Moodlar ile paylaşılır)
+    const tr = await ensureTranscript(
+      { videoId, localFile: file, source: 'whisper', model: model || 'small' },
+      runBrollProc, brollSend, () => brollCancelled
+    );
+    if (brollCancelled || tr.cancelled) return { cancelled: true };
+    if (tr.error) return { error: tr.error };
+    const segments = tr.segments || [];
+    if (!segments.length) return { error: 'Bu videoda kullanılabilir konuşma bulunamadı.' };
+
+    // 2) Gemini: görsel anlar (TR anahtar kelime + EN stok arama sorgusu + saniye)
+    brollSend({ stage: 'gemini' });
+    const t = aiTranscriptBlock(segments, null);
+    const prompt = [
+      'Sen bir video editörü asistanısın. Aşağıda konuşma videosunun zaman damgalı',
+      'transkripti var ("[başlangıç-bitiş] metin", saniye cinsinden).',
+      'Görev: izleyiciyi ekranda tutmak için araya stok görüntü (B-Roll) girilecek',
+      '5-8 "görsel an" seç. Her an için: somut ve GÖRSELLEŞTİRİLEBİLİR bir kavram seç',
+      '(soyut kavramları alma), o kavramın konuşulduğu saniyeyi ver.',
+      'Kurallar: anlar birbirinden en az 6 saniye uzak olsun; video sınırları içinde kalsın.',
+      'Yalnızca şu JSON şemasıyla yanıt ver:',
+      '{"moments":[{"time":sayı,"keyword":"Türkçe kavram","query":"english stock search query"}]}',
+      '',
+      'Transkript:',
+      t.text
+    ].join('\n');
+    const r = await geminiRequest(prompt, 0.4, (c) => { brollAbort = c; }, () => brollCancelled);
+    if (r.error || r.cancelled) return r;
+    let moments = (Array.isArray((r.data || {}).moments) ? r.data.moments : [])
+      .filter(m => isFinite(+m.time) && m.query)
+      .map(m => ({ time: Math.max(0, Math.min(meta.duration - 3, +(+m.time).toFixed(1))), keyword: String(m.keyword || m.query).slice(0, 60), query: String(m.query).slice(0, 80) }))
+      .sort((a, b) => a.time - b.time)
+      .slice(0, 8);
+    // ≥6 sn aralık zorla (Gemini'ye rağmen)
+    moments = moments.filter((m, i) => i === 0 || m.time - moments[i - 1].time >= 6);
+    if (!moments.length) return { error: 'Görsel an bulunamadı — video çok kısa olabilir.' };
+
+    // 3) Pexels aramaları (sıralı — istek limiti nazikliği)
+    const items = [];
+    for (let i = 0; i < moments.length; i++) {
+      if (brollCancelled) return { cancelled: true };
+      brollSend({ stage: 'search', pct: (i / moments.length) * 100 });
+      const s = await pexelsSearch(moments[i].query, key);
+      if (s.error) return { error: s.error }; // anahtar/limit sorunu — tümünü kes
+      if (s.videoUrl) {
+        items.push({ id: i, ...moments[i], thumb: s.thumb, videoUrl: s.videoUrl, videoDur: s.videoDur });
+      }
+    }
+    if (!items.length) return { error: 'Pexels\'ta uygun stok video bulunamadı — farklı bir video deneyin.' };
+    return { ok: true, duration: meta.duration, items };
+  } catch (err) {
+    return { error: err.message };
+  }
+});
+
+ipcMain.handle('broll-render', async (e, { file, items }) => {
+  brollCancelled = false;
+  if (!file || !fs.existsSync(file)) return { error: 'Dosya bulunamadı.' };
+  const meta = await probeMedia(file);
+  if (!meta.duration || !meta.w) return { error: 'Video bilgisi okunamadı.' };
+  const CLIP = 2.5; // saniye — tam kare b-roll kesit uzunluğu
+  // Kelepçe + örtüşme temizliği (savunmacı — analizden gelenler zaten aralıklı)
+  const picks = (Array.isArray(items) ? items : [])
+    .filter(x => x && x.videoUrl && isFinite(+x.time))
+    .map(x => ({ time: Math.max(0.5, Math.min(meta.duration - CLIP - 0.5, +x.time)), videoUrl: x.videoUrl }))
+    .sort((a, b) => a.time - b.time)
+    .filter((x, i, arr) => i === 0 || x.time - arr[i - 1].time >= CLIP + 0.5)
+    .slice(0, 8);
+  if (!picks.length) return { error: 'Gömülecek b-roll seçilmedi.' };
+
+  const target = uniquePath(path.join(
+    path.dirname(file),
+    `${path.basename(file, path.extname(file))} [broll].mp4`
+  ));
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yt-broll-'));
+  const cleanup = () => { try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {} };
+
+  try {
+    // 1) Seçilen klipleri indir (başarısız olan loglanıp atlanır)
+    const downloaded = [];
+    for (let i = 0; i < picks.length; i++) {
+      if (brollCancelled) { cleanup(); return { cancelled: true }; }
+      brollSend({ stage: 'download', pct: (i / picks.length) * 100 });
+      const ctrl = new AbortController();
+      brollAbort = ctrl;
+      const timer = setTimeout(() => { try { ctrl.abort(); } catch {} }, 60000);
+      try {
+        const res = await fetch(picks[i].videoUrl, { signal: ctrl.signal });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const buf = Buffer.from(await res.arrayBuffer());
+        const p = path.join(tmpDir, `broll_${i}.mp4`);
+        fs.writeFileSync(p, buf);
+        downloaded.push({ time: picks[i].time, file: `broll_${i}.mp4` });
+      } catch (err) {
+        win.webContents.send('log', `B-roll klibi indirilemedi, atlandı: ${err.message}`);
+      } finally {
+        clearTimeout(timer);
+        if (brollAbort === ctrl) brollAbort = null;
+      }
+    }
+    if (brollCancelled) { cleanup(); return { cancelled: true }; }
+    if (!downloaded.length) { cleanup(); return { error: 'Hiçbir b-roll klibi indirilemedi.' }; }
+
+    // 2) Overlay grafiği: her klip kaynak boyutuna ölçek+kırp, kendi zamanına
+    //    kaydırılır (setpts=+T/TB), enable aralığında ana görüntünün üstüne biner.
+    //    Özgün ses aynen sürer (0:a).
+    const W = meta.w, H = meta.h;
+    const parts = [];
+    let prev = '[0:v]';
+    downloaded.forEach((d, i) => {
+      parts.push(`[${i + 1}:v]trim=0:${CLIP},setpts=PTS-STARTPTS,scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},fps=30,setpts=PTS+${d.time}/TB[b${i}]`);
+      const out = i === downloaded.length - 1 ? '[outv]' : `[m${i}]`;
+      parts.push(`${prev}[b${i}]overlay=enable='between(t,${d.time},${d.time + CLIP})':eof_action=pass${out}`);
+      prev = `[m${i}]`;
+    });
+    const graph = parts.join(';');
+
+    let speed = 0;
+    const onLine = (line) => {
+      const sp = line.match(/^speed=\s*([\d.]+)x/);
+      if (sp) { speed = parseFloat(sp[1]); return; }
+      const m = line.match(/^out_time=(\d+):(\d+):(\d+)/);
+      if (m && meta.duration > 0) {
+        const tSec = (+m[1]) * 3600 + (+m[2]) * 60 + (+m[3]);
+        let eta = null;
+        if (speed > 0) {
+          const remain = Math.max(0, Math.round((meta.duration - tSec) / speed));
+          eta = `${String(Math.floor(remain / 60)).padStart(2, '0')}:${String(remain % 60).padStart(2, '0')}`;
+        }
+        brollSend({ stage: 'render', pct: Math.min(99.9, (tSec / meta.duration) * 100), eta });
+      }
+    };
+    const buildArgs = (hwaccel, venc) => [
+      '-y', ...hwaccel, '-i', file,
+      ...downloaded.flatMap(d => ['-i', d.file]),
+      '-filter_complex', graph, '-map', '[outv]', '-map', '0:a?',
+      ...venc, '-c:a', 'aac', '-b:a', '192k',
+      '-progress', 'pipe:1', '-nostats', target
+    ];
+    brollSend({ stage: 'render', pct: 0 });
+    const encoder = await getEncoder();
+    let r = await runBrollProc(FFMPEG, buildArgs(hwaccelArgs(encoder), videoEncodeArgs(encoder, 20)), onLine, tmpDir);
+    if (!brollCancelled && r.code !== 0 && encoder !== 'libx264') {
+      win.webContents.send('log', `GPU kodlama (${encoder}) başarısız oldu, CPU ile devam ediliyor…`);
+      r = await runBrollProc(FFMPEG, buildArgs([], videoEncodeArgs('libx264', 20)), onLine, tmpDir);
+    }
+    if (brollCancelled) { try { fs.rmSync(target, { force: true }); } catch {} cleanup(); return { cancelled: true }; }
+    if (r.code !== 0) {
+      cleanup();
+      return { error: 'B-roll gömme başarısız:\n' + r.stderr.split(/\r?\n/).filter(Boolean).slice(-4).join('\n') };
+    }
+    cleanup();
+    return { ok: true, outFile: target, count: downloaded.length };
   } catch (err) {
     try { fs.rmSync(target, { force: true }); } catch {}
     cleanup();

@@ -1067,7 +1067,8 @@ let dragDepth = 0;
 const onCompressView = () => currentView === 'compress';
 const onSmartTrimView = () => currentView === 'smarttrim';
 const onMoodView = () => currentView === 'mood';
-const dropTargetEl = () => onCompressView() ? $('cmpDrop') : onSmartTrimView() ? $('stDrop') : onMoodView() ? $('mdDrop') : null;
+const onBrollView = () => currentView === 'broll';
+const dropTargetEl = () => onCompressView() ? $('cmpDrop') : onSmartTrimView() ? $('stDrop') : onMoodView() ? $('mdDrop') : onBrollView() ? $('brDrop') : null;
 window.addEventListener('dragenter', (e) => {
   if (!Array.from(e.dataTransfer.types || []).includes('Files')) return;
   e.preventDefault();
@@ -1088,6 +1089,7 @@ window.addEventListener('dragleave', () => {
     $('cmpDrop').classList.remove('drag');
     $('stDrop').classList.remove('drag');
     $('mdDrop').classList.remove('drag');
+    $('brDrop').classList.remove('drag');
   }
 });
 window.addEventListener('drop', (e) => {
@@ -1097,6 +1099,7 @@ window.addEventListener('drop', (e) => {
   $('cmpDrop').classList.remove('drag');
   $('stDrop').classList.remove('drag');
   $('mdDrop').classList.remove('drag');
+  $('brDrop').classList.remove('drag');
   const file = e.dataTransfer.files && e.dataTransfer.files[0];
   if (!file) return;
   // .trimtube projesi her ekrandan bırakılabilir (Faz 12)
@@ -1110,6 +1113,7 @@ window.addEventListener('drop', (e) => {
     if (onCompressView()) cmpShowError(msg);
     else if (onSmartTrimView()) stShowError(msg);
     else if (onMoodView()) mdShowError(msg);
+    else if (onBrollView()) brShowError(msg);
     else setStatus('err', msg);
     return;
   }
@@ -1118,6 +1122,7 @@ window.addEventListener('drop', (e) => {
   if (onCompressView()) cmpSetFile(p);
   else if (onSmartTrimView()) stSetFile(p);
   else if (onMoodView()) mdSetFile(p);
+  else if (onBrollView()) brSetFile(p);
   else loadLocalFile(p);
 });
 
@@ -1623,9 +1628,10 @@ async function initSettings() {
     b.classList.toggle('active', b.dataset.themeOpt === settings.theme);
   });
   $('settingsVersion').textContent = settings.appVersion ? `TrimTube v${settings.appVersion}` : '';
-  // API anahtarları (Faz 14)
+  // API anahtarları (Faz 14 + 16-B)
   $('setGeminiKey').value = settings.geminiKey || '';
   $('setElevenKey').value = settings.elevenKey || '';
+  $('setPexelsKey').value = settings.pexelsKey || '';
   // Moodlar tercihleri (Faz 15)
   mdInitFromSettings();
 }
@@ -1646,6 +1652,14 @@ $('setElevenKey').addEventListener('change', () => {
   settings.elevenKey = v;
   window.api.setSettings({ elevenKey: v });
 });
+
+// Pexels anahtarı (Faz 16-B: B-Roll stok videoları)
+$('setPexelsKey').addEventListener('change', () => {
+  const v = $('setPexelsKey').value.trim();
+  settings.pexelsKey = v;
+  window.api.setSettings({ pexelsKey: v });
+});
+$('pexelsKeyPageBtn').addEventListener('click', () => window.api.openPexelsKeyPage());
 
 $('geminiKeyPageBtn').addEventListener('click', () => window.api.openGeminiKeyPage());
 
@@ -1715,7 +1729,7 @@ $('cacheClearBtn').addEventListener('click', async () => {
 // Her menü öğesi bir ekran gösterir; ana ekran kalabalıklaşmadan yeni özellikler
 // (Faz 12+: GIF, Moodlar…) kendi ekranlarıyla eklenir. Ayarlar ve Sıkıştır
 // eskiden modaldı, artık birer ekran.
-const VIEWS = { cutter: 'viewCutter', compress: 'viewCompress', smarttrim: 'viewSmartTrim', ai: 'viewAI', mood: 'viewMood', settings: 'viewSettings' };
+const VIEWS = { cutter: 'viewCutter', compress: 'viewCompress', smarttrim: 'viewSmartTrim', ai: 'viewAI', mood: 'viewMood', broll: 'viewBroll', settings: 'viewSettings' };
 let currentView = 'cutter';
 
 function switchView(name) {
@@ -2080,7 +2094,7 @@ $('stApplyBtn').addEventListener('click', async () => {
 
   let r;
   try {
-    r = await window.api.smartTrimApply({ file: stFile, duration: stDuration, cuts, sfx: stSfxValue || null });
+    r = await window.api.smartTrimApply({ file: stFile, duration: stDuration, cuts, sfx: stSfxValue || null, jcut: $('stJcutCheck').checked });
   } catch (err) {
     r = { error: 'Beklenmeyen hata: ' + (err.message || String(err)) };
   }
@@ -2917,5 +2931,193 @@ $('mdEditBtn').addEventListener('click', async () => {
 });
 
 $('mdGoSettings').addEventListener('click', () => switchView('settings'));
+
+// ---- Faz 16-B: B-Roll ekranı ----
+// Transkriptten Gemini ile "görsel an" tespiti → Pexels stok önerileri
+// (thumbnail'lı onay listesi) → seçilenler indirilip tam kare kısa kesit
+// olarak gömülür. Akıllı Kırpma ile aynı bağımsız desen: kendi ilerleme
+// kanalı ve iptali, ana kuyruğa dokunmaz.
+
+let brFile = null;
+let brFileId = null;
+let brItems = []; // {id, time, keyword, query, thumb, videoUrl, included}
+let brRunning = false;
+let brModelValue = 'small';
+let brActivePhase = null; // 'analyze' | 'apply' | null
+
+function brShowError(msg) {
+  const el = $('brError');
+  el.textContent = msg;
+  el.classList.remove('hidden');
+}
+function brClearError() { $('brError').classList.add('hidden'); }
+
+function brResetResults() {
+  brItems = [];
+  $('brResults').classList.add('hidden');
+  $('brList').innerHTML = '';
+  $('brApplyBtn').classList.add('hidden');
+  $('brResultCard').classList.add('hidden');
+  $('brOpenFolderBtn').classList.add('hidden');
+}
+
+async function brSetFile(p) {
+  if (brRunning) return;
+  brClearError();
+  brResetResults();
+  const info = await window.api.localInfo(p);
+  if (info.error) { brShowError(info.error); return; }
+  brFile = p;
+  brFileId = info.id;
+  $('brFileName').textContent = p.split(/[\\/]/).pop();
+  const parts = [fmtBytes(info.size), fmtClock(info.duration)];
+  if (info.w && info.h) parts.push(`${info.w}×${info.h}`);
+  $('brFileMeta').textContent = parts.join(' · ');
+  $('brDrop').classList.add('hidden');
+  $('brFileCard').classList.remove('hidden');
+  $('brAnalyzeBtn').disabled = false;
+}
+
+function brResetFile() {
+  if (brRunning) return;
+  brFile = null;
+  brFileId = null;
+  $('brFileCard').classList.add('hidden');
+  $('brDrop').classList.remove('hidden');
+  $('brAnalyzeBtn').disabled = true;
+  brClearError();
+  brResetResults();
+}
+
+$('brChooseBtn').addEventListener('click', async () => {
+  const p = await window.api.chooseVideo();
+  if (!p) return;
+  if (/\.trimtube$/i.test(p)) { openProjectFile(p); return; }
+  brSetFile(p);
+});
+$('brFileChange').addEventListener('click', brResetFile);
+
+document.querySelectorAll('#brModelSeg .seg').forEach(btn => {
+  btn.addEventListener('click', () => {
+    if (brRunning) return;
+    brModelValue = btn.dataset.brModel;
+    document.querySelectorAll('#brModelSeg .seg').forEach(b => b.classList.toggle('active', b === btn));
+  });
+});
+
+function brRenderList() {
+  const list = $('brList');
+  list.innerHTML = '';
+  brItems.forEach((it) => {
+    const row = document.createElement('div');
+    row.className = 'pl-item';
+    row.innerHTML = '<input type="checkbox"><img class="br-thumb" alt=""><span class="pl-item-title"></span><span class="pl-item-dur"></span>';
+    row.querySelector('input').checked = it.included;
+    row.querySelector('input').addEventListener('change', (ev) => {
+      it.included = ev.target.checked;
+      brUpdateSummary();
+    });
+    row.querySelector('.br-thumb').src = it.thumb || '';
+    row.querySelector('.pl-item-title').textContent = `${it.keyword} · "${it.query}"`;
+    row.querySelector('.pl-item-dur').textContent = fmtClock(it.time) + ' anında';
+    list.appendChild(row);
+  });
+  brUpdateSummary();
+  $('brResults').classList.remove('hidden');
+}
+
+function brUpdateSummary() {
+  const n = brItems.filter(i => i.included).length;
+  $('brSummary').textContent = brItems.length
+    ? `${n}/${brItems.length} öneri seçili · her biri ~2.5 sn tam kare gömülür`
+    : 'Öneri bulunamadı.';
+  $('brApplyBtn').classList.toggle('hidden', n === 0);
+}
+
+window.api.onBrollProgress((p) => {
+  const label = p.stage === 'audio' ? 'Ses çıkarılıyor…'
+    : p.stage === 'model' ? 'Model hazırlanıyor…'
+    : p.stage === 'transcribe' ? 'Konuşma çözümleniyor…'
+    : p.stage === 'gemini' ? 'Görsel anlar seçiliyor…'
+    : p.stage === 'search' ? 'Pexels\'ta aranıyor…'
+    : p.stage === 'download' ? 'Klipler indiriliyor…'
+    : p.stage === 'render' ? 'Gömülüyor…'
+    : 'İşleniyor…';
+  $('brPhaseLabel').textContent = label;
+  const pct = p.pct || 0;
+  $('brProgressFill').style.width = pct + '%';
+  $('brProgressText').textContent = '%' + pct.toFixed(1) + (p.eta ? ` · kalan ${p.eta}` : '');
+});
+
+function brSetRunning(running, phase) {
+  brRunning = running;
+  brActivePhase = running ? phase : null;
+  const aBtn = $('brAnalyzeBtn');
+  aBtn.textContent = (running && phase === 'analyze') ? 'Durdur' : 'Önerileri getir';
+  aBtn.disabled = running ? phase !== 'analyze' : !brFile;
+  const pBtn = $('brApplyBtn');
+  pBtn.textContent = (running && phase === 'apply') ? 'Durdur' : 'B-Roll\'u Göm';
+  pBtn.disabled = running && phase !== 'apply';
+  $('brFileChange').disabled = running;
+  $('brProgress').classList.toggle('hidden', !running);
+}
+
+$('brAnalyzeBtn').addEventListener('click', async () => {
+  if (brRunning && brActivePhase === 'analyze') { window.api.brollCancel(); return; }
+  if (brRunning || !brFile) return;
+  brClearError();
+  brResetResults();
+  $('brProgressFill').style.width = '0%';
+  $('brProgressText').textContent = '%0';
+  brSetRunning(true, 'analyze');
+
+  let r;
+  try {
+    r = await window.api.brollAnalyze({ file: brFile, videoId: brFileId, model: brModelValue });
+  } catch (err) {
+    r = { error: 'Beklenmeyen hata: ' + (err.message || String(err)) };
+  }
+
+  brSetRunning(false);
+  if (r.cancelled) return;
+  if (r.error) { brShowError(r.error); return; }
+
+  brItems = r.items.map(i => ({ ...i, included: true }));
+  brRenderList();
+});
+
+const BR_OK_SVG = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#34C759" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
+
+$('brApplyBtn').addEventListener('click', async () => {
+  if (brRunning && brActivePhase === 'apply') { window.api.brollCancel(); return; }
+  if (brRunning) return;
+  const picks = brItems.filter(i => i.included).map(i => ({ time: i.time, videoUrl: i.videoUrl }));
+  if (!picks.length || !brFile) return;
+  brClearError();
+  $('brProgressFill').style.width = '0%';
+  $('brProgressText').textContent = '%0';
+  $('brResultCard').classList.add('hidden');
+  $('brOpenFolderBtn').classList.add('hidden');
+  brSetRunning(true, 'apply');
+
+  let r;
+  try {
+    r = await window.api.brollRender({ file: brFile, items: picks });
+  } catch (err) {
+    r = { error: 'Beklenmeyen hata: ' + (err.message || String(err)) };
+  }
+
+  brSetRunning(false);
+  if (r.cancelled) return;
+  if (r.error) { brShowError(r.error); return; }
+
+  $('brResultIcon').innerHTML = BR_OK_SVG;
+  $('brResultTitle').textContent = `Gömüldü — ${r.outFile.split(/[\\/]/).pop()}`;
+  $('brResultSub').textContent = `${r.count} b-roll kesiti eklendi`;
+  $('brResultCard').classList.remove('hidden');
+  const outDir = r.outFile.slice(0, r.outFile.length - r.outFile.split(/[\\/]/).pop().length - 1);
+  $('brOpenFolderBtn').onclick = () => window.api.openFolder(outDir);
+  $('brOpenFolderBtn').classList.remove('hidden');
+});
 
 initSettings();

@@ -100,15 +100,15 @@ Saha geri bildirimi: 3 dk'lık klip ~350MB çıkabiliyor (donanım kodlayıcı b
   - _Not: "Faz 9 kuyruğunda" yerine Sıkıştır/Akıllı Kırpma'daki bağımsız-ekran deseni seçildi (kendi kanalı/iptali; kuyrukla eşzamanlı çalışabilir) — kuyruğa taşımak gereksiz bağımlılık yaratıyordu._
 - _Tuzaklar: uzun bölüm dökümü için Gemini'nin geniş context'i tercih nedeni; prompt'ta "yalnızca güçlü diyaloglu sahneler" kısıtı; maliyet kullanıcının kendi anahtarında._
 
-### Faz 16-A — İleri Kurgu I · `v1.16.0` (kod tamam + otomatik testler geçti; saha testi bekliyor)
+### Faz 16-A — İleri Kurgu I · `v1.16.0` ✅ (yayınlandı; saha testi yayın sonrası)
 - [x] Kelime bazlı animasyonlu altyazı — iki stil: **Vurgulu** (grup ekranda, konuşulan kelime sarıya dönüp büyür) ve **Pop** (kelimeler tek tek belirir); Whisper kaynağında gerçek kelime zamanları, YouTube altyazısında uzunluk-orantılı tahmin
 - [x] Ses efekti tetikleyicileri: Akıllı Kırpma birleşim noktalarına isteğe bağlı geçiş sesi (Kapalı/Whoosh/Pop — uygulamayla gelen, sentezlenmiş telifsiz efektler)
 
-### Faz 16-B — İleri Kurgu II (sırada)
-- [ ] Otomatik J-Cut / L-Cut (araştırma — kurgu motorunun üstüne)
-- [ ] B-Roll köprüsü: transkript anahtar kelimelerine Pexels/Pixabay API ile overlay önerisi (kullanıcı onaylı)
-- [ ] Moodlar'a animasyonlu altyazı stillerinin taşınması (16-A'nın devamı)
-- [ ] Yüz imzası (face-embedding) ile takip sağlamlaştırma — gürültülü ortamlar için; ihtiyaç doğarsa
+### Faz 16-B — İleri Kurgu II · `v1.16.0` ✅ (yayınlandı; otomatik testler geçti, saha testi yayın sonrası)
+- [x] **B-Roll köprüsü** (yeni ekran): transkriptten Gemini ile "görsel an" tespiti → Pexels stok video önerileri (thumbnail'lı onay listesi) → seçilenler ~2.5 sn tam kare kesit olarak gömülür, özgün ses sürer. Pexels anahtarı Ayarlar'da (ücretsiz).
+- [x] **Deneysel J-cut** (Akıllı Kırpma): "Sinematik geçiş" anahtarı — birleşimde sonraki sahnenin sesi ~0.35 sn önce başlar; video/ses zaman çizelgeleri ayrışır, toplam süre ve senkron korunur.
+- [x] **Moodlar'a animasyonlu altyazı stilleri**: Vurgulu/Pop, sahne-kaydırmalı kelime çizelgesiyle (16-A'nın devamı).
+- [ ] Yüz imzası (face-embedding) ile takip sağlamlaştırma — gürültülü ortamlar için; ihtiyaç doğarsa (açık kalem)
 
 ### 🔧 Paralel Bakım Kulvarı *(faz sırasından bağımsız, araya alınabilir)*
 - [ ] yt-dlp kendini güncelleme: gömülü ikili userData'ya kopyalanır, `--update-to stable` ile güncel tutulur — YouTube kırılmalarına karşı kritik koruma (Apple geliştirici hesabı GEREKTİRMEZ)
@@ -127,4 +127,4 @@ Saha geri bildirimi: 3 dk'lık klip ~350MB çıkabiliyor (donanım kodlayıcı b
 
 ---
 
-*Son güncelleme: Faz 15 (Moodlar & AI Director) v1.15.0 olarak yayınlandı — üç tur saha geri bildirimi (hızlı transkript, altyazı sağlamlaştırma, susturma/Google TTS/altyazı/düzenle) yayın öncesi işlendi. Sıradaki: Faz 16 (İleri Kurgu).*
+*Son güncelleme: Faz 16 (A+B) v1.16.0 olarak yayınlandı — ikinci plan döneminin tüm fazları (11–16) tamamlandı. Kalan: bakım kulvarı (yt-dlp güncelleme vb.) + tarayıcı eklentisi kulvarı.*

@@ -75,5 +75,12 @@ contextBridge.exposeInMainWorld('api', {
   moodPlan: (opts) => ipcRenderer.invoke('mood-plan', opts),
   moodRender: (opts) => ipcRenderer.invoke('mood-render', opts),
   moodCancel: () => ipcRenderer.invoke('mood-cancel'),
-  onMoodProgress: (cb) => ipcRenderer.on('mood-progress', (e, p) => cb(p))
+  onMoodProgress: (cb) => ipcRenderer.on('mood-progress', (e, p) => cb(p)),
+
+  // Faz 16-B: B-Roll köprüsü (Pexels stok videoları)
+  brollAnalyze: (opts) => ipcRenderer.invoke('broll-analyze', opts),
+  brollRender: (opts) => ipcRenderer.invoke('broll-render', opts),
+  brollCancel: () => ipcRenderer.invoke('broll-cancel'),
+  onBrollProgress: (cb) => ipcRenderer.on('broll-progress', (e, p) => cb(p)),
+  openPexelsKeyPage: () => ipcRenderer.invoke('open-pexels-key-page')
 });

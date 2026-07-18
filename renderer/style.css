@@ -874,9 +874,19 @@ button:disabled { opacity: 0.45; cursor: default; }
 .seg:disabled { opacity: 0.4; }
 
 .sub-styles { margin-top: 8px; }
-/* 5 stilli satır (Faz 16-A: + Vurgulu/Pop) dar panelde taşarsa alt satıra sarar */
-#subStyles { flex-wrap: wrap; }
-#subStyles .seg { flex: 1 1 30%; min-width: 30%; }
+/* 5 stilli satırlar (Faz 16: + Vurgulu/Pop) dar panelde taşarsa alt satıra sarar */
+#subStyles, #mdSubStyleSeg { flex-wrap: wrap; }
+#subStyles .seg, #mdSubStyleSeg .seg { flex: 1 1 30%; min-width: 30%; }
+
+/* B-Roll öneri satırındaki küçük stok görseli (Faz 16-B) */
+.br-thumb {
+  flex: none;
+  width: 64px;
+  height: 36px;
+  object-fit: cover;
+  border-radius: 6px;
+  background: var(--fill);
+}
 
 /* ---- Marka (logo/watermark + başlık) ---- */
 #wmControls { margin-top: 10px; display: flex; flex-direction: column; gap: 10px; }
