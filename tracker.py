@@ -44,6 +44,14 @@ TRACK_STALE = 3         # bir yuz kaç ornek görünmezse "track" düşürülür
 MISSING_GRACE = 5       # aktif konusanin yuzu kaybolunca kaç ornek beklenir (~0.5 sn)
                         # — arkasi donuk/gecici kayiplarda yalpalanmayi onler
 
+# --- Yuz imzasi (Faz 16 cilasi): konusmaci modunda kimlik katmani ---
+# Izler (tracks) en-yakin-merkezle eslenmeye devam eder; kimlik katmani ustune
+# EKLEMELI kapi olarak girer: kadraj calmayi engeller, kaybolan/donen konusani
+# tanir, iz takasini onarir. Kimlik kaydi sahne kesmelerinde SIFIRLANMAZ.
+MATURE_SEEN = 3         # kimligin "olgun" sayilmasi icin kimlikli gorunme sayisi (~0.3 sn)
+MAX_IDENTITIES = 8      # kimlik kaydi tavani; dolunca en eski goruleni geri donustur
+IDENTITY_STRONG = 0.45  # feat biriktirme icin guclu benzerlik esigi (run_single ile ayni)
+
 
 class FaceEngine:
     def __init__(self):
@@ -98,6 +106,55 @@ def best_face_match(engine, small, ref_feats):
     if best is not None and best_score >= MATCH_THRESHOLD:
         return best, best_score
     return None, 0.0
+
+
+# ----------------------------------------------------------------------------
+# Kimlik kaydi (Faz 16 cilasi — konusmaci modu). engine parametresi enjekte
+# edilir; testte sahte engine ile cv2'siz sinanabilir.
+# ----------------------------------------------------------------------------
+def match_identity(engine, feat, identities):
+    """feat'e en cok benzeyen kimlik kaydini ve skoru dondurur; esik alti (None, 0)."""
+    best, best_score = None, 0.0
+    for ident in identities:
+        score = max(engine.similarity(rf, feat) for rf in ident["feats"])
+        if score > best_score:
+            best, best_score = ident, score
+    if best is not None and best_score >= MATCH_THRESHOLD:
+        return best, best_score
+    return None, 0.0
+
+
+def assign_identity(engine, small, face, identities, sample_idx):
+    """Yuzu kalici kimlik kaydina esler; eslesme yoksa yeni kimlik acar.
+    Kimlik id'sini dondurur; embedding cikarilamazsa None (kimliksiz iz)."""
+    feat = engine.embed(small, face)
+    if feat is None:
+        return None
+    ident, score = match_identity(engine, feat, identities)
+    if ident is not None:
+        ident["seen_n"] += 1
+        ident["last_seen"] = sample_idx
+        if score > IDENTITY_STRONG and len(ident["feats"]) < MAX_REF_FEATS:
+            ident["feats"].append(feat)
+        return ident["id"]
+    if len(identities) >= MAX_IDENTITIES:
+        # Tavan doldu: en eski goruleni geri donustur (id'si degisir ki eski
+        # izler yanlislikla yeni kisiyle eslesmesin)
+        oldest = min(identities, key=lambda x: x["last_seen"])
+        new_id = max(x["id"] for x in identities) + 1
+        oldest.update(id=new_id, feats=[feat], seen_n=1, last_seen=sample_idx)
+        return new_id
+    new_id = max((x["id"] for x in identities), default=-1) + 1
+    identities.append({"id": new_id, "feats": [feat], "seen_n": 1, "last_seen": sample_idx})
+    return new_id
+
+
+def identity_seen(identities, ident_id):
+    """Kimligin toplam kimlikli gorunme sayisi (olgunluk kapisi icin)."""
+    for x in identities:
+        if x["id"] == ident_id:
+            return x["seen_n"]
+    return 0
 
 
 def detect_scene_cut(small, prev_tiny):
@@ -277,8 +334,11 @@ def run_single(cap, engine, scale, sw, sh, src_w, src_h, fps, step, total, init_
 def run_speaker(cap, engine, scale, sw, sh, src_w, src_h, fps, step, total, audio_env):
     centers = []
     boxes = []
-    tracks = []          # her yuz icin kalici iz: {cx,cy,w,patch,motion,seen,f}
+    tracks = []          # her yuz icin kalici iz: {cx,cy,w,patch,motion,seen,f,ident}
+    identities = []      # kalici kimlik kaydi (sahne kesmesinde sifirlanmaz)
+    use_ident = engine.rec is not None  # SFace yoksa katman devre disi (davranis eski haliyle)
     active = None        # o an secili konusan track
+    active_identity = None  # aktif konusanin kimligi (kayboldugunda geri donmek icin)
     active_cx = src_w / 2.0
     active_box_norm = None
     active_missing = 0   # aktif konusanin yuzu kaç ornektir görünmüyor
@@ -288,6 +348,15 @@ def run_speaker(cap, engine, scale, sw, sh, src_w, src_h, fps, step, total, audi
     prev_tiny = None
     frame_idx = 0
     sample_idx = 0
+
+    def same_identity_track(visible_tracks):
+        """Gorunur izler arasinda aktif kimlikle eslesen (kadrajin geri donecegi kisi)."""
+        if not use_ident or active_identity is None:
+            return None
+        for t in visible_tracks:
+            if t.get("ident") == active_identity:
+                return t
+        return None
 
     while True:
         ok, frame = cap.read()
@@ -318,7 +387,9 @@ def run_speaker(cap, engine, scale, sw, sh, src_w, src_h, fps, step, total, audi
                 "patch": mouth_patch(f, gray, sw, sh),
             })
 
-        # tespitleri mevcut izlere esle (en yakin merkez); yoksa yeni iz
+        # tespitleri mevcut izlere esle (en yakin merkez); yoksa yeni iz.
+        # Yeni iz acilirken yuz imzasi cikarilip kalici kimlige baglanir —
+        # kaybolup donen kisi ayni kimlikle taninir (Faz 16 cilasi).
         for d in dets:
             best_t, best_dd = None, 1e9
             for t in tracks:
@@ -331,10 +402,30 @@ def run_speaker(cap, engine, scale, sw, sh, src_w, src_h, fps, step, total, audi
                     best_t["motion"] = 0.5 * best_t["motion"] + 0.5 * m
                 best_t.update(patch=d["patch"], cx=d["cx"], cy=d["cy"], w=d["w"], f=d["f"], seen=sample_idx)
             else:
-                tracks.append({**d, "motion": 0.0, "seen": sample_idx})
+                ident = assign_identity(engine, small, d["f"], identities, sample_idx) if use_ident else None
+                tracks.append({**d, "motion": 0.0, "seen": sample_idx, "ident": ident})
 
         tracks = [t for t in tracks if sample_idx - t["seen"] <= TRACK_STALE]
         visible = [t for t in tracks if t["seen"] == sample_idx]
+
+        # Periyodik kimlik dogrulamasi (~saniyede bir): iki yuz kesisip iz yanlis
+        # kisiye yapistiysa (takas) kimlikler tazelenir ve kadraj asil kisiye
+        # geri baglanir; asil kisi sahnede yoksa izlenen kisiye kilitlenilir
+        # (bos kadraja donmekten iyidir).
+        if use_ident and sample_idx % REVALIDATE_EVERY == 0:
+            for t in visible:
+                new_ident = assign_identity(engine, small, t["f"], identities, sample_idx)
+                if new_ident is not None:
+                    t["ident"] = new_ident
+            if active is not None and any(active is t for t in visible) and active.get("ident") is not None:
+                if active_identity is None:
+                    active_identity = active["ident"]
+                elif active["ident"] != active_identity:
+                    fixed = same_identity_track(visible)
+                    if fixed is not None:
+                        active = fixed   # takas onarimi: kadraj asil konusana doner
+                    else:
+                        active_identity = active["ident"]
         speaking = True if audio_env is None else (audio_env(frame_idx / fps) > SPEECH_THRESH)
 
         # kimlik (is) ile kontrol: track dict'leri numpy dizisi icerdiginden
@@ -344,12 +435,20 @@ def run_speaker(cap, engine, scale, sw, sh, src_w, src_h, fps, step, total, audi
 
         if active_visible:
             active_missing = 0
-            # aktif konusan gorunur: baskin bir aday konusuyorsa histerezisle gec
+            # aktif konusan gorunur: baskin bir aday konusuyorsa histerezisle gec.
+            # Olgun-kimlik kapisi (Faz 16 cilasi): kimligi henuz olgunlasmamis
+            # (sahneden gecen / anlik yanlis tespit) aday icin bekleme suresi
+            # iki katina cikar — kadraj calinamaz.
             if speaking and best is not active and best["motion"] > active["motion"] * SWITCH_RATIO and best["motion"] > MOTION_MIN:
                 pending_n = pending_n + 1 if pending is best else 1
                 pending = best
-                if pending_n >= SWITCH_HOLD:
+                mature = (not use_ident) or (
+                    best.get("ident") is not None and identity_seen(identities, best["ident"]) >= MATURE_SEEN
+                )
+                if pending_n >= (SWITCH_HOLD if mature else SWITCH_HOLD * 2):
                     active = best
+                    if use_ident and best.get("ident") is not None:
+                        active_identity = best["ident"]
                     pending, pending_n = None, 0
             else:
                 pending, pending_n = None, 0
@@ -357,16 +456,31 @@ def run_speaker(cap, engine, scale, sw, sh, src_w, src_h, fps, step, total, audi
             # aktif konusan bu karede gorunmuyor (arkasi donuk / gecici kayip / sahne)
             pending, pending_n = None, 0
             if active is None:
-                # ilk seciM: konusan (hareketli) yuz varsa onu, yoksa en buyugu
-                if best is not None:
+                # Ilk secim (sahne kesmesi sonrasi dahil): once ayni kimlik —
+                # kadraj kaybolup donen konusana geri baglanir; yoksa konusan
+                # (hareketli) yuz, o da yoksa en buyugu
+                same = same_identity_track(visible)
+                if same is not None:
+                    active = same
+                    active_missing = 0
+                elif best is not None:
                     active = best if best["motion"] > MOTION_MIN else max(visible, key=lambda t: t["w"])
+                    if use_ident and active.get("ident") is not None and active_identity is None:
+                        active_identity = active["ident"]
                     active_missing = 0
             else:
                 active_missing += 1
-                # kisa sure son konumda BEKLE (yalpalanmayi onler); ancak gercekten
-                # konusan baska bir yuz belirdi ve grace doldu ise yeniden sec
-                if active_missing > MISSING_GRACE and best is not None and best["motion"] > MOTION_MIN:
+                # kisa sure son konumda BEKLE (yalpalanmayi onler); grace icinde
+                # ayni kimlik geri gelirse hemen ona don; grace doldu ve gercekten
+                # konusan baska bir yuz varsa yeniden sec
+                same = same_identity_track(visible)
+                if same is not None:
+                    active = same
+                    active_missing = 0
+                elif active_missing > MISSING_GRACE and best is not None and best["motion"] > MOTION_MIN:
                     active = best
+                    if use_ident and best.get("ident") is not None:
+                        active_identity = best["ident"]
                     active_missing = 0
 
         # Kadraji yalnizca aktif konusan bu karede gorunurken guncelle; degilse

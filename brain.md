@@ -9,6 +9,16 @@ Bu dosya, farklı ortamlardaki (ev: macOS M-serisi, ofis: Windows 11) geliştirm
 **Yayındaki sürüm:** `v1.16.0` · Windows/macOS(arm64)/Linux · GitHub: mehmetakarim/TrimTube
 **Yapılacaklar listesi (asıl kaynak):** proje kökündeki `YOL-HARITASI.md` (onay kutulu, faz faz).
 
+**Faz 16 cilası — Konuşmacı modunda yüz imzası: v1.16.1 YAYINLANDI ve SAHA TESTİNDEN GEÇTİ ("daha iyi" — macOS, 18 Tem 2026). İkinci plan döneminin TÜM kalemleri kapandı.**
+- Keşif: tek-kişi modu SFace imzasını Faz 10'dan beri kullanıyordu; **konuşmacı modu kullanmıyordu** (izler yalnız en-yakın-merkez). Eklenen kimlik katmanı (yalnız `tracker.py`; SFace zaten pakette, spec/CI/boyut değişmedi):
+  - **Kalıcı kimlik kaydı** (`identities`, sahne kesmesinde SIFIRLANMAZ): `assign_identity`/`match_identity`/`identity_seen` — eşik `MATCH_THRESHOLD`, güçlü eşleşmede feat biriktirme (`IDENTITY_STRONG=0.45`), tavan `MAX_IDENTITIES=8` (dolunca en eski geri dönüştürülür, **id değişir** ki eski izler yanlış eşleşmesin).
+  - **Takas onarımı**: `REVALIDATE_EVERY`'de görünür izlerin kimlikleri tazelenir; aktif izin kimliği `active_identity`'den saparsa kadraj aynı kimlikli ize geri bağlanır (sahnede yoksa izlenene kilitlenir — boş kadrajdan iyidir).
+  - **Olgun-kimlik kapısı**: kadraj çalmak isteyen aday `MATURE_SEEN=3` kimlikli görünme olgunluğuna sahip değilse `SWITCH_HOLD` iki katına çıkar.
+  - **Aynı konuşana dönüş**: grace içinde/sonrasında ve sahne kesmesi sonrası ilk seçimde önce `active_identity` aranır.
+  - SFace yoksa (`engine.rec is None`) katman tamamen devre dışı — davranış birebir eski hali (`use_ident` bayrağı).
+- Doğrulama: gerçek fonksiyonlarla 7 birim test (sahte engine — yeni kimlik/eşleme/olgunluk/tavan geri dönüşümü/None yolu/eşik) GEÇTİ; yüzsüz sentetik videoda iki mod uçtan uca temiz (DONE + merkez kadraj sözleşmesi); `py_compile` temiz.
+- Saha testinde bakılacak: çok kişili gerçek görüntüde "Aktif konuşan" — kimlik takası, kaybolup dönüş, kadraj çalma senaryoları; gerekirse `MATURE_SEEN` ince ayarı (Faz 10-A geleneği).
+
 **Faz 16-B — İleri Kurgu II (B-Roll + J-cut + Moodlar stilleri): v1.16.0 OLARAK 16-A İLE BİRLİKTE YAYINLANDI (18 Tem 2026; kullanıcı kararı — otomatik testlerin tamamı geçti, saha testi yayın sonrası).**
 - **B-Roll** (yeni ekran, sol nav 7. öğe): `broll-analyze` — `ensureTranscript`(paylaşılan önbellek, kendi `runBrollProc` runner'ı) → Gemini "5-8 görsel an" (TR keyword + EN stok sorgusu + saniye; ≥6 sn aralık zorlanır) → `pexelsSearch` (fetch, `Authorization: key`, ≤1080p mp4 + `image` thumb; hatalar Türkçe `pexelsErrorMessage`). `broll-render` — seçilenler fetch ile tmp'e indirilir (başarısız atlanır), overlay grafiği: klip `scale=W:H:force_original_aspect_ratio=increase,crop,fps=30,setpts=PTS+T/TB` → zincirleme `overlay=enable='between(t,T,T+2.5)':eof_action=pass`; ses `0:a` aynen. Ayarlar'a `pexelsKey` + "Ücretsiz anahtar al" (pexels.com/api). Kendi proc/abort (`brollAbort` fetch iptali dahil — mood deseninin aynısı).
 - **J-cut (deneysel)**: `smarttrim-apply`'da `jcut` — video/ses concat'ları ayrıştı (v=1:a=0 + v=0:a=1; bu ayrışma J-cut kapalıyken de eşdeğer). Birleşim j'de ses sınırları `−lead` kaydırılır (lead=0.35; komşu segment <1.2 sn ise 0); toplam süre/senkron matematiksel korunur. SFX zinciri `[outa]` üzerinde değişmeden çalışır.

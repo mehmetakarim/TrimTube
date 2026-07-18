@@ -108,7 +108,7 @@ Saha geri bildirimi: 3 dk'lık klip ~350MB çıkabiliyor (donanım kodlayıcı b
 - [x] **B-Roll köprüsü** (yeni ekran): transkriptten Gemini ile "görsel an" tespiti → Pexels stok video önerileri (thumbnail'lı onay listesi) → seçilenler ~2.5 sn tam kare kesit olarak gömülür, özgün ses sürer. Pexels anahtarı Ayarlar'da (ücretsiz).
 - [x] **Deneysel J-cut** (Akıllı Kırpma): "Sinematik geçiş" anahtarı — birleşimde sonraki sahnenin sesi ~0.35 sn önce başlar; video/ses zaman çizelgeleri ayrışır, toplam süre ve senkron korunur.
 - [x] **Moodlar'a animasyonlu altyazı stilleri**: Vurgulu/Pop, sahne-kaydırmalı kelime çizelgesiyle (16-A'nın devamı).
-- [ ] Yüz imzası (face-embedding) ile takip sağlamlaştırma — gürültülü ortamlar için; ihtiyaç doğarsa (açık kalem)
+- [x] Yüz imzası (face-embedding) ile takip sağlamlaştırma · `v1.16.1` — konuşmacı moduna kalıcı kimlik katmanı: iz takası onarımı, kaybolup dönen konuşana geri bağlanma (sahne kesmesi dahil), sahneden geçen yüzün kadraj çalmasına karşı olgun-kimlik kapısı. SFace modeli zaten paketteydi; tek dosya değişikliği (tracker.py), kurulum boyutu etkilenmedi.
 
 ### 🔧 Paralel Bakım Kulvarı *(faz sırasından bağımsız, araya alınabilir)*
 - [ ] yt-dlp kendini güncelleme: gömülü ikili userData'ya kopyalanır, `--update-to stable` ile güncel tutulur — YouTube kırılmalarına karşı kritik koruma (Apple geliştirici hesabı GEREKTİRMEZ)
@@ -127,4 +127,4 @@ Saha geri bildirimi: 3 dk'lık klip ~350MB çıkabiliyor (donanım kodlayıcı b
 
 ---
 
-*Son güncelleme: Faz 16 (A+B) v1.16.0 olarak yayınlandı — ikinci plan döneminin tüm fazları (11–16) tamamlandı. Kalan: bakım kulvarı (yt-dlp güncelleme vb.) + tarayıcı eklentisi kulvarı.*
+*Son güncelleme: Faz 16 cilası (yüz imzası, v1.16.1) ile ikinci plan döneminin TÜM kalemleri kapandı. Kalan: bakım kulvarı (yt-dlp güncelleme vb.) + tarayıcı eklentisi kulvarı.*
