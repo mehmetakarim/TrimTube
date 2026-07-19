@@ -111,7 +111,7 @@ Saha geri bildirimi: 3 dk'lık klip ~350MB çıkabiliyor (donanım kodlayıcı b
 - [x] Yüz imzası (face-embedding) ile takip sağlamlaştırma · `v1.16.1` — konuşmacı moduna kalıcı kimlik katmanı: iz takası onarımı, kaybolup dönen konuşana geri bağlanma (sahne kesmesi dahil), sahneden geçen yüzün kadraj çalmasına karşı olgun-kimlik kapısı. SFace modeli zaten paketteydi; tek dosya değişikliği (tracker.py), kurulum boyutu etkilenmedi.
 
 ### 🔧 Paralel Bakım Kulvarı *(faz sırasından bağımsız, araya alınabilir)*
-- [ ] yt-dlp kendini güncelleme: gömülü ikili userData'ya kopyalanır, `--update-to stable` ile güncel tutulur — YouTube kırılmalarına karşı kritik koruma (Apple geliştirici hesabı GEREKTİRMEZ)
+- [x] yt-dlp kendini güncelleme · `v1.17.0` — gömülü ikili yazılabilir `userData/bin`'e kopyalanır (macOS imzalı bundle / Windows Program Files salt-okunur olduğundan), `--update-to stable@latest --ignore-config` ile güncel tutulur. Günde bir sessiz otomatik (açılışta arka planda) + Ayarlar'da "Şimdi güncelle" düğmesi. Downgrade koruması (uygulama güncellemesi daha yeni ikili getirirse adopt eder). YouTube kırılmalarına karşı kritik koruma; Apple geliştirici hesabı GEREKTİRMEZ.
 - [ ] Kurulum boyutu küçültme (233–270MB)
 - [ ] macOS notarization — **beklemede: Apple Developer ID hesabı ($99/yıl) alınırsa** ("hasar görmüş" uyarısı + macOS oto-güncelleme bunun eksikliğinden)
 
@@ -127,4 +127,4 @@ Saha geri bildirimi: 3 dk'lık klip ~350MB çıkabiliyor (donanım kodlayıcı b
 
 ---
 
-*Son güncelleme: Faz 16 cilası (yüz imzası, v1.16.1) ile ikinci plan döneminin TÜM kalemleri kapandı. Kalan: bakım kulvarı (yt-dlp güncelleme vb.) + tarayıcı eklentisi kulvarı.*
+*Son güncelleme: yt-dlp kendini güncelleme (v1.17.0) — bakım kulvarının en kritik kalemi kapandı. Kalan: kurulum boyutu, notarization (Apple hesabı bekliyor), tarayıcı eklentisi kulvarı.*

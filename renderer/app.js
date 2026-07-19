@@ -1725,6 +1725,42 @@ $('cacheClearBtn').addEventListener('click', async () => {
   $('cacheClearBtn').disabled = false;
 });
 
+// ---- v1.17.0: indirme motoru (yt-dlp) sürüm + elle güncelleme ----
+function fmtLastCheck(ms) {
+  if (!ms) return 'henüz kontrol edilmedi';
+  const d = Math.floor((Date.now() - ms) / 60000); // dakika
+  if (d < 1) return 'az önce kontrol edildi';
+  if (d < 60) return `${d} dk önce kontrol edildi`;
+  const h = Math.floor(d / 60);
+  if (h < 24) return `${h} saat önce kontrol edildi`;
+  return `${Math.floor(h / 24)} gün önce kontrol edildi`;
+}
+
+async function refreshYtdlpInfo() {
+  const r = await window.api.ytdlpInfo();
+  $('ytdlpInfo').textContent = r.version
+    ? `yt-dlp ${r.version} · ${fmtLastCheck(r.lastCheck)}`
+    : 'yt-dlp sürümü okunamadı';
+}
+
+$('ytdlpUpdateBtn').addEventListener('click', async () => {
+  const btn = $('ytdlpUpdateBtn');
+  btn.disabled = true;
+  $('ytdlpInfo').textContent = 'Güncelleniyor…';
+  let r;
+  try { r = await window.api.ytdlpUpdate(); }
+  catch (err) { r = { error: err.message || String(err) }; }
+  btn.disabled = false;
+  if (r.error) {
+    $('ytdlpInfo').textContent = 'Güncelleme başarısız';
+    setStatus('err', 'yt-dlp güncellenemedi: ' + r.error);
+    return;
+  }
+  await refreshYtdlpInfo();
+  if (r.updated) showToast(`yt-dlp ${r.version} sürümüne güncellendi`);
+  else showToast('yt-dlp zaten güncel');
+});
+
 // ---- Sol navigasyon + ekran (view) sistemi (v1.12.0) ----
 // Her menü öğesi bir ekran gösterir; ana ekran kalabalıklaşmadan yeni özellikler
 // (Faz 12+: GIF, Moodlar…) kendi ekranlarıyla eklenir. Ayarlar ve Sıkıştır
@@ -1739,7 +1775,7 @@ function switchView(name) {
   currentView = name;
   Object.entries(VIEWS).forEach(([key, id]) => $(id).classList.toggle('hidden', key !== name));
   document.querySelectorAll('#sideNav .nav-item').forEach(b => b.classList.toggle('active', b.dataset.view === name));
-  if (name === 'settings') refreshCacheInfo();
+  if (name === 'settings') { refreshCacheInfo(); refreshYtdlpInfo(); }
   if (name === 'ai') aiRefreshView(); // anahtar/kaynak durumu her girişte tazelenir
   if (name === 'mood') mdRefreshView();
 }

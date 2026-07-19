@@ -47,7 +47,9 @@ const SETTINGS_DEFAULTS = {
   moodTtsProvider: 'gemini', // Faz 15: TTS sağlayıcısı — gemini (varsayılan, ek üyelik gerekmez) | eleven
   moodVoiceGemini: 'Kore', // Faz 15: son seçilen Google (Gemini) sesi
   moodSubtitle: false,    // Faz 15: kurguya altyazı gömme tercihi
-  pexelsKey: ''           // Faz 16-B: Pexels API anahtarı (B-Roll stok videoları)
+  pexelsKey: '',          // Faz 16-B: Pexels API anahtarı (B-Roll stok videoları)
+  ytdlpLastCheck: 0,      // v1.17.0: son otomatik yt-dlp güncelleme kontrolü (ms epoch)
+  ytdlpVersion: ''        // v1.17.0: bilinen yt-dlp sürümü (Ayarlar'da gösterim)
 };
 let settingsCache = null;
 function settingsPath() { return path.join(app.getPath('userData'), 'settings.json'); }
@@ -78,13 +80,71 @@ const procEnv = { ...process.env, PYTHONIOENCODING: 'utf-8' };
 
 // Paketlenmiş uygulamada yt-dlp, resources/bin altına gömülür (bkz. scripts/fetch-ytdlp.js
 // ve package.json > build.win/mac.extraResources); geliştirme ortamında sistemdeki PATH kullanılır.
+//
+// v1.17.0 (self-update): yt-dlp YouTube değiştikçe eskirse indirme kırılır. Ancak
+// gömülü ikili process.resourcesPath altında SALT-OKUNUR (macOS imzalı bundle /
+// Windows Program Files / Linux kök kurulum) — yt-dlp --update-to kendini yerinde
+// değiştirdiği için ikili yazılabilir userData/bin'e KOPYALANIP oradan çalıştırılır.
+function ytdlpExeName() { return process.platform === 'win32' ? 'yt-dlp.exe' : 'yt-dlp'; }
+function bundledYtdlp() {
+  const bundled = path.join(process.resourcesPath, 'bin', ytdlpExeName());
+  return fs.existsSync(bundled) ? bundled : null;
+}
+function writableYtdlpPath() { return path.join(app.getPath('userData'), 'bin', ytdlpExeName()); }
+
 function resolveYtdlp() {
   if (app.isPackaged) {
-    const exe = process.platform === 'win32' ? 'yt-dlp.exe' : 'yt-dlp';
-    const bundled = path.join(process.resourcesPath, 'bin', exe);
-    if (fs.existsSync(bundled)) return bundled;
+    // whenReady'de ensureYtdlpWritable yazılabilir kopyayı hazırlar; o ana kadar
+    // (ve kopya hazırlanamazsa) gömülü ikiliye düşülür. Dev'de sistem PATH'i.
+    const writable = writableYtdlpPath();
+    if (fs.existsSync(writable)) return writable;
+    const bundled = bundledYtdlp();
+    if (bundled) return bundled;
   }
   return 'yt-dlp';
+}
+
+// yt-dlp --version'ı senkron okur (kısa; tarih-tabanlı sürüm dizesi, ör. 2026.07.04).
+// --ignore-config: kullanıcının global yt-dlp config'i (varsa) eski ikiliye
+// tanımadığı bayrak enjekte edip çökertmesin (self-update sırasında kanıtlandı).
+function ytdlpVersionSync(exe) {
+  try {
+    const r = require('child_process').spawnSync(exe, ['--ignore-config', '--version'],
+      { encoding: 'utf8', timeout: 10000, windowsHide: true, env: procEnv });
+    const v = (r.stdout || '').trim().split(/\r?\n/)[0];
+    return /^\d{4}\.\d{2}\.\d{2}/.test(v) ? v : null;
+  } catch { return null; }
+}
+
+// Gömülü ikiliyi yazılabilir userData/bin'e hazırlar. Kopya yoksa seed'ler;
+// varsa DOWNGRADE KORUMASI: gömülü sürüm kopyadan yeniyse (uygulama güncellemesi
+// taze ikili getirmiş olabilir) üstüne yazar — asla eskiye düşürmez. Kendini
+// güncelleme runtime'da userData kopyası üzerinde çalışır. Hata olursa sessizce
+// gömülü ikiliyle devam (resolveYtdlp fallback'i).
+function ensureYtdlpWritable() {
+  if (!app.isPackaged) return;
+  const bundled = bundledYtdlp();
+  if (!bundled) return;
+  const writable = writableYtdlpPath();
+  try {
+    fs.mkdirSync(path.dirname(writable), { recursive: true });
+    if (!fs.existsSync(writable)) {
+      fs.copyFileSync(bundled, writable);
+      if (process.platform !== 'win32') fs.chmodSync(writable, 0o755);
+    } else {
+      // Sürüm karşılaştırması (string; tarih-tabanlı sıralanabilir)
+      const vb = ytdlpVersionSync(bundled);
+      const vw = ytdlpVersionSync(writable);
+      if (vb && vw && vb > vw) {
+        fs.copyFileSync(bundled, writable);
+        if (process.platform !== 'win32') fs.chmodSync(writable, 0o755);
+      }
+    }
+    YTDLP = writable;
+  } catch (err) {
+    console.error('[ytdlp] yazılabilir kopya hazırlanamadı:', err.message);
+    // YTDLP resolveYtdlp() ile gömülüye zaten ayarlı kalır
+  }
 }
 
 // ffmpeg, ffmpeg-static paketiyle gömülür — hem geliştirme hem paketlenmiş sürümde
@@ -111,7 +171,7 @@ function resolveTracker() {
   return { cmd: py, prefix: [path.join(__dirname, 'tracker.py')] };
 }
 
-const YTDLP = resolveYtdlp();
+let YTDLP = resolveYtdlp();   // whenReady'de ensureYtdlpWritable ile yazılabilir kopyaya taşınır
 const FFMPEG = resolveFfmpeg();
 const TRACKER = resolveTracker();
 
@@ -264,11 +324,80 @@ ipcMain.handle('update-download', () => autoUpdater.downloadUpdate());
 ipcMain.handle('update-install', () => autoUpdater.quitAndInstall(false, true));
 
 app.whenReady().then(() => {
+  ensureYtdlpWritable();  // yt-dlp'yi yazılabilir userData kopyasına taşı (self-update için)
   createWindow();
   initAutoUpdate();
   getEncoder().then((e) => console.log('[encoder]', e)); // ilk render'dan önce arka planda tespit edilsin
+  maybeAutoUpdateYtdlp();  // günde bir, sessiz, arka planda (indirmeyi engellemez)
 });
 app.on('window-all-closed', () => app.quit());
+
+// --- v1.17.0: yt-dlp kendini güncelleme ---
+// yt-dlp YouTube iç yapısı değiştikçe eskirse indirme kırılır; userData'daki
+// yazılabilir kopya --update-to ile kendini yerinde günceller. Kendi süreç
+// takibini kullanır (paylaşılan currentProc'a DOKUNMAZ — indirme "İptal"i
+// güncellemeyi, güncelleme de indirmeyi öldürmesin).
+let ytdlpUpdating = false;
+const YTDLP_UPDATE_INTERVAL = 24 * 60 * 60 * 1000; // günde bir
+
+// --update-to stable@latest → kendini son kararlı sürüme çeker. --ignore-config
+// ZORUNLU: kullanıcının global yt-dlp config'i eski ikiliye tanımadığı bayrak
+// enjekte edip çökertebiliyor (self-update testinde kanıtlandı).
+function runYtdlpUpdate() {
+  return new Promise((resolve) => {
+    if (ytdlpUpdating) return resolve({ error: 'Güncelleme zaten sürüyor.' });
+    if (!app.isPackaged) return resolve({ ok: true, updated: false, version: ytdlpVersionSync(YTDLP), dev: true });
+    ytdlpUpdating = true;
+    const proc = spawn(YTDLP, ['--ignore-config', '--update-to', 'stable@latest'],
+      { windowsHide: true, env: procEnv });
+    let out = '';
+    const timer = setTimeout(() => { try { proc.kill(); } catch {} }, 60000);
+    proc.stdout.on('data', (d) => { out += d.toString('utf8'); });
+    proc.stderr.on('data', (d) => { out += d.toString('utf8'); });
+    proc.on('close', (code) => {
+      clearTimeout(timer);
+      ytdlpUpdating = false;
+      const mUpd = out.match(/Updated yt-dlp to stable@(\d{4}\.\d{2}\.\d{2}[^\s]*)/);
+      const mCur = out.match(/is up to date \(stable@(\d{4}\.\d{2}\.\d{2}[^\s)]*)/);
+      const version = (mUpd && mUpd[1]) || (mCur && mCur[1]) || ytdlpVersionSync(YTDLP);
+      if (code === 0) {
+        if (version) saveSettings({ ytdlpVersion: version });
+        resolve({ ok: true, updated: !!mUpd, version });
+      } else {
+        resolve({ error: out.split(/\r?\n/).filter(Boolean).slice(-2).join('\n') || 'Güncelleme başarısız.' });
+      }
+    });
+    proc.on('error', (err) => { clearTimeout(timer); ytdlpUpdating = false; resolve({ error: err.message }); });
+  });
+}
+
+// Günde bir sessiz otomatik güncelleme: pencere yüklendikten sonra gecikmeli
+// çalışır (ilk indirmeyi engellemez); başarıda ytdlpLastCheck yazılır, bildirim
+// gösterilmez. Ağ yoksa/başarısızsa sessizce mevcut kopyayla devam.
+function maybeAutoUpdateYtdlp() {
+  if (!app.isPackaged) return;
+  const last = loadSettings().ytdlpLastCheck || 0;
+  if (Date.now() - last < YTDLP_UPDATE_INTERVAL) return;
+  setTimeout(async () => {
+    const r = await runYtdlpUpdate();
+    if (r.ok) saveSettings({ ytdlpLastCheck: Date.now() });
+  }, 12000);
+}
+
+// Ayarlar ekranı gösterimi: bilinen sürüm + son kontrol zamanı
+ipcMain.handle('ytdlp-info', () => {
+  const s = loadSettings();
+  let version = s.ytdlpVersion;
+  if (!version) { version = ytdlpVersionSync(YTDLP); if (version) saveSettings({ ytdlpVersion: version }); }
+  return { version: version || null, lastCheck: s.ytdlpLastCheck || 0 };
+});
+
+// Elle "Şimdi güncelle": kullanıcı tetikler, sonuç renderer'da toast/mesaj olur
+ipcMain.handle('ytdlp-update', async () => {
+  const r = await runYtdlpUpdate();
+  if (r.ok) saveSettings({ ytdlpLastCheck: Date.now() });
+  return r;
+});
 
 // yt-dlp'nin stderr çıktısından kullanıcıya gösterilebilir hata mesajı ayıklar
 // yt-dlp'nin ham İngilizce hatalarını bilinen kalıplara göre anlaşılır Türkçe

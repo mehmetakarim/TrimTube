@@ -42,6 +42,10 @@ contextBridge.exposeInMainWorld('api', {
   cacheInfo: () => ipcRenderer.invoke('cache-info'),
   cacheClear: () => ipcRenderer.invoke('cache-clear'),
 
+  // v1.17.0: yt-dlp (indirme motoru) sürüm bilgisi + elle güncelleme
+  ytdlpInfo: () => ipcRenderer.invoke('ytdlp-info'),
+  ytdlpUpdate: () => ipcRenderer.invoke('ytdlp-update'),
+
   // Faz 11: sıkıştırma (görsel kayıpsız yeniden kodlama ile boyut küçültme)
   compressVideo: (opts) => ipcRenderer.invoke('compress-video', opts),
   compressCancel: () => ipcRenderer.invoke('compress-cancel'),

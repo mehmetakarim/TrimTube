@@ -9,6 +9,17 @@ Bu dosya, farklı ortamlardaki (ev: macOS M-serisi, ofis: Windows 11) geliştirm
 **Yayındaki sürüm:** `v1.16.1` · Windows/macOS(arm64)/Linux · GitHub: mehmetakarim/TrimTube
 **Yapılacaklar listesi (asıl kaynak):** proje kökündeki `YOL-HARITASI.md` (onay kutulu, faz faz).
 
+**Bakım — yt-dlp kendini güncelleme: KOD TAMAM (19 Tem 2026), v1.17.0 adayı; saha testi bekliyor.**
+- Sorun: yt-dlp pakete gömülü ve sabit → YouTube değiştikçe eskiyip indirme son kullanıcıda kırılır (bu tür uygulamaların en sık ölüm nedeni). Apple hesabı GEREKTİRMEZ.
+- **Kilit kısıt**: gömülü ikili `process.resourcesPath/bin` altında SALT-OKUNUR (macOS imzalı bundle / Win Program Files / Linux kök). yt-dlp `--update-to` kendini yerinde değiştirir → ikili yazılabilir `userData/bin`'e kopyalanıp oradan çalıştırılır (`ensureYtdlpWritable`, whenReady'de; `YTDLP` artık `let`).
+- **Downgrade koruması**: kopya varsa gömülü vs kopya `--version` (tarih-string) karşılaştırılır; gömülü yeniyse (app güncellemesi taze ikili getirmiş olabilir) adopt edilir — asla eskiye düşmez.
+- **Motor**: `runYtdlpUpdate` → `spawn(YTDLP, ['--ignore-config','--update-to','stable@latest'])`, kendi proc'u (paylaşılan currentProc'a DOKUNMAZ), 60 sn timeout. **`--ignore-config` ZORUNLU** — kullanıcının global yt-dlp config'i eski ikiliye tanımadığı bayrak (`--js-runtimes` vb.) enjekte edip çökertiyor (self-update testinde canlı yaşandı ve çözüldü).
+- **Auto**: günde bir (24h throttle, `ytdlpLastCheck`), açılışta 12 sn gecikmeli, arka planda, SESSİZ (bildirim yok). `app.isPackaged` kapısı — dev'de sistem yt-dlp'sine dokunulmaz.
+- **UI**: Ayarlar'da "İndirme motoru" satırı (`ytdlpInfo` sürüm + son kontrol, `ytdlpUpdateBtn` "Şimdi güncelle"); elle güncellemede toast ("X'e güncellendi" / "zaten güncel"). IPC: `ytdlp-info`/`ytdlp-update`.
+- **Çıktı ayrıştırma**: `Updated yt-dlp to stable@<VER>` (güncellendi) / `is up to date (stable@<VER>` (güncel).
+- **Doğrulanan**: GERÇEK self-update kanıtı — 2025.09.26 standalone ikilisi indirilip `--ignore-config --update-to stable@latest` ile 2026.07.04'e kendini yazılabilir dizinde değiştirdi; ikinci çağrı "up to date" döndü. `ensureYtdlpWritable` 6 dal birim testi (seed/koruma/adopt/gömülü-yok), ayrıştırma+throttle 8 test, sürüm regex gerçek yt-dlp'de, node --check üçlü, Electron duman (dev kapısı atlanıyor, hata yok), id/IPC eşleşme — hepsi temiz.
+- Saha testinde bakılacak: paketli sürümde ilk açılışta userData kopyasının seed'lendiği; "Şimdi güncelle" düğmesinin sürümü tazelediği; gerçek indirmenin yazılabilir kopyayla çalıştığı.
+
 **Faz 16 cilası — Konuşmacı modunda yüz imzası: v1.16.1 YAYINLANDI ve SAHA TESTİNDEN GEÇTİ ("daha iyi" — macOS, 18 Tem 2026). İkinci plan döneminin TÜM kalemleri kapandı.**
 - Keşif: tek-kişi modu SFace imzasını Faz 10'dan beri kullanıyordu; **konuşmacı modu kullanmıyordu** (izler yalnız en-yakın-merkez). Eklenen kimlik katmanı (yalnız `tracker.py`; SFace zaten pakette, spec/CI/boyut değişmedi):
   - **Kalıcı kimlik kaydı** (`identities`, sahne kesmesinde SIFIRLANMAZ): `assign_identity`/`match_identity`/`identity_seen` — eşik `MATCH_THRESHOLD`, güçlü eşleşmede feat biriktirme (`IDENTITY_STRONG=0.45`), tavan `MAX_IDENTITIES=8` (dolunca en eski geri dönüştürülür, **id değişir** ki eski izler yanlış eşleşmesin).
