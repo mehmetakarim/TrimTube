@@ -6,10 +6,10 @@ Bu dosya, farklı ortamlardaki (ev: macOS M-serisi, ofis: Windows 11) geliştirm
 
 ## 📍 GÜNCEL DURUM & SIRADAKİ İŞLER (yeni oturum buradan başlasın)
 
-**Yayındaki sürüm:** `v1.16.1` · Windows/macOS(arm64)/Linux · GitHub: mehmetakarim/TrimTube
+**Yayındaki sürüm:** `v1.17.0` · Windows/macOS(arm64)/Linux · GitHub: mehmetakarim/TrimTube
 **Yapılacaklar listesi (asıl kaynak):** proje kökündeki `YOL-HARITASI.md` (onay kutulu, faz faz).
 
-**Bakım — yt-dlp kendini güncelleme: KOD TAMAM (19 Tem 2026), v1.17.0 adayı; saha testi bekliyor.**
+**Bakım — yt-dlp kendini güncelleme: v1.17.0 YAYINLANDI (19 Tem 2026); saha testi paketli sürümde yapılacak (dev modda app.isPackaged kapısı nedeniyle etkisi görünmez).**
 - Sorun: yt-dlp pakete gömülü ve sabit → YouTube değiştikçe eskiyip indirme son kullanıcıda kırılır (bu tür uygulamaların en sık ölüm nedeni). Apple hesabı GEREKTİRMEZ.
 - **Kilit kısıt**: gömülü ikili `process.resourcesPath/bin` altında SALT-OKUNUR (macOS imzalı bundle / Win Program Files / Linux kök). yt-dlp `--update-to` kendini yerinde değiştirir → ikili yazılabilir `userData/bin`'e kopyalanıp oradan çalıştırılır (`ensureYtdlpWritable`, whenReady'de; `YTDLP` artık `let`).
 - **Downgrade koruması**: kopya varsa gömülü vs kopya `--version` (tarih-string) karşılaştırılır; gömülü yeniyse (app güncellemesi taze ikili getirmiş olabilir) adopt edilir — asla eskiye düşmez.
