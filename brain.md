@@ -6,10 +6,10 @@ Bu dosya, farklı ortamlardaki (ev: macOS M-serisi, ofis: Windows 11) geliştirm
 
 ## 📍 GÜNCEL DURUM & SIRADAKİ İŞLER (yeni oturum buradan başlasın)
 
-**Yayındaki sürüm:** `v1.17.0` · Windows/macOS(arm64)/Linux · GitHub: mehmetakarim/TrimTube
+**Yayındaki sürüm:** `v1.18.0` · Windows/macOS(arm64)/Linux · GitHub: mehmetakarim/TrimTube
 **Yapılacaklar listesi (asıl kaynak):** proje kökündeki `YOL-HARITASI.md` (onay kutulu, faz faz).
 
-**Tarayıcı Eklentisi Kulvarı — KOD TAMAM (20 Tem 2026), v1.18.0 adayı; saha testi bekliyor. Yol haritasındaki son teknik kulvar.**
+**Tarayıcı Eklentisi Kulvarı — v1.18.0 YAYINLANDI (20 Tem 2026); saha testi bekliyor (eklentiyi Chrome'a geliştirici modunda yükleyip gerçek YouTube'da denemek). Yol haritasındaki son teknik kulvar KAPANDI.**
 - **Protokol altyapısı** ([main.js](main.js)): `requestSingleInstanceLock` (ÖNCEDEN YOKTU — deep-link için şart; yan fayda: uygulama artık iki kez açılmıyor) + `second-instance` (Win/Linux argv yolu) + `open-url` (macOS) + `setAsDefaultProtocolClient`. Soğuk başlatmada bağlantı `pendingDeepLink`'e kuyruklanıp `did-finish-load`'da teslim edilir (yoksa olay kaybolur).
 - **GÜVENLİK — `parseDeepLink`**: deep-link GÜVENİLMEYEN girdidir (herhangi bir web sayfası `trimtube://…` açtırabilir). Yalnız `trimtube:` şeması; `v` için katı `/^[A-Za-z0-9_-]{11}$/`; alternatif `url` için host **allowlist** (youtube.com/www/m/music/youtu.be); `t` 0..86400 kelepçesi. **16 birim test** — `evil.com`, `file:///etc/passwd`, bozuk/kısa/uzun id, yanlış şema hepsi reddediliyor. Doğrulanmayan hiçbir şey yt-dlp'ye ulaşmaz.
 - **Renderer**: `onDeepLink` → `switchView('cutter')` → URL doldur → `fetchInfo()` → `startSec>0` ise `trimEnable`+`startTime` (mevcut `applyProjectSettings` deseni) + toast.
@@ -19,7 +19,7 @@ Bu dosya, farklı ortamlardaki (ev: macOS M-serisi, ofis: Windows 11) geliştirm
 - **Test tekniği notu**: paketli uygulama GUI modunda stdout'u terminale bağlamıyor → doğrulama için kurulu paketteki `main.js`'e geçici `appendFileSync('/tmp/…')` izi eklendi (kaynak kod temiz kaldı, `asar:false` sayesinde rebuild gerekmedi). Aynı numara ileride deep-link/IPC teşhisinde kullanılabilir.
 - Saha testinde bakılacak: Chrome'a geliştirici modunda yüklenip gerçek YouTube'da buton görünürlüğü, SPA gezinmesinde kalıcılığı, tıklayınca tam akış.
 
-**Bakım — Kurulum boyutu küçültme: KOD TAMAM (20 Tem 2026), v1.17.1 adayı; bakım kulvarının SON kalemi.**
+**Bakım — Kurulum boyutu küçültme: v1.18.0 ile birlikte YAYINLANDI. GERÇEK ölçülen kazanç (v1.17.0 → v1.18.0): Linux deb −14.4 MB (%5.3), macOS dmg −10.2 MB (%3.9), Windows exe −1.3 MB (%0.6 — NSIS zaten LZMA kullanıyormuş, compression:maximum orada işe yaramadı), macOS zip −1.5 MB. Tahminim %6 idi, gerçek ~%3.5.**
 - **Ölçülen dağılım** (yerel macOS build, tracker'sız dmg 161 MB iken yayınlanan 259 MB → aradaki fark tracker): **tracker frozen exe ≈98 MB** (kurulumun en büyük tek parçası; içinde cv2 58 MB + SFace 37 MB) · ffmpeg 45 MB · yt-dlp 37 MB · Electron ~110 MB.
 - **Yapılanlar**: (1) `build.compression: "maximum"` → **ölçülen kazanç dmg −9.5 MB (%5.9)**; zip'te etkisiz (%0.3, zaten deflate). (2) `tracker.spec` `strip=True` + excludes genişletme (`unittest, doctest, pydoc, pip, setuptools, wheel, lib2to3, sqlite3`) → yalnız −0.6 MB (macOS wheel'leri zaten strip'li) ama **eski/yeni tracker çıktıları BİREBİR AYNI** doğrulandı (gerçek yüz videosunda iki mod). (3) `files`'a `!*.md`, `!requirements.txt` → geliştirme belgeleri pakete girmiyor.
 - **KRİTİK — pakette KALMASI gerekenler** (build'de tek tek doğrulandı): `subtitle.py` (Whisper `__dirname`'den spawn eder), `tracker.py` (frozen ikili bulunamazsa `resolveTracker` fallback'i — 28 KB için güvenlik ağı feda edilmedi), `assets/sfx/*.wav`.
