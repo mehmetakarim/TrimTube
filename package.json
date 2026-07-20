@@ -1,7 +1,7 @@
 {
   "name": "trimtube",
   "productName": "TrimTube",
-  "version": "1.17.1",
+  "version": "1.18.0",
   "description": "YouTube video indirme ve kesme aracı (yt-dlp + ffmpeg)",
   "main": "main.js",
   "author": {
@@ -30,6 +30,12 @@
     "productName": "TrimTube",
     "asar": false,
     "compression": "maximum",
+    "protocols": [
+      {
+        "name": "TrimTube",
+        "schemes": ["trimtube"]
+      }
+    ],
     "publish": {
       "provider": "github",
       "owner": "mehmetakarim",
@@ -47,7 +53,8 @@
       "!*.onnx",
       "!tracker.spec",
       "!*.md",
-      "!requirements.txt"
+      "!requirements.txt",
+      "!extension/**"
     ],
     "directories": {
       "output": "dist"

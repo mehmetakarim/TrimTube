@@ -114,10 +114,11 @@ Saha geri bildirimi: 3 dk'lık klip ~350MB çıkabiliyor (donanım kodlayıcı b
 - [x] yt-dlp kendini güncelleme · `v1.17.0` — gömülü ikili yazılabilir `userData/bin`'e kopyalanır (macOS imzalı bundle / Windows Program Files salt-okunur olduğundan), `--update-to stable@latest --ignore-config` ile güncel tutulur. Günde bir sessiz otomatik (açılışta arka planda) + Ayarlar'da "Şimdi güncelle" düğmesi. Downgrade koruması (uygulama güncellemesi daha yeni ikili getirirse adopt eder). YouTube kırılmalarına karşı kritik koruma; Apple geliştirici hesabı GEREKTİRMEZ.
 - [x] Kurulum boyutu küçültme · `v1.17.1` — `compression: maximum` (ölçülen: macOS dmg −%5.9) + PyInstaller `strip=True` ve genişletilmiş `excludes` (−0.6 MB, çıktı birebir aynı doğrulandı) + geliştirme belgeleri pakete girmiyor. **Bilinçli olarak yapılmayanlar** (kullanıcı kararı): SFace int8 modeli (−27 MB, takip hassasiyeti riski), yt-dlp'yi ilk kullanımda indirme (−35 MB, "kutudan çıktığı gibi çalışsın"), özel minimal ffmpeg (GPU kodlayıcı riski), `asar: true` (net kazanç ~0, spawn riski).
 
-### 🧩 Ayrı Kulvar — Tarayıcı Eklentisi
-- [ ] `extension/` klasöründe Chrome eklentisi: YouTube izleme sayfasında "TrimTube ile Kes" butonu
-- [ ] Uygulamaya `trimtube://` protokol (deep-link) desteği
-- [ ] Test: geliştirici modunda yükleme; mağaza dağıtımı ayrıca konuşulacak
+### 🧩 Ayrı Kulvar — Tarayıcı Eklentisi · `v1.18.0` (kod tamam; saha testi bekliyor)
+- [x] `extension/` klasöründe Chrome eklentisi (Manifest V3, **sıfır izin**): YouTube eylem çubuğuna "TrimTube ile Kes" butonu; SPA gezinmesinde yeniden enjeksiyon, yedek seçiciler (YouTube DOM değişirse sayfa bozulmaz, buton eklenmez)
+- [x] Uygulamaya `trimtube://` protokol (deep-link) desteği: tek örnek kilidi + `second-instance` (Win/Linux argv) + `open-url` (macOS); **güvenlik doğrulaması** — yalnız 11 karakterlik YouTube kimliği veya allowlist'teki YouTube host'ları kabul edilir, `t` kelepçelenir
+- [x] Buton izlenen anı da gönderir → uygulamada kesim başlangıcı olarak işaretlenir
+- [ ] Mağaza dağıtımı — ayrıca konuşulacak (geliştirici modunda yükleme belgelendi: `extension/README.md`)
 
 ### Bilinçli olarak kapsam dışı
 - [ ] ~~Diğer platform kaynakları (X, Instagram vb.)~~ — teknik olarak kolay ama ayrı bir ürün yönü; şimdilik YouTube odağı korunuyor
@@ -127,4 +128,4 @@ Saha geri bildirimi: 3 dk'lık klip ~350MB çıkabiliyor (donanım kodlayıcı b
 
 ---
 
-*Son güncelleme: kurulum boyutu küçültme (v1.17.1) ile **bakım kulvarı tamamen kapandı**. Kalan tek kulvar: tarayıcı eklentisi (`extension/` + `trimtube://`).*
+*Son güncelleme: tarayıcı eklentisi kulvarı (v1.18.0) tamamlandı — **yol haritasındaki tüm teknik kalemler kapandı**. Açık kalan tek şey: eklentinin mağaza dağıtımı (ayrı konuşulacak).*

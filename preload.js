@@ -37,6 +37,10 @@ contextBridge.exposeInMainWorld('api', {
 
   onMainError: (cb) => ipcRenderer.on('main-error', (e, message) => cb(message)),
 
+  // v1.18.0: tarayıcı eklentisinden gelen trimtube:// bağlantısı
+  // (main tarafında doğrulanmış {url, startSec})
+  onDeepLink: (cb) => ipcRenderer.on('deep-link', (e, link) => cb(link)),
+
   getSettings: () => ipcRenderer.invoke('get-settings'),
   setSettings: (patch) => ipcRenderer.invoke('set-settings', patch),
   cacheInfo: () => ipcRenderer.invoke('cache-info'),

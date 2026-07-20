@@ -1,0 +1,27 @@
+/* "TrimTube ile Kes" butonu — YouTube'un kendi eylem çubuğu düğmeleriyle
+   uyumlu görünsün diye onların ölçü/kıvrım dilini taklit eder; renk olarak
+   TrimTube vurgusunu (mavi) kullanır. Karanlık/açık temada okunur kalır. */
+.trimtube-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 14px;
+  margin-right: 8px;
+  border: none;
+  border-radius: 18px;
+  background: #0A84FF;
+  color: #fff;
+  font-family: "Roboto", "Arial", sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 36px;
+  white-space: nowrap;
+  cursor: pointer;
+  vertical-align: middle;
+  transition: background 0.15s ease;
+}
+
+.trimtube-btn:hover { background: #0974df; }
+.trimtube-btn:active { background: #0866c4; }
+.trimtube-btn svg { flex: none; }

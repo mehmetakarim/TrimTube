@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "TrimTube ile Kes",
+  "version": "1.0.0",
+  "description": "YouTube'da izlediğin videoyu tek tıkla TrimTube'da aç — izlediğin an kesim başlangıcı olur.",
+  "icons": {
+    "48": "icon48.png",
+    "128": "icon128.png"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.youtube.com/*"],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}

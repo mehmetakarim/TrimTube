@@ -927,6 +927,32 @@ async function fetchInfo() {
 $('fetchBtn').addEventListener('click', fetchInfo);
 $('url').addEventListener('keydown', (e) => { if (e.key === 'Enter') fetchInfo(); });
 
+// ---- v1.18.0: tarayıcı eklentisinden gelen derin bağlantı ----
+// Eklentideki "TrimTube ile Kes" butonu → main'de doğrulanmış {url, startSec}
+// gelir: Video Kes ekranına geçilir, bağlantı yüklenir ve izlenen an kesim
+// başlangıcı olarak işaretlenir (kullanıcı kararı).
+window.api.onDeepLink(async ({ url, startSec }) => {
+  if (!url) return;
+  switchView('cutter');
+  $('url').value = url;
+  await fetchInfo();
+  if (!infoLoaded) return; // yükleme başarısız — hata zaten ekranda
+
+  if (startSec > 0 && startSec < videoDuration) {
+    // Kesim aralığını uygula (applyProjectSettings ile aynı desen: change olayları
+    // slider/dalga formu/ince ayar zincirini tetikler)
+    if (!$('trimEnable').checked) {
+      $('trimEnable').checked = true;
+      $('trimEnable').dispatchEvent(new Event('change'));
+    }
+    $('startTime').value = fmtTime(startSec);
+    $('startTime').dispatchEvent(new Event('change'));
+    showToast(`YouTube'dan alındı — kesim başlangıcı ${fmtTime(startSec)}`);
+  } else {
+    showToast("YouTube'dan alındı");
+  }
+});
+
 // ---- oynatma listesi toplu indirme (Faz 9) ----
 
 // Saf playlist bağlantısı: list= içerir ama tekil video (v=) içermez. Bir videonun

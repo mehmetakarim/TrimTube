@@ -257,6 +257,75 @@ async function runEncodeWithFallback(buildArgs, crf, onLine, cwd) {
   return runProc(FFMPEG, buildArgs([], videoEncodeArgs('libx264', crf)), onLine, cwd);
 }
 
+// --- v1.18.0: trimtube:// derin bağlantı (tarayıcı eklentisi kulvarı) ---
+// GÜVENLİK: gelen bağlantı GÜVENİLMEYEN girdidir — herhangi bir web sayfası
+// trimtube://… açtırabilir. Bu yüzden yalnızca katı biçimde doğrulanmış YouTube
+// video kimliği / host'u kabul edilir; doğrulanmayan hiçbir şey indirme
+// katmanına (yt-dlp) ulaşamaz.
+const YT_ID_RE = /^[A-Za-z0-9_-]{11}$/;
+const YT_HOSTS = new Set(['youtube.com', 'www.youtube.com', 'm.youtube.com', 'youtu.be', 'music.youtube.com']);
+
+function parseDeepLink(raw) {
+  try {
+    if (typeof raw !== 'string' || !raw.trim()) return null;
+    const u = new URL(raw.trim());
+    if (u.protocol !== 'trimtube:') return null;
+
+    // Başlangıç saniyesi: yalnız sayı, 0..24 saat arası kelepçelenir
+    let startSec = 0;
+    const rawT = u.searchParams.get('t');
+    if (rawT !== null) {
+      const t = Number(rawT);
+      if (Number.isFinite(t)) startSec = Math.max(0, Math.min(86400, Math.floor(t)));
+    }
+
+    // 1) Tercih edilen biçim: ?v=<11 karakterlik video kimliği>
+    const v = u.searchParams.get('v');
+    if (v && YT_ID_RE.test(v)) {
+      return { url: `https://www.youtube.com/watch?v=${v}`, startSec };
+    }
+
+    // 2) Alternatif: ?url=<tam YouTube adresi> — host allowlist'i ZORUNLU
+    const rawUrl = u.searchParams.get('url');
+    if (rawUrl) {
+      const target = new URL(rawUrl);
+      if ((target.protocol === 'https:' || target.protocol === 'http:') && YT_HOSTS.has(target.hostname)) {
+        return { url: target.href, startSec };
+      }
+    }
+    return null;
+  } catch {
+    return null; // bozuk/ayrıştırılamayan bağlantı sessizce yok sayılır
+  }
+}
+
+// Pencere henüz hazır değilken gelen bağlantı (soğuk başlatma) kaybolmasın diye
+// kuyruklanır; renderer yüklenince gönderilir.
+let pendingDeepLink = null;
+
+function deliverDeepLink(link) {
+  if (!link) return;
+  console.log('[deep-link]', link.url, 'start=' + link.startSec);
+  if (win && !win.isDestroyed() && win.webContents && !win.webContents.isLoading()) {
+    win.webContents.send('deep-link', link);
+  } else {
+    pendingDeepLink = link;
+  }
+}
+
+// argv içinden trimtube:// bağlantısını ayıklar (Windows/Linux yolu)
+function deepLinkFromArgv(argv) {
+  const hit = (argv || []).find(a => typeof a === 'string' && a.startsWith('trimtube://'));
+  return hit ? parseDeepLink(hit) : null;
+}
+
+function focusMainWindow() {
+  if (!win || win.isDestroyed()) return;
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+}
+
 function createWindow() {
   win = new BrowserWindow({
     width: 1180,
@@ -274,6 +343,15 @@ function createWindow() {
     }
   });
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+
+  // Soğuk başlatmada gelen derin bağlantı, renderer hazır olunca teslim edilir
+  win.webContents.on('did-finish-load', () => {
+    if (pendingDeepLink) {
+      const link = pendingDeepLink;
+      pendingDeepLink = null;
+      win.webContents.send('deep-link', link);
+    }
+  });
 
   // F12: sorun bildirimlerinde konsol hatasını görebilmek için DevTools
   win.webContents.on('before-input-event', (e, input) => {
@@ -323,13 +401,46 @@ ipcMain.handle('update-download', () => autoUpdater.downloadUpdate());
 // isForceRunAfter=true: kurulum bitince uygulama otomatik yeniden başlar.
 ipcMain.handle('update-install', () => autoUpdater.quitAndInstall(false, true));
 
-app.whenReady().then(() => {
-  ensureYtdlpWritable();  // yt-dlp'yi yazılabilir userData kopyasına taşı (self-update için)
-  createWindow();
-  initAutoUpdate();
-  getEncoder().then((e) => console.log('[encoder]', e)); // ilk render'dan önce arka planda tespit edilsin
-  maybeAutoUpdateYtdlp();  // günde bir, sessiz, arka planda (indirmeyi engellemez)
-});
+// --- Tek örnek kilidi (v1.18.0) ---
+// Derin bağlantı için ŞART: ikinci kez açılış yeni pencere yerine mevcut
+// pencereyi öne getirip bağlantıyı ona teslim eder. Yan fayda: uygulama artık
+// yanlışlıkla iki kez açılmaz.
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on('second-instance', (event, argv) => {
+    focusMainWindow();
+    deliverDeepLink(deepLinkFromArgv(argv)); // Windows/Linux: bağlantı argv'de gelir
+  });
+
+  // macOS: bağlantı argv yerine bu olayla gelir (uygulama kapalıyken de tetiklenir)
+  app.on('open-url', (event, url) => {
+    event.preventDefault();
+    focusMainWindow();
+    deliverDeepLink(parseDeepLink(url));
+  });
+
+  app.whenReady().then(() => {
+    // Protokol kaydı. Dev modunda (paketlenmemiş) execPath Electron ikilisidir;
+    // Windows'ta kaydın çalışması için betik yolu argüman olarak verilmeli.
+    if (app.isPackaged) {
+      app.setAsDefaultProtocolClient('trimtube');
+    } else if (process.platform === 'win32' && process.argv.length >= 2) {
+      app.setAsDefaultProtocolClient('trimtube', process.execPath, [path.resolve(process.argv[1])]);
+    }
+
+    // Soğuk başlatmada bağlantı argv ile gelmiş olabilir (Windows/Linux)
+    const initial = deepLinkFromArgv(process.argv);
+    if (initial) pendingDeepLink = initial;
+
+    ensureYtdlpWritable();  // yt-dlp'yi yazılabilir userData kopyasına taşı (self-update için)
+    createWindow();
+    initAutoUpdate();
+    getEncoder().then((e) => console.log('[encoder]', e)); // ilk render'dan önce arka planda tespit edilsin
+    maybeAutoUpdateYtdlp();  // günde bir, sessiz, arka planda (indirmeyi engellemez)
+  });
+}
 app.on('window-all-closed', () => app.quit());
 
 // --- v1.17.0: yt-dlp kendini güncelleme ---
