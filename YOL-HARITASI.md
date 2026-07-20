@@ -113,7 +113,6 @@ Saha geri bildirimi: 3 dk'lık klip ~350MB çıkabiliyor (donanım kodlayıcı b
 ### 🔧 Paralel Bakım Kulvarı *(faz sırasından bağımsız, araya alınabilir)*
 - [x] yt-dlp kendini güncelleme · `v1.17.0` — gömülü ikili yazılabilir `userData/bin`'e kopyalanır (macOS imzalı bundle / Windows Program Files salt-okunur olduğundan), `--update-to stable@latest --ignore-config` ile güncel tutulur. Günde bir sessiz otomatik (açılışta arka planda) + Ayarlar'da "Şimdi güncelle" düğmesi. Downgrade koruması (uygulama güncellemesi daha yeni ikili getirirse adopt eder). YouTube kırılmalarına karşı kritik koruma; Apple geliştirici hesabı GEREKTİRMEZ.
 - [ ] Kurulum boyutu küçültme (233–270MB)
-- [ ] macOS notarization — **beklemede: Apple Developer ID hesabı ($99/yıl) alınırsa** ("hasar görmüş" uyarısı + macOS oto-güncelleme bunun eksikliğinden)
 
 ### 🧩 Ayrı Kulvar — Tarayıcı Eklentisi
 - [ ] `extension/` klasöründe Chrome eklentisi: YouTube izleme sayfasında "TrimTube ile Kes" butonu
@@ -124,7 +123,8 @@ Saha geri bildirimi: 3 dk'lık klip ~350MB çıkabiliyor (donanım kodlayıcı b
 - [ ] ~~Diğer platform kaynakları (X, Instagram vb.)~~ — teknik olarak kolay ama ayrı bir ürün yönü; şimdilik YouTube odağı korunuyor
 - [ ] ~~Sosyal medyaya doğrudan paylaşım/yükleme~~ — OAuth/API/platform kuralları; bu projenin kapsamı dışında
 - [ ] ~~Content ID / telif simülasyonu~~ — teknik olarak mümkün değil; "reklam dostu içerik" uyarısına daraltıldı (Faz 14)
+- [ ] ~~macOS notarization (Apple Developer ID, $99/yıl)~~ — **kullanıcı kararı: gerek yok.** Kabul edilen iki sonuç: (1) macOS'ta ilk açılışta "hasar görmüş" uyarısı çıkar, çözümü `xattr -cr /Applications/TrimTube.app` (release notlarında yazılı); (2) macOS'ta uygulama içi otomatik güncelleme imza doğrulamasına takılır, kullanıcı release sayfasından elle indirir. Windows'ta oto-güncelleme imzasız da çalışır.
 
 ---
 
-*Son güncelleme: yt-dlp kendini güncelleme (v1.17.0) — bakım kulvarının en kritik kalemi kapandı. Kalan: kurulum boyutu, notarization (Apple hesabı bekliyor), tarayıcı eklentisi kulvarı.*
+*Son güncelleme: yt-dlp kendini güncelleme (v1.17.0) yayınlandı; macOS notarization kullanıcı kararıyla kapsam dışına alındı. Kalan: kurulum boyutu küçültme + tarayıcı eklentisi kulvarı.*
