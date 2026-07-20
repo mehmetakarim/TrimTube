@@ -112,7 +112,7 @@ Saha geri bildirimi: 3 dk'lık klip ~350MB çıkabiliyor (donanım kodlayıcı b
 
 ### 🔧 Paralel Bakım Kulvarı *(faz sırasından bağımsız, araya alınabilir)*
 - [x] yt-dlp kendini güncelleme · `v1.17.0` — gömülü ikili yazılabilir `userData/bin`'e kopyalanır (macOS imzalı bundle / Windows Program Files salt-okunur olduğundan), `--update-to stable@latest --ignore-config` ile güncel tutulur. Günde bir sessiz otomatik (açılışta arka planda) + Ayarlar'da "Şimdi güncelle" düğmesi. Downgrade koruması (uygulama güncellemesi daha yeni ikili getirirse adopt eder). YouTube kırılmalarına karşı kritik koruma; Apple geliştirici hesabı GEREKTİRMEZ.
-- [ ] Kurulum boyutu küçültme (233–270MB)
+- [x] Kurulum boyutu küçültme · `v1.17.1` — `compression: maximum` (ölçülen: macOS dmg −%5.9) + PyInstaller `strip=True` ve genişletilmiş `excludes` (−0.6 MB, çıktı birebir aynı doğrulandı) + geliştirme belgeleri pakete girmiyor. **Bilinçli olarak yapılmayanlar** (kullanıcı kararı): SFace int8 modeli (−27 MB, takip hassasiyeti riski), yt-dlp'yi ilk kullanımda indirme (−35 MB, "kutudan çıktığı gibi çalışsın"), özel minimal ffmpeg (GPU kodlayıcı riski), `asar: true` (net kazanç ~0, spawn riski).
 
 ### 🧩 Ayrı Kulvar — Tarayıcı Eklentisi
 - [ ] `extension/` klasöründe Chrome eklentisi: YouTube izleme sayfasında "TrimTube ile Kes" butonu
@@ -127,4 +127,4 @@ Saha geri bildirimi: 3 dk'lık klip ~350MB çıkabiliyor (donanım kodlayıcı b
 
 ---
 
-*Son güncelleme: yt-dlp kendini güncelleme (v1.17.0) yayınlandı; macOS notarization kullanıcı kararıyla kapsam dışına alındı. Kalan: kurulum boyutu küçültme + tarayıcı eklentisi kulvarı.*
+*Son güncelleme: kurulum boyutu küçültme (v1.17.1) ile **bakım kulvarı tamamen kapandı**. Kalan tek kulvar: tarayıcı eklentisi (`extension/` + `trimtube://`).*

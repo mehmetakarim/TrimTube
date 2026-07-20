@@ -9,6 +9,14 @@ Bu dosya, farklı ortamlardaki (ev: macOS M-serisi, ofis: Windows 11) geliştirm
 **Yayındaki sürüm:** `v1.17.0` · Windows/macOS(arm64)/Linux · GitHub: mehmetakarim/TrimTube
 **Yapılacaklar listesi (asıl kaynak):** proje kökündeki `YOL-HARITASI.md` (onay kutulu, faz faz).
 
+**Bakım — Kurulum boyutu küçültme: KOD TAMAM (20 Tem 2026), v1.17.1 adayı; bakım kulvarının SON kalemi.**
+- **Ölçülen dağılım** (yerel macOS build, tracker'sız dmg 161 MB iken yayınlanan 259 MB → aradaki fark tracker): **tracker frozen exe ≈98 MB** (kurulumun en büyük tek parçası; içinde cv2 58 MB + SFace 37 MB) · ffmpeg 45 MB · yt-dlp 37 MB · Electron ~110 MB.
+- **Yapılanlar**: (1) `build.compression: "maximum"` → **ölçülen kazanç dmg −9.5 MB (%5.9)**; zip'te etkisiz (%0.3, zaten deflate). (2) `tracker.spec` `strip=True` + excludes genişletme (`unittest, doctest, pydoc, pip, setuptools, wheel, lib2to3, sqlite3`) → yalnız −0.6 MB (macOS wheel'leri zaten strip'li) ama **eski/yeni tracker çıktıları BİREBİR AYNI** doğrulandı (gerçek yüz videosunda iki mod). (3) `files`'a `!*.md`, `!requirements.txt` → geliştirme belgeleri pakete girmiyor.
+- **KRİTİK — pakette KALMASI gerekenler** (build'de tek tek doğrulandı): `subtitle.py` (Whisper `__dirname`'den spawn eder), `tracker.py` (frozen ikili bulunamazsa `resolveTracker` fallback'i — 28 KB için güvenlik ağı feda edilmedi), `assets/sfx/*.wav`.
+- **Bilinçli olarak YAPILMAYANLAR (kullanıcı kararları — tekrar gündeme gelirse gerekçeler):** SFace int8 (−27 MB) → v1.16.1 kimlik katmanının hassasiyeti riske girmesin; yt-dlp'yi ilk kullanımda indirme (−35 MB) → "kutudan çıktığı gibi çalışsın"; özel minimal ffmpeg (−20-25 MB) → GPU kodlayıcı desteği + 3 platform bakım borcu; `asar: true` → asarUnpack ile dosyalar yine diske açıldığından **net kazanç ~0**, spawn riski var.
+- **Gerçekçi toplam beklenti**: ~%6 (CI'da üç platformda doğrulanacak). Mütevazı ama risksiz ve kalıcı.
+- **Yerel test ortamı notu**: PyInstaller `--user --break-system-packages` ile kuruldu; yüz testi için OpenCV örnek portresi (`lena.jpg`) kullanıldı — thispersondoesnotexist HTML döndürüyor, işe yaramaz.
+
 **Bakım — yt-dlp kendini güncelleme: v1.17.0 YAYINLANDI (19 Tem 2026); saha testi paketli sürümde yapılacak (dev modda app.isPackaged kapısı nedeniyle etkisi görünmez).**
 - Sorun: yt-dlp pakete gömülü ve sabit → YouTube değiştikçe eskiyip indirme son kullanıcıda kırılır (bu tür uygulamaların en sık ölüm nedeni). Apple hesabı GEREKTİRMEZ.
 - **Kilit kısıt**: gömülü ikili `process.resourcesPath/bin` altında SALT-OKUNUR (macOS imzalı bundle / Win Program Files / Linux kök). yt-dlp `--update-to` kendini yerinde değiştirir → ikili yazılabilir `userData/bin`'e kopyalanıp oradan çalıştırılır (`ensureYtdlpWritable`, whenReady'de; `YTDLP` artık `let`).

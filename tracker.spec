@@ -21,8 +21,16 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    # Gereksiz agir modulleri disla — exe boyutunu kucultur (yalniz cv2+numpy gerek)
-    excludes=['tkinter', 'matplotlib', 'PIL', 'scipy', 'pandas', 'pytest'],
+    # Gereksiz agir modulleri disla — exe boyutunu kucultur (yalniz cv2+numpy gerek).
+    # DIKKAT: tracker.py'nin GERCEKTEN kullandiklari asla dislanmamali —
+    # argparse, math, os, sys ve wave (load_audio_env ses zarfi icin).
+    excludes=[
+        'tkinter', 'matplotlib', 'PIL', 'scipy', 'pandas', 'pytest',
+        # v1.17.1 boyut kucultme: paketleme/test/dokuman araclari calisma
+        # zamaninda gerekmez
+        'unittest', 'doctest', 'pydoc', 'pip', 'setuptools', 'wheel',
+        'lib2to3', 'sqlite3',
+    ],
     noarchive=False,
 )
 pyz = PYZ(a.pure)
@@ -36,7 +44,10 @@ exe = EXE(
     name='tracker',
     debug=False,
     bootloader_ignore_signals=False,
-    strip=False,
+    # strip: ikili sembol tablolarini temizler (Linux/macOS'ta boyut kazanci;
+    # Windows'ta etkisiz). upx KAPALI kalmali — Windows'ta antivirus yanlis
+    # pozitifine yol aciyor.
+    strip=True,
     upx=False,
     runtime_tmpdir=None,
     console=True,          # stdout/stderr (PROGRESS/DONE/ERROR) gorunmeli
