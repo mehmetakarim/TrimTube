@@ -90,6 +90,23 @@ jobs:
           cp "dist/${{ matrix.trackerout }}" "resources/bin/${{ matrix.bindir }}/${{ matrix.trackerout }}"
           if [ "${{ matrix.bindir }}" != "win" ]; then chmod +x "resources/bin/${{ matrix.bindir }}/${{ matrix.trackerout }}"; fi
 
+      # Duman testi: dondurulmus ikili GERÇEKTEN açılıyor mu? `--help` tüm zinciri
+      # yoklar (bootloader → arşiv çıkarma → Python DLL yükleme → cv2/numpy import
+      # → argparse) ve 0 ile çıkar. v1.15.0'da bozuk bir Windows bootloader'ı
+      # (bkz. tracker.spec > strip notu) yayına kadar fark edilmemişti; bu adım
+      # aynı sınıf hatayı derlemede yakalar.
+      - name: Dondurulmuş takip ikilisini doğrula (duman testi)
+        shell: bash
+        run: |
+          BIN="resources/bin/${{ matrix.bindir }}/${{ matrix.trackerout }}"
+          if ! out=$("$BIN" --help 2>&1); then
+            echo "HATA: dondurulmuş takip ikilisi başlatılamadı — yayınlanabilir değil."
+            echo "$out" | head -20
+            exit 1
+          fi
+          echo "$out" | head -3
+          echo "✓ tracker ikilisi çalışıyor"
+
       - run: npx electron-builder ${{ matrix.args }} --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

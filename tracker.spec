@@ -1,6 +1,7 @@
 # PyInstaller spec — tracker.py'yi tek dosyalik calistirilabilir hale getirir
 # (Faz 10-B: kurulumsuz kisi takibi). ONNX modelleri exe'nin icine gomulur;
 # calisirken sys._MEIPASS altina acilir (bkz. tracker.py DIR mantigi).
+import sys
 #
 # Kullanim (her platformda CI'de):
 #   pyinstaller tracker.spec
@@ -44,10 +45,24 @@ exe = EXE(
     name='tracker',
     debug=False,
     bootloader_ignore_signals=False,
-    # strip: ikili sembol tablolarini temizler (Linux/macOS'ta boyut kazanci;
-    # Windows'ta etkisiz). upx KAPALI kalmali — Windows'ta antivirus yanlis
-    # pozitifine yol aciyor.
-    strip=True,
+    # strip: ikili sembol tablolarini temizler (Linux/macOS'ta kucuk boyut kazanci).
+    # WINDOWS'TA ASLA ACILMAMALI — v1.18.0'daki "kisi takibi hic calismiyor"
+    # hatasinin kok nedeni buydu (v1.17.1 boyut turunda acilmisti):
+    #   CI Windows isi `shell: bash` kullaniyor, PATH'inde binutils `strip.exe`
+    #   var → PyInstaller pakete kopyaladigi TUM ikilileri strip'liyor. Windows
+    #   PE'lerinde strip `.reloc` bolumunu de siliyor: gomulu
+    #   `api-ms-win-crt-*.dll` yonlendirici DLL'leri relokasyonsuz kaliyor
+    #   (characteristics 0x222e, bolum sayisi 3 → 2). ASLR altinda taban adresi
+    #   degistirilemeyen bu DLL'ler yuklenemiyor; python312.dll onlara bagimli
+    #   oldugu icin bootloader'da
+    #   "Failed to load Python DLL ... LoadLibrary: Bellek konumuna gecersiz erisim"
+    #   (ERROR_NOACCESS 998) olarak patliyor.
+    # Not: bozuk DLL'ler, CRT modulleri ZATEN yuklu bir surecte (ornegin
+    # PowerShell) test edilirse sorunsuz gorunur — Windows ayni isimli modulu
+    # yeniden yuklemez. Bu yuzden dogrulama MUTLAKA temiz bir surecte
+    # (dondurulmus ikiliyi calistirarak) yapilmali; CI'daki duman testi bunu yapar.
+    # upx da KAPALI kalmali — Windows'ta antivirus yanlis pozitifine yol aciyor.
+    strip=sys.platform != 'win32',
     upx=False,
     runtime_tmpdir=None,
     console=True,          # stdout/stderr (PROGRESS/DONE/ERROR) gorunmeli

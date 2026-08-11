@@ -175,6 +175,19 @@ let YTDLP = resolveYtdlp();   // whenReady'de ensureYtdlpWritable ile yazılabil
 const FFMPEG = resolveFfmpeg();
 const TRACKER = resolveTracker();
 
+// Dondurulmuş takip ikilisi hiç açılamadığında (PyInstaller bootloader hatası)
+// ham "Failed to load Python DLL / LoadLibrary" çıktısı kullanıcıya hiçbir şey
+// anlatmıyor — bu bir paketleme sorunudur, videoyla ilgisi yoktur. (v1.15.0'da
+// spec'teki strip=True Windows bootloader'ını bozmuştu; bkz. tracker.spec.)
+function trackerErrorMessage(stderr) {
+  const raw = stderr || '';
+  if (/Failed to load Python DLL|PYI-\d+:ERROR|LoadLibrary/i.test(raw)) {
+    return 'Kişi takibi bileşeni bu bilgisayarda başlatılamadı (takip motoru açılmıyor).\n'
+      + 'Uygulamayı en son sürüme güncelleyin; sorun sürerse kişi takibini kapatıp diğer özellikleri kullanabilirsiniz.';
+  }
+  return 'Kişi takibi başarısız:\n' + raw.split(/\r?\n/).filter(Boolean).slice(-3).join('\n');
+}
+
 // --- GPU hızlandırmalı kodlama ---
 // Gömülü ffmpeg-static ikilisi NVENC/QuickSync/AMF (Win/Linux) ve VideoToolbox
 // (macOS) ile derlenmiş, ancak gerçek kullanılabilirlik kullanıcının donanım/
@@ -1564,7 +1577,7 @@ ipcMain.handle('download', async (e, opts) => {
       if (cancelRequested) { cleanupTmp(); return { ok: false, cancelled: true }; }
       if (tr.code !== 0 || !fs.existsSync(path.join(tmpDir, 'cmds.txt'))) {
         cleanupTmp();
-        return { ok: false, error: 'Kişi takibi başarısız:\n' + tr.stderr.split(/\r?\n/).filter(Boolean).slice(-3).join('\n') };
+        return { ok: false, error: trackerErrorMessage(tr.stderr) };
       }
       trackReady = true;
     }
@@ -1788,7 +1801,7 @@ ipcMain.handle('track-preview', async (e, { url, videoId, localFile, start, dura
     if (trackPrevCancelled) { cleanup(); return { cancelled: true }; }
     if (tr.code !== 0 || !fs.existsSync(cmds)) {
       cleanup();
-      return { error: 'Kişi takibi başarısız:\n' + tr.stderr.split(/\r?\n/).filter(Boolean).slice(-3).join('\n') };
+      return { error: trackerErrorMessage(tr.stderr) };
     }
 
     // 3) cmds.txt → normalize kadraj yolu: x = pencerenin SOL kenarı / kaynak
