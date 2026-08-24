@@ -6,8 +6,24 @@ Bu dosya, farklı ortamlardaki (ev: macOS M-serisi, ofis: Windows 11) geliştirm
 
 ## 📍 GÜNCEL DURUM & SIRADAKİ İŞLER (yeni oturum buradan başlasın)
 
-**Yayındaki sürüm:** `v1.18.0` · Windows/macOS(arm64)/Linux · GitHub: mehmetakarim/TrimTube
+**Yayındaki sürüm:** `v1.18.0` (v1.18.1 hazır, yayın bekliyor) · Windows/macOS(arm64)/Linux · GitHub: mehmetakarim/TrimTube
 **Yapılacaklar listesi (asıl kaynak):** proje kökündeki `YOL-HARITASI.md` (onay kutulu, faz faz).
+
+**🔧 v1.18.1 — SAHA TEŞHİSİ + DÜZELTMELERİ (25 Ağu 2026): "uygulama kasılıyor + indirme hata veriyor" şikayeti.**
+
+**TEŞHİS (ölçümle, tahminle değil) — üç ayrı sorun iç içeydi:**
+1. **HTTP 403 indirme hatası** → uygulamanın kullandığı yt-dlp **2026.07.04** idi (güncel: 2026.08.19). Eski sürümle modern 1080p video denendi → `%8'de ERROR: unable to download video data: HTTP Error 403: Forbidden`. YouTube throttling/imza mekanizmasını değiştirmiş.
+2. **~20-30 sn kasılma** → **macOS 26.5.1 + imzasız (notarize edilmemiş) standalone ikili.** `time` ölçümü belirleyici: **32.87 sn gerçek / 0.57 sn user / 0.23 sn sys** — yani süre CPU değil BEKLEME. PyInstaller extraction 2 sn'de bitiyor (18 dosya, 72 MB), kalan ~20 sn macOS'un çıkarılmış imzasız kodu değerlendirmesi. **Denendi ve ÇÖZMEDİ**: ad-hoc `codesign -s -`, xattr temizleme, farklı konum (/tmp), sabit TMPDIR, `_MEIPASS2` reuse (PyInstaller çıkışta siliyor), önbellekleme yok (5 ardışık çalıştırma hep 25-27 sn). Homebrew yt-dlp (Python script) 0.46 sn — fark standalone ikili olmasından. **Tek gerçek çözüm notarization; kullanıcı kararıyla kapsam dışı.** macOS 15'te bu ceza yoktu → "önceden çalışıyordu şimdi kasıyor" bundan.
+3. **Self-update neden hiç çalışmamıştı** (asıl kök neden, v1.17.0'daki kendi kusurum): `ytdlpVersionSync` **spawnSync + 10 sn timeout** kullanıyordu. İkili 20-30 sn'de açıldığı için **sürüm okuma HER ZAMAN null dönüyordu**; üstelik `ensureYtdlpWritable` bunu açılışta 2× çağırıp ana süreci blokluyordu. Güncelleme timeout'u da 60 sn — ikili açılışı (30 sn) + 37 MB indirme için yetersiz → güncelleme tam ortasında öldürülüyordu.
+
+**DÜZELTMELER (v1.18.1):**
+- `ytdlpVersionSync` (spawnSync) → **`ytdlpVersion` (async spawn, 90 sn timeout)**. Kanıt: yavaş ikiliyle 21.5 sn süren çağrıda event loop **212/214 tick** attı (akıcı). Eski kodla aynı test: **10 sn blok, 0 tick, sürüm null**.
+- `ensureYtdlpWritable` yalnız dosya işlemi bıraktı (**0 ms**); pahalı sürüm karşılaştırması → yeni `adoptNewerBundledYtdlp()`, pencere açıldıktan sonra arka planda (downgrade koruması korundu).
+- Güncelleme timeout **60 sn → 10 dk** (`YTDLP_UPDATE_TIMEOUT`); zaman aşımına özel Türkçe mesaj.
+- Otomatik güncelleme: ilk açılışta (lastCheck=0) 12 sn yerine **4 sn**; başarısızlıkta `ytdlpLastCheck` yazılmaz → 24 saat beklemeden sonraki açılışta yeniden dener; hata konsola düşer.
+- Elle güncellemede **canlı geçen-süre sayacı** ("Güncelleniyor… 42 sn") — 10 dk'lık pencerede kullanıcı takıldı sanmasın.
+- **Kullanıcının makinesinde anlık düzeltme yapıldı**: `userData/bin/yt-dlp` elle 2026.08.19'a çıkarıldı (403 giderildi).
+- **Kalan bilinen sınır**: macOS 26'da her yt-dlp çağrısında ~20 sn Gatekeeper cezası sürüyor (notarization olmadan çözülemez). Windows/Linux ve macOS 15 etkilenmez.
 
 **Tarayıcı Eklentisi Kulvarı — v1.18.0 YAYINLANDI (20 Tem 2026); saha testi bekliyor (eklentiyi Chrome'a geliştirici modunda yükleyip gerçek YouTube'da denemek). Yol haritasındaki son teknik kulvar KAPANDI.**
 - **Protokol altyapısı** ([main.js](main.js)): `requestSingleInstanceLock` (ÖNCEDEN YOKTU — deep-link için şart; yan fayda: uygulama artık iki kez açılmıyor) + `second-instance` (Win/Linux argv yolu) + `open-url` (macOS) + `setAsDefaultProtocolClient`. Soğuk başlatmada bağlantı `pendingDeepLink`'e kuyruklanıp `did-finish-load`'da teslim edilir (yoksa olay kaybolur).

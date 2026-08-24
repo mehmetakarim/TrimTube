@@ -1772,10 +1772,18 @@ async function refreshYtdlpInfo() {
 $('ytdlpUpdateBtn').addEventListener('click', async () => {
   const btn = $('ytdlpUpdateBtn');
   btn.disabled = true;
-  $('ytdlpInfo').textContent = 'Güncelleniyor…';
+  // Güncelleme dakikalar sürebilir (ikilinin açılması + ~37 MB indirme);
+  // kullanıcı takıldı sanmasın diye geçen süre canlı gösterilir (v1.18.1)
+  const t0 = Date.now();
+  $('ytdlpInfo').textContent = 'Güncelleniyor… (birkaç dakika sürebilir)';
+  const tick = setInterval(() => {
+    const s = Math.round((Date.now() - t0) / 1000);
+    $('ytdlpInfo').textContent = `Güncelleniyor… ${s} sn (birkaç dakika sürebilir)`;
+  }, 1000);
   let r;
   try { r = await window.api.ytdlpUpdate(); }
   catch (err) { r = { error: err.message || String(err) }; }
+  clearInterval(tick);
   btn.disabled = false;
   if (r.error) {
     $('ytdlpInfo').textContent = 'Güncelleme başarısız';
