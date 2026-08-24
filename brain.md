@@ -9,7 +9,7 @@ Bu dosya, farklı ortamlardaki (ev: macOS M-serisi, ofis: Windows 11) geliştirm
 **Yayındaki sürüm:** `v1.18.1` · Windows/macOS(arm64)/Linux · GitHub: mehmetakarim/TrimTube
 **Yapılacaklar listesi (asıl kaynak):** proje kökündeki `YOL-HARITASI.md` (onay kutulu, faz faz).
 
-**🔧 v1.18.1 — SAHA TEŞHİSİ + DÜZELTMELERİ (25 Ağu 2026): "uygulama kasılıyor + indirme hata veriyor" şikayeti.**
+**🔧 v1.18.1 — SAHA TEŞHİSİ + DÜZELTMELERİ: YAYINLANDI ve SAHA TESTİNDEN GEÇTİ ("sorunsuz çalışıyor" — macOS 26, 25 Ağu 2026). Şikayet: "uygulama kasılıyor + indirme hata veriyor".**
 
 **TEŞHİS (ölçümle, tahminle değil) — üç ayrı sorun iç içeydi:**
 1. **HTTP 403 indirme hatası** → uygulamanın kullandığı yt-dlp **2026.07.04** idi (güncel: 2026.08.19). Eski sürümle modern 1080p video denendi → `%8'de ERROR: unable to download video data: HTTP Error 403: Forbidden`. YouTube throttling/imza mekanizmasını değiştirmiş.
