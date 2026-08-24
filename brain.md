@@ -6,7 +6,7 @@ Bu dosya, farklı ortamlardaki (ev: macOS M-serisi, ofis: Windows 11) geliştirm
 
 ## 📍 GÜNCEL DURUM & SIRADAKİ İŞLER (yeni oturum buradan başlasın)
 
-**Yayındaki sürüm:** `v1.18.0` (v1.18.1 hazır, yayın bekliyor) · Windows/macOS(arm64)/Linux · GitHub: mehmetakarim/TrimTube
+**Yayındaki sürüm:** `v1.18.1` · Windows/macOS(arm64)/Linux · GitHub: mehmetakarim/TrimTube
 **Yapılacaklar listesi (asıl kaynak):** proje kökündeki `YOL-HARITASI.md` (onay kutulu, faz faz).
 
 **🔧 v1.18.1 — SAHA TEŞHİSİ + DÜZELTMELERİ (25 Ağu 2026): "uygulama kasılıyor + indirme hata veriyor" şikayeti.**
