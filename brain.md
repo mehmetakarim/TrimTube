@@ -1,5 +1,10 @@
 # TrimTube Geliştirme Günlüğü
 
+## v1.20.0 — 2 Ekim 2026, yayımlandı
+
+Metinden kurgu ve ortak ham transkript deposu tamamlandı. Release: https://github.com/mehmetakarim/TrimTube/releases/tag/v1.20.0
+Etiket commit: `f1d253b`; Actions `37024041325` Windows/macOS arm64/Linux başarılı. 10 dosya yüklendi, üç güncelleme manifestinin sürüm/dosya/boyut eşleşmesi doğrulandı. Public, stable, latest. Yerel testler: 110 UI, 36 medya/IPC, 9 depo, 17 review, 8 timeline, 17 sağlayıcı. Kapsam/sınırlar RELEASE-v1.20.0.md içinde; sonraki ürün işi yayın/marka profilleri.
+
 Bu dosya, farklı ortamlardaki (ev: macOS M-serisi, ofis: Windows 11) geliştirme oturumlarında karşılaşılan problemleri ve uygulanan kalıcı çözümleri barındırır. Her başlık hangi ortama ait olduğunu belirtir — iki ortam arasında hafıza aktarımı bu dosya üzerinden yapılır.
 
 ## v1.19.0 release — 2026-10-02
@@ -11,7 +16,7 @@ Main/tag commit: `279a1d5`. GitHub Actions run `36996140495`: Windows, macOS arm
 
 ## 📍 GÜNCEL DURUM & SIRADAKİ İŞLER (yeni oturum buradan başlasın)
 
-**Yayındaki sürüm:** `v1.19.0` · Windows/macOS(arm64)/Linux · GitHub: mehmetakarim/TrimTube
+**Yayındaki sürüm:** `v1.20.0` · Windows/macOS(arm64)/Linux · GitHub: mehmetakarim/TrimTube
 **Yapılacaklar listesi (asıl kaynak):** proje kökündeki `YOL-HARITASI.md` (onay kutulu, faz faz).
 
 **Windows kişi takibi düzeltmesi — v1.19.0 yayın paketine dahil edildi. Önceki hata ve doğrulama kaydı:**
