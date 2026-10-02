@@ -1,0 +1,20 @@
+/* Same studio tokens: restrained provider cards with an explicit model route. */
+.connections { display: grid; gap: 14px; min-width: 0; }
+.connection-card { border: 1px solid var(--border); border-radius: 12px; padding: 16px; display: grid; gap: 10px; min-width: 0; background: var(--bg); }
+.connection-heading { display: grid; gap: 4px; }
+.connection-heading strong { font: 600 16px Bahnschrift, sans-serif; color: var(--text); }
+.connection-heading span, .connection-note { font-size: 11px; line-height: 1.6; color: var(--muted); overflow-wrap: anywhere; }
+.connection-card label { font-size: 12px; color: var(--text); }
+.connection-key, .connection-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; min-width: 0; }
+.connection-key .ai-key-input { flex: 1; min-width: 100px; width: auto; }
+.connection-status { font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; color: var(--muted); }
+.connection-status[data-state=ok] { color: var(--green); }
+.connection-status[data-state=error] { color: var(--red); }
+.model-routing textarea, #modelCatalog { width: 100%; min-width: 0; background: var(--panel); color: var(--text); border: 1px solid var(--border); padding: 10px; border-radius: 6px; font: 12px Consolas, monospace; }
+.model-routing textarea { resize: vertical; }
+.model-routing summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+.provider-history { padding-left: 18px; font: 11px/1.7 Consolas, monospace; overflow-wrap: anywhere; max-height: 180px; overflow-y: auto; }
+details.connection-card { display: block; }
+details.connection-card > summary { cursor: pointer; font: 600 13px Bahnschrift, sans-serif; color: var(--accent); }
+details.connection-card[open] > :not(summary) { margin-top: 12px; }
+details.connection-card:not([open]) > :not(summary) { display: none; }

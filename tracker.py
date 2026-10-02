@@ -187,7 +187,8 @@ def load_audio_env(path):
             return None
         rms = np.sqrt((a[: nb * bin_n].reshape(nb, bin_n) ** 2).mean(axis=1) + 1e-9)
         norm = float(np.percentile(rms, 90)) or 1.0
-        env = np.clip(rms / (norm + 1e-9), 0.0, 3.0)
+        # Absolute floor: normalizing digital silence must not turn it into speech.
+        env = np.zeros_like(rms) if norm < 1e-4 else np.clip(rms / (norm + 1e-9), 0.0, 3.0)
 
         def q(t):
             i = int(t / 0.05)
@@ -242,10 +243,11 @@ def run_single(cap, engine, scale, sw, sh, src_w, src_h, fps, step, total, init_
             segment += 1
             tracker = None
             lost = True
+            last_box = None
 
         cur_box = None
 
-        if first:
+        if first or (lost and not ref_feats and init_point is None):
             faces = engine.detect(small)
             target = None
             if init_point is not None and faces:
@@ -265,13 +267,14 @@ def run_single(cap, engine, scale, sw, sh, src_w, src_h, fps, step, total, init_
             elif init_point is not None:
                 bw, bh = int(sw * 0.18), int(sh * 0.40)
                 box = (
-                    max(0, int(init_point[0] - bw / 2)),
-                    max(0, int(init_point[1] - bh / 2)),
+                    min(sw - bw, max(0, int(init_point[0] - bw / 2))),
+                    min(sh - bh, max(0, int(init_point[1] - bh / 2))),
                     bw,
                     bh,
                 )
             else:
-                print("WARN yuz bulunamadi, merkez kullanilacak", flush=True)
+                if first:
+                    print("WARN yuz henuz bulunamadi, sonraki karelerde aranacak", flush=True)
                 box = None
 
             if box is not None:
@@ -319,7 +322,7 @@ def run_single(cap, engine, scale, sw, sh, src_w, src_h, fps, step, total, init_
         centers.append((frame_idx / fps, last_cx, segment))
         if cur_box is not None:
             last_box = cur_box
-        boxes.append((frame_idx / fps, _norm_box(last_box, sw, sh)))
+        boxes.append((frame_idx / fps, _norm_box(cur_box, sw, sh)))
         if sample_idx % 20 == 0:
             print(f"PROGRESS {int(frame_idx * 100 / total)}", flush=True)
         frame_idx += 1
@@ -390,9 +393,12 @@ def run_speaker(cap, engine, scale, sw, sh, src_w, src_h, fps, step, total, audi
         # tespitleri mevcut izlere esle (en yakin merkez); yoksa yeni iz.
         # Yeni iz acilirken yuz imzasi cikarilip kalici kimlige baglanir —
         # kaybolup donen kisi ayni kimlikle taninir (Faz 16 cilasi).
+        matched_tracks = set()  # A track may match only one face in this sample.
         for d in dets:
             best_t, best_dd = None, 1e9
             for t in tracks:
+                if id(t) in matched_tracks:
+                    continue
                 dd = abs(t["cx"] - d["cx"]) + abs(t["cy"] - d["cy"])
                 if dd < best_dd:
                     best_dd, best_t = dd, t
@@ -400,10 +406,13 @@ def run_speaker(cap, engine, scale, sw, sh, src_w, src_h, fps, step, total, audi
                 if d["patch"] is not None and best_t["patch"] is not None:
                     m = float(np.abs(d["patch"] - best_t["patch"]).mean())
                     best_t["motion"] = 0.5 * best_t["motion"] + 0.5 * m
+                matched_tracks.add(id(best_t))
                 best_t.update(patch=d["patch"], cx=d["cx"], cy=d["cy"], w=d["w"], f=d["f"], seen=sample_idx)
             else:
                 ident = assign_identity(engine, small, d["f"], identities, sample_idx) if use_ident else None
-                tracks.append({**d, "motion": 0.0, "seen": sample_idx, "ident": ident})
+                new_track = {**d, "motion": 0.0, "seen": sample_idx, "ident": ident}
+                tracks.append(new_track)
+                matched_tracks.add(id(new_track))
 
         tracks = [t for t in tracks if sample_idx - t["seen"] <= TRACK_STALE]
         visible = [t for t in tracks if t["seen"] == sample_idx]
@@ -485,6 +494,7 @@ def run_speaker(cap, engine, scale, sw, sh, src_w, src_h, fps, step, total, audi
 
         # Kadraji yalnizca aktif konusan bu karede gorunurken guncelle; degilse
         # son konumda bekle (active_cx / active_box_norm korunur)
+        active_box_norm = None  # No green mask when the person is no longer visible.
         if active is not None and any(active is t for t in visible):
             active_cx = active["cx"] / scale
             active_box_norm = _norm_box(body_box(active["f"], sw, sh), sw, sh)
@@ -506,8 +516,8 @@ def _norm_box(box, sw, sh):
     return (
         min(max(bx / sw, 0.0), 1.0),
         min(max(by / sh, 0.0), 1.0),
-        min(max(bw / sw, 0.0), 1.0),
-        min(max(bh / sh, 0.0), 1.0),
+        min(max(bw / sw, 0.0), 1.0 - min(max(bx / sw, 0.0), 1.0)),
+        min(max(bh / sh, 0.0), 1.0 - min(max(by / sh, 0.0), 1.0)),
     )
 
 
@@ -515,7 +525,7 @@ def _norm_box(box, sw, sh):
 # Ortak cikti: kamera yumusatma + sendcmd/boxes yazma
 # ----------------------------------------------------------------------------
 def write_output(centers, boxes, out_path, boxes_out, src_w, src_h, dead_frac=0.10, ease=0.18):
-    crop_w = src_h * 9.0 / 16.0
+    crop_w = min(src_w, src_h * 9.0 / 16.0)
     max_x = max(0.0, src_w - crop_w)
     if not centers:
         centers = [(0.0, src_w / 2.0, 0)]
@@ -529,7 +539,7 @@ def write_output(centers, boxes, out_path, boxes_out, src_w, src_h, dead_frac=0.
         lo, hi = i, i + 1
         while lo > 0 and i - lo < 2 and segs[lo - 1] == segs[i]:
             lo -= 1
-        while hi < len(xs) and hi - i <= 2 and segs[hi - 1] == segs[i]:
+        while hi < len(xs) and hi - i <= 2 and segs[hi] == segs[i]:
             hi += 1
         med.append(sorted(xs[lo:hi])[(hi - lo) // 2])
 
@@ -571,6 +581,7 @@ def main():
     # Faz 10 konusmaci modu: aktif konusana kadraj; --audio ses enerjisi kapisi
     ap.add_argument("--speaker", action="store_true")
     ap.add_argument("--audio", default=None)
+    ap.add_argument("--motion", choices=("balanced", "calm", "responsive"), default="balanced")
     args = ap.parse_args()
 
     cap = cv2.VideoCapture(args.video)
@@ -601,10 +612,11 @@ def main():
 
     cap.release()
     if args.speaker:
-        # Konusmaci modu: biraz genis olu bolge (titreme az) + biraz hizli ease (geciş)
-        write_output(centers, boxes, args.out, args.boxes_out, src_w, src_h, dead_frac=0.13, ease=0.22)
+        default_motion = (0.13, 0.22)
     else:
-        write_output(centers, boxes, args.out, args.boxes_out, src_w, src_h)
+        default_motion = (0.10, 0.18)
+    dead, ease = {"calm": (0.16, 0.12), "responsive": (0.06, 0.32)}.get(args.motion, default_motion)
+    write_output(centers, boxes, args.out, args.boxes_out, src_w, src_h, dead_frac=dead, ease=ease)
     print("PROGRESS 100", flush=True)
     print("DONE", flush=True)
 

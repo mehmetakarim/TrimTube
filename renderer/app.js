@@ -191,6 +191,8 @@ function updateSliderVisual() {
   }
   $('clipLen').textContent = fmtTime(end - start);
   refreshGifHint();
+  window.studioRefresh?.();
+  window.editorRefresh?.();
 }
 
 function syncFromSlider() {
@@ -241,6 +243,7 @@ function updateFineVisual() {
 
 function computeZoomWindow() {
   if (videoDuration <= 0) return;
+  if (trackPoint && Number.isFinite(trackPoint.at) && Math.abs(trackPoint.at - ($('trimEnable').checked ? +$('rangeStart').value : 0)) > 0.1) clearTrackMarker();
   invalidateTrackPreview(); // aralık/kesme değişti → kadraj yolu yeniden üretilmeli
   const s = +$('rangeStart').value;
   const e = +$('rangeEnd').value;
@@ -257,18 +260,15 @@ function computeZoomWindow() {
   $('zoomLabel').textContent = `${fmtTime(zoomWin.start)} – ${fmtTime(zoomWin.end)}`;
   updateFineVisual();
   requestWaveform();
+  window.studioRefresh?.();
 }
 
-function syncFromFine() {
-  let s = +$('rangeStartFine').value;
-  const e = +$('rangeEndFine').value;
-  if (s >= e) { // kollar çakışmasın
-    s = Math.min(s, e - 1);
-    $('rangeStartFine').value = Math.max(zoomWin.start, s);
-    if (+$('rangeStartFine').value >= e) $('rangeEndFine').value = +$('rangeStartFine').value + 1;
-  }
-  $('rangeStart').value = +$('rangeStartFine').value;
-  $('rangeEnd').value = +$('rangeEndFine').value;
+function syncFromFine(event) {
+  const isStart = event.target.id === 'rangeStartFine';
+  if (isStart) $('rangeStart').value = Math.min(+$('rangeStartFine').value, +$('rangeEnd').value - 1);
+  else $('rangeEnd').value = Math.max(+$('rangeEndFine').value, +$('rangeStart').value + 1);
+  $('rangeStartFine').value = +$('rangeStart').value;
+  $('rangeEndFine').value = +$('rangeEnd').value;
   $('startTime').value = fmtTime(+$('rangeStart').value);
   $('endTime').value = fmtTime(+$('rangeEnd').value);
   updateSliderVisual();
@@ -277,8 +277,8 @@ function syncFromFine() {
 
 $('rangeStartFine').addEventListener('input', syncFromFine);
 $('rangeEndFine').addEventListener('input', syncFromFine);
-$('rangeStartFine').addEventListener('change', () => { seekPreview(+$('rangeStartFine').value); computeZoomWindow(); });
-$('rangeEndFine').addEventListener('change', () => { seekPreview(Math.max(0, +$('rangeEndFine').value - 3)); computeZoomWindow(); });
+$('rangeStartFine').addEventListener('change', () => { seekPreview(+$('rangeStart').value); invalidateTrackPreview(); });
+$('rangeEndFine').addEventListener('change', () => { seekPreview(Math.max(0, +$('rangeEnd').value - 3)); invalidateTrackPreview(); });
 
 // ---- dalga formu (debounce + eski istekleri yok say) ----
 
@@ -293,31 +293,37 @@ const WAVEFORM_MAX_WINDOW = 180;
 
 function requestWaveform() {
   const img = $('waveform');
-  // Kesme kapalıyken ince ayar şeridi kullanılmıyor — dalga formu üretmenin
-  // anlamı yok, kullanıcı "Belirli aralığı kes"i açınca tetiklenir
-  if (!$('trimEnable').checked) { img.classList.add('hidden'); return; }
-  if (!previewUrl && !currentVideoId) { img.classList.add('hidden'); return; }
+  const status = $('waveStatus');
+  // Invalidate immediately, including while the replacement request is debounced.
+  const token = ++waveToken;
   clearTimeout(waveTimer);
+  img.classList.add('hidden');
+  status.classList.remove('hidden');
+  if (!$('trimEnable').checked || (!previewUrl && !currentVideoId)) {
+    status.textContent = 'Ses dalgası için bir kesit seç';
+    return;
+  }
+  const start = zoomWin.start;
+  const duration = zoomWin.end - start;
+  if (duration <= 0 || duration > WAVEFORM_MAX_WINDOW) {
+    status.textContent = 'Ses dalgasını görmek için + ile yakınlaş';
+    return;
+  }
+  status.textContent = 'Ses dalgası hazırlanıyor…';
   waveTimer = setTimeout(async () => {
-    const token = ++waveToken;
-    const duration = zoomWin.end - zoomWin.start;
-    if (duration <= 0 || duration > WAVEFORM_MAX_WINDOW) { img.classList.add('hidden'); return; }
     let data = null;
     try {
-      data = await window.api.getWaveform({ url: previewUrl, start: zoomWin.start, duration, videoId: currentVideoId, localPath: currentLocalFile });
-    } catch (err) {
-      // dalga formu isteğe bağlı bir görsel — başarısız olursa gizlenir ama
-      // sessiz kalmasın (F12 konsolunda teşhis edilebilsin)
-      console.error('[waveform]', err.message || err);
-    }
-    if (token !== waveToken) return; // bu arada pencere değişti, sonuç bayat
+      data = await window.api.getWaveform({ url: previewUrl, start, duration, videoId: currentVideoId, localPath: currentLocalFile });
+    } catch (err) { console.error('[waveform]', err.message || err); }
+    if (token !== waveToken) return;
     if (data) {
       img.src = data;
       img.classList.remove('hidden');
+      status.classList.add('hidden');
     } else {
-      img.classList.add('hidden');
+      status.textContent = 'Ses dalgası alınamadı. Yakınlaştırarak tekrar deneyebilirsin.';
     }
-  }, 600);
+  }, 450);
 }
 
 // ---- kare önizlemeli film şeridi (Faz 12) ----
@@ -327,9 +333,9 @@ let stripToken = 0;
 
 function requestFilmstrip() {
   const band = $('filmstripBand');
+  const token = ++stripToken;
   band.classList.add('hidden');
   if (!videoDuration || (!previewUrl && !currentLocalFile && !currentVideoId)) return;
-  const token = ++stripToken;
   (async () => {
     let data = null;
     try {
@@ -366,8 +372,11 @@ $('setEndBtn').addEventListener('click', () => {
 
 document.addEventListener('keydown', (e) => {
   const t = e.target;
-  // Metin girişi veya buton odaktayken kısayollar devre dışı (buton için boşluk = tıklama)
-  if (t.matches('input[type="text"], select, button')) return;
+  // Native editing and controls own their keys, including textarea subtitles.
+  if (e.defaultPrevented || e.isComposing || e.ctrlKey || e.metaKey || e.altKey) return;
+  if (t.isContentEditable || t.closest('input, textarea, select, button, [role="textbox"]')) return;
+  // A modal must never control the video behind it.
+  if (document.querySelector('.modal-overlay:not(.hidden)')) return;
   // Kesim kısayolları yalnız Video Kes ekranında geçerli (view sistemi)
   if (currentView !== 'cutter') return;
   const v = $('preview');
@@ -470,7 +479,8 @@ function refreshFormatButtons() {
   });
   refreshGifHint();
   const hasVertical = selectedFormats.has('vertical');
-  $('trackCard').classList.toggle('hidden', !hasVertical);
+  $('trackCard').classList.toggle('hidden', $('quality').value === 'audio');
+  window.editorRefresh?.();
   if (!hasVertical) {
     $('trackEnable').checked = false;
     $('trackHint').classList.add('hidden');
@@ -516,6 +526,10 @@ $('quality').addEventListener('change', () => {
     if (infoLoaded) $('brandCard').classList.remove('hidden');
   }
   $('subEnable').disabled = isAudio || !subPick;
+  $('subModels').classList.toggle('hidden', isAudio || !$('subEnable').checked || subPick?.source !== 'whisper');
+  $('subHint').classList.toggle('hidden', isAudio || !$('subEnable').checked || subPick?.source !== 'whisper');
+  refreshSubAnimHint();
+  window.editorRefresh?.();
 });
 
 // ---- marka: logo/watermark + başlık ----
@@ -568,16 +582,18 @@ function pickSubtitle(info) {
   const mTr = manual.find(l => l === 'tr' || l.startsWith('tr-'));
   if (mTr) return { source: 'youtube', lang: mTr, auto: false };
   if (manual.length) return { source: 'youtube', lang: manual[0], auto: false };
-  if (auto.length) return { source: 'youtube', lang: auto[0], auto: true };
+  const aTr = auto.find(l => l === 'tr' || l.startsWith('tr-'));
+  if (auto.length) return { source: 'youtube', lang: aTr || auto[0], auto: true };
   return { source: 'whisper' }; // altyazı yok → sesten üret
 }
 
 function updateSubCard(info) {
   subPick = pickSubtitle(info);
   subAllLangs = { manual: info.subLangs || [], auto: info.autoLangs || [] };
+  window.editorSubtitleSources?.();
   $('subCard').classList.remove('hidden');
   $('subEnable').checked = false;
-  $('subEnable').disabled = false;
+  $('subEnable').disabled = $('quality').value === 'audio';
   $('subStyles').classList.add('hidden');
   $('subModels').classList.add('hidden');
   $('subHint').classList.add('hidden');
@@ -633,6 +649,7 @@ let trackModeValue = 'single'; // 'single' (işaretlenen kişi) | 'speaker' (akt
 function clearTrackMarker() {
   trackPoint = null;
   $('trackMarker').classList.add('hidden');
+  window.editorRefresh?.();
 }
 
 // Takip açıkken moda göre ipuçlarını/işaretleme durumunu düzenler
@@ -643,11 +660,13 @@ function refreshTrackMode() {
   $('trackPreviewRow').classList.toggle('hidden', !on);
   $('trackHint').classList.toggle('hidden', !on || speaker);
   $('trackHintSpeaker').classList.toggle('hidden', !on || !speaker);
+  window.editorRefresh?.();
   if (speaker) clearTrackMarker(); // konuşmacı modunda işaretleme kullanılmaz
 }
 
 $('trackEnable').addEventListener('change', () => {
   const on = $('trackEnable').checked;
+  if (on && !selectedFormats.has('vertical')) { selectedFormats.add('vertical'); refreshFormatButtons(); }
   refreshTrackMode();
   invalidateTrackPreview(); // takip aç/kapa → varsa eski yol geçersiz
   if (!on) clearTrackMarker();
@@ -665,20 +684,8 @@ for (const btn of document.querySelectorAll('#trackMode .seg')) {
 }
 
 $('preview').addEventListener('click', (e) => {
-  // Kişi takibi işaretleme modu kapalıyken (veya konuşmacı modunda) tıklama = oynat/duraklat
-  if (!$('trackEnable').checked || trackModeValue === 'speaker') { togglePlay(); return; }
-  const v = $('preview');
-  const rect = v.getBoundingClientRect();
-  const x = (e.clientX - rect.left) / rect.width;
-  const y = (e.clientY - rect.top) / rect.height;
-  if (x < 0 || x > 1 || y < 0 || y > 1) return;
-  trackPoint = { x, y };
-  const m = $('trackMarker');
-  m.style.left = (e.clientX - rect.left) + 'px';
-  m.style.top = (e.clientY - rect.top) + 'px';
-  m.classList.remove('hidden');
-  invalidateTrackPreview(); // işaret değişti → mevcut kadraj yolu geçersiz
-  e.preventDefault();
+  if (window.editorPickPerson?.(e)) return;
+  togglePlay();
 });
 
 // ---- kadraj yolu önizlemesi (Faz 8) ----
@@ -687,7 +694,7 @@ $('preview').addEventListener('click', (e) => {
 // yeşil maske + 9:16 kadraj çerçevesi, sağda canlı kırpılmış 9:16 çıktı (canvas).
 const tp = {
   path: null, cropW: 0, boxes: null, clipUrl: null,
-  open: false, raf: 0, generating: false, muted: false
+  open: false, raf: 0, generating: false, muted: false, token: 0
 };
 
 function currentRange() {
@@ -700,15 +707,9 @@ function currentRange() {
 
 // t anındaki kadraj penceresi sol-kenar kesirini (x) interpolasyonla bulur
 function xAt(arr, t) {
-  if (t <= arr[0].t) return arr[0].x;
-  for (let i = 1; i < arr.length; i++) {
-    if (t <= arr[i].t) {
-      const a = arr[i - 1], b = arr[i];
-      const f = (t - a.t) / ((b.t - a.t) || 1);
-      return a.x + (b.x - a.x) * f;
-    }
-  }
-  return arr[arr.length - 1].x;
+  let hit = arr[0];
+  for (const sample of arr) { if (sample.t <= t) hit = sample; else break; }
+  return hit.x;
 }
 
 // t anındaki takip kutusunu (basamak-tut: t'den küçük/eşit son örnek) döndürür
@@ -724,7 +725,7 @@ function tpDrawFrame() {
   if (!tp.open) return;
   const v = $('tpVideo');
   const t = v.currentTime;
-  const x = Math.max(0, Math.min(1 - tp.cropW, xAt(tp.path, t)));
+  const x = Math.max(0, Math.min(1 - tp.cropW, window.reviewFrameX?.(t) ?? xAt(tp.path, t)));
   const leftPct = x * 100, wPct = tp.cropW * 100;
 
   // Kaynak panel: kadraj çerçevesi + iki yan karartma
@@ -737,8 +738,10 @@ function tpDrawFrame() {
 
   // Takip edilen kişi maskesi
   const mask = $('tpMask');
+  $('tpTrackState').textContent = 'Kişi aranıyor · son kadraj korunuyor';
   const b = tp.boxes && tp.boxes.length ? boxAt(tp.boxes, t) : null;
   if (b && b.x !== null && b.w > 0) {
+    $('tpTrackState').textContent = 'Takip kutusu görünür';
     mask.style.display = 'block';
     mask.style.left = (b.x * 100) + '%';
     mask.style.top = (b.y * 100) + '%';
@@ -754,8 +757,14 @@ function tpDrawFrame() {
   if (vw && vh && cv.width) {
     const ctx = cv._ctx || (cv._ctx = cv.getContext('2d'));
     const sx = x * vw, sw = tp.cropW * vw;
-    try { ctx.drawImage(v, sx, 0, sw, vh, 0, 0, cv.width, cv.height); } catch {}
+    try {
+      const scale = Math.min(cv.width / sw, cv.height / vh);
+      const dw = sw * scale, dh = vh * scale;
+      ctx.fillStyle = '#000'; ctx.fillRect(0, 0, cv.width, cv.height);
+      ctx.drawImage(v, sx, 0, sw, vh, (cv.width - dw) / 2, (cv.height - dh) / 2, dw, dh);
+    } catch {}
   }
+  window.reviewDraw?.(t);
   tp.raf = requestAnimationFrame(tpDrawFrame);
 }
 
@@ -767,16 +776,18 @@ function setTrackPreviewBtn(state, text) {
 
 function openTrackModal() {
   tp.open = true;
+  $('preview').pause();
   const v = $('tpVideo');
   const cv = $('tpCanvas');
   $('trackPreviewModal').classList.remove('hidden');
+  window.reviewOpened?.();
   $('tpPlayBtn').textContent = 'Duraklat';
   v.muted = tp.muted;
   $('tpMuteBtn').textContent = tp.muted ? 'Sesi aç' : 'Sesi kapat';
   v.src = tp.clipUrl;
   v.onloadedmetadata = () => {
     // Canvas tamponu, kırpılan çıktının doğal çözünürlüğü (net çizim)
-    cv.width = Math.max(2, Math.round(tp.cropW * v.videoWidth));
+    cv.width = Math.max(2, Math.round(v.videoHeight * 9 / 16));
     cv.height = v.videoHeight;
     v.play().catch(() => {});
     tpDrawFrame();
@@ -785,6 +796,7 @@ function openTrackModal() {
 
 function closeTrackModal() {
   tp.open = false;
+  window.reviewClosed?.();
   if (tp.raf) { cancelAnimationFrame(tp.raf); tp.raf = 0; }
   const v = $('tpVideo');
   try { v.pause(); } catch {}
@@ -796,6 +808,7 @@ function closeTrackModal() {
 
 // Yeni kaynak / değişen aralık / değişen işaret → önceki yol artık geçerli değil
 function invalidateTrackPreview() {
+  tp.token++;
   if (tp.open) closeTrackModal();
   tp.path = null; tp.boxes = null; tp.clipUrl = null;
   if (tp.generating) { try { window.api.cancelTrackPreview(); } catch {} tp.generating = false; }
@@ -806,6 +819,8 @@ async function computeTrackPreview() {
   if (queueRunning || tp.generating) return; // render sürerken kaynak çakışmasını önle
   if (tp.clipUrl) { openTrackModal(); return; } // mevcut önizlemeyi yeniden aç
   const r = currentRange();
+  if (!infoLoaded || !Number.isFinite(r.duration) || r.duration <= 0) return;
+  const token = ++tp.token;
   tp.generating = true;
   setTrackPreviewBtn('working', 'Hazırlanıyor…');
   let res;
@@ -813,23 +828,27 @@ async function computeTrackPreview() {
     res = await window.api.trackPreview({
       url: previewUrl, videoId: currentVideoId, localFile: currentLocalFile,
       start: r.start, duration: r.duration, trackPoint,
-      speakerMode: trackModeValue === 'speaker'
+      tracking: $('trackEnable').checked, speakerMode: trackModeValue === 'speaker', trackMotion: $('trackMotion')?.value || 'balanced'
     });
   } catch (err) {
+    if (token !== tp.token) return;
     tp.generating = false; setTrackPreviewBtn('idle');
     setStatus('err', 'Kadraj önizlemesi başarısız: ' + (err.message || err));
     return;
   }
+  if (token !== tp.token) return;
   tp.generating = false;
   setTrackPreviewBtn('idle');
-  if (res.cancelled) return;
+  if (!res || res.cancelled) return;
   if (res.error) { setStatus('err', res.error); return; }
+  $('tpSourceBox').style.aspectRatio = String(res.sourceAspect || 16 / 9);
+  $('tpAssessment').textContent = Number.isFinite(res.coverage) ? (res.coverage === 0 ? 'Kişi bulunamadı. Kişiyi seçerek veya başka bir kesitle yeniden dene.' : `Kesitin %${res.coverage} bölümünde takip kutusu var. Bu oran kimlik doğruluğu değildir; geçişleri izleyerek kontrol et.`) : 'Kadrajı ve kişi geçişlerini kontrol et.';
   tp.path = res.path; tp.cropW = res.cropW; tp.boxes = res.boxes || []; tp.clipUrl = res.clipUrl;
   openTrackModal();
 }
 
 $('trackPreviewBtn').addEventListener('click', () => {
-  if (tp.generating) { window.api.cancelTrackPreview(); return; }
+  if (tp.generating) { invalidateTrackPreview(); return; }
   computeTrackPreview();
 });
 $('tpModalClose').addEventListener('click', closeTrackModal);
@@ -873,6 +892,7 @@ function populateFromInfo(info) {
   previewUrl = info.previewUrl;
   currentLocalFile = info.localFile || null; // yerel dosya modu (Faz 8)
   infoLoaded = true;
+  window.studioSourceChanged?.(info);
   invalidateTrackPreview(); // yeni kaynak → eski kadraj önizlemesi geçersiz
   updateSubCard(info);
   $('brandCard').classList.toggle('hidden', $('quality').value === 'audio');
@@ -901,6 +921,8 @@ function populateFromInfo(info) {
   aiSourceChanged(); // yeni kaynak → eski transkript/AI sonuçları geçersiz (Faz 14)
   mdCutterSourceChanged(); // Moodlar yüklü kaynağı gösteriyorsa planı tazele (Faz 15)
   clearStatus();
+  window.editorRefresh?.();
+  window.workspaceRefresh?.();
   $('progressWrap').classList.add('hidden');
 }
 
@@ -915,9 +937,11 @@ async function fetchInfo() {
   try {
     const info = await window.api.getInfo(url);
     populateFromInfo(info);
+    return true;
   } catch (err) {
     $('urlError').textContent = err.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
     $('urlError').classList.remove('hidden');
+    return false;
   } finally {
     $('fetchBtn').disabled = false;
     $('fetchBtn').textContent = 'Bilgi Al';
@@ -1029,9 +1053,10 @@ function buildBatchOpts(entry) {
     track: false,
     trackPoint: null,
     subtitle: null,
-    watermark: (!isAudio && $('wmEnable').checked && watermarkFile) ? { file: watermarkFile, position: watermarkPos } : null,
+    watermark: (!isAudio && $('wmEnable').checked && watermarkFile) ? { file: watermarkFile, position: watermarkPos, size: +$('wmSize')?.value || 9 } : null,
     titleText: (!isAudio && $('titleEnable').checked && $('titleText').value.trim()) ? $('titleText').value.trim() : null,
     duration: entry.duration,
+    titleSeconds: +$('titleSeconds')?.value || 3,
     trim: null
   };
 }
@@ -1070,11 +1095,13 @@ async function loadLocalFile(filePath) {
   $('urlError').classList.add('hidden');
   try {
     const info = await window.api.localInfo(filePath);
-    if (info.error) { setStatus('err', info.error); return; }
+    if (info.error) { setStatus('err', info.error); return false; }
     $('url').value = ''; // yerel moda geçildi — URL alanı temizlenir
     populateFromInfo(info);
+    return true;
   } catch (err) {
     setStatus('err', 'Dosya yüklenemedi: ' + (err.message || err));
+    return false;
   }
 }
 
@@ -1207,6 +1234,9 @@ function hideJobProgress() {
 
 // Mevcut arayüz seçimlerinden indirme seçeneklerini kurar; geçersizse error döner
 function buildOpts() {
+  const visual = $('quality').value !== 'audio' && [...selectedFormats].some(f => f !== 'gif');
+  if (visual && $('wmEnable').checked && !watermarkFile) return { error: 'Logo açık fakat dosya seçilmedi. Marka sekmesinden bir logo seçin.' };
+  if (visual && $('titleEnable').checked && !$('titleText').value.trim()) return { error: 'Başlık açık fakat metin boş. Marka sekmesinden başlık yazın.' };
   const opts = {
     url: $('url').value.trim(),
     id: currentVideoId,
@@ -1219,11 +1249,13 @@ function buildOpts() {
     track: selectedFormats.has('vertical') && $('trackEnable').checked,
     speakerMode: selectedFormats.has('vertical') && $('trackEnable').checked && trackModeValue === 'speaker',
     trackPoint,
-    subtitle: ($('subEnable').checked && subPick)
+    trackMotion: $('trackMotion')?.value || 'balanced',
+    titleSeconds: +$('titleSeconds')?.value || 3,
+    subtitle: (visual && $('subEnable').checked && subPick)
       ? { ...subPick, style: subStyleValue, ...(subPick.source === 'whisper' ? { model: subModelValue } : {}) }
       : null,
-    watermark: ($('wmEnable').checked && watermarkFile) ? { file: watermarkFile, position: watermarkPos } : null,
-    titleText: ($('titleEnable').checked && $('titleText').value.trim()) ? $('titleText').value.trim() : null,
+    watermark: (visual && $('wmEnable').checked && watermarkFile) ? { file: watermarkFile, position: watermarkPos, size: +$('wmSize')?.value || 9 } : null,
+    titleText: (visual && $('titleEnable').checked && $('titleText').value.trim()) ? $('titleText').value.trim() : null,
     duration: videoDuration,
     trim: null
   };
@@ -1239,6 +1271,10 @@ function buildOpts() {
     }
     opts.trim = { start: fmtTime(start), end: fmtTime(end) };
   }
+  const reviewError = window.reviewBuildOpts?.(opts);
+  if (reviewError) return { error: reviewError };
+  const sequenceError = window.sequenceBuildOpts?.(opts);
+  if (sequenceError) return { error: sequenceError };
   return { opts };
 }
 
@@ -1261,6 +1297,7 @@ function queueBadges(opts) {
 
 let queueRunning = false;   // worker aktif mi
 let stopRequested = false;  // "Durdur" istendi mi (mevcut işten sonra dur)
+let activeQueueItem = null;
 
 // İşlenmekte olan iş her zaman kuyruğun başıdır (queue[0]); worker çalışırken
 // baştaki öğe "active" olarak vurgulanır ve kaldırılamaz.
@@ -1270,16 +1307,21 @@ function renderQueue() {
   const list = $('queueList');
   list.innerHTML = '';
   queue.forEach((item, i) => {
-    const isActive = queueRunning && i === 0;
+    const isActive = queueRunning && item === activeQueueItem;
     const div = document.createElement('div');
     div.className = 'queue-item' + (isActive ? ' active' : '');
     div.innerHTML = '<span class="q-label"></span><span class="q-title"></span><span class="q-badges"></span><button class="q-remove" title="Kaldır">×</button>';
-    div.querySelector('.q-label').textContent = item.opts.trim
+    div.querySelector('.q-label').textContent = item.opts.sequence ? `${item.opts.sequence.length} parça · Kurgu` : item.opts.trim
       ? `${item.opts.trim.start} – ${item.opts.trim.end}`
       : 'Tam video';
     // Hangi video olduğu görünsün (playlist/çoklu işlerde önemli)
     div.querySelector('.q-title').textContent = item.opts.title || '';
     div.querySelector('.q-badges').textContent = queueBadges(item.opts);
+    if (item.error) {
+      const error = document.createElement('span'); error.className = 'q-error'; error.textContent = item.error; div.append(error);
+      const retry = document.createElement('button'); retry.className = 'btn-ghost small'; retry.textContent = 'Yeniden dene'; retry.disabled = queueRunning;
+      retry.onclick = () => { delete item.error; renderQueue(); updateDownloadBtn(); runQueueWorker(); }; div.append(retry);
+    }
     const rm = div.querySelector('.q-remove');
     if (isActive) {
       rm.disabled = true; // işlenen iş kaldırılamaz (Durdur ile iptal edilir)
@@ -1292,6 +1334,7 @@ function renderQueue() {
     }
     list.appendChild(div);
   });
+  window.sessionPersist?.();
 }
 
 function updateDownloadBtn() {
@@ -1304,12 +1347,14 @@ function updateDownloadBtn() {
     btn.disabled = false;
   } else {
     btn.classList.remove('cancel');
-    btn.textContent = queue.length ? `Kuyruğu indir (${queue.length})` : 'İndir';
-    btn.disabled = !infoLoaded && !queue.length;
+    const ready = queue.filter(j => !j.error).length;
+    btn.textContent = ready ? `Kuyruğu aktar (${ready})` : window.sequenceProject?.().enabled ? 'Kurguyu dışa aktar' : 'Dışa aktar';
+    btn.disabled = !infoLoaded && !ready;
   }
 }
 
 $('addQueueBtn').addEventListener('click', () => {
+  if(window.outputProofBusy) {setStatus('err','Önce çıktı provasını tamamlayın veya iptal edin.');return;}
   if (!infoLoaded) return;
   const r = buildOpts();
   if (r.error) { setStatus('err', r.error); return; }
@@ -1335,8 +1380,9 @@ async function runQueueWorker() {
   const producedFiles = []; // bu turda üretilen dosyalar (toast'taki "Sıkıştır" için)
   let cancelledMid = false;
 
-  while (queue.length && !stopRequested) {
-    const job = queue[0];
+  while (queue.some(j => !j.error) && !stopRequested) {
+    const job = queue.find(j => !j.error);
+    activeQueueItem = job;
     renderQueue();               // baştaki iş "active" görünür
     showJobProgress();
     $('logLine').textContent = job.opts.title ? `İşleniyor: ${job.opts.title}` : 'İşleniyor…';
@@ -1350,16 +1396,17 @@ async function runQueueWorker() {
 
     if (result.cancelled) { cancelledMid = true; break; } // aktif iş kuyrukta kalır
 
-    queue.shift(); // başarılı/başarısız — işlenen iş kuyruktan düşer
     if (result.ok) {
+      queue.splice(queue.indexOf(job), 1);
       done++;
       if (Array.isArray(result.files)) producedFiles.push(...result.files);
-    } else { failed++; failures.push(`${job.opts.title || 'video'}: ${result.error || 'hata'}`); }
+    } else { failed++; job.error = result.error || 'Beklenmeyen hata'; failures.push(`${job.opts.title || 'video'}: ${job.error}`); }
     renderQueue();
     updateDownloadBtn();
   }
 
   queueRunning = false;
+  activeQueueItem = null;
   hideJobProgress();
   renderQueue();
   updateDownloadBtn();
@@ -1382,9 +1429,10 @@ async function runQueueWorker() {
 }
 
 $('downloadBtn').addEventListener('click', () => {
+  if(window.outputProofBusy) {setStatus('err','Önce çıktı provasını tamamlayın veya iptal edin.');return;}
   if (queueRunning) { stopRequested = true; window.api.cancel(); return; } // Durdur
   // Başlat: kuyruk boşsa mevcut seçimi tek iş olarak ekle
-  if (!queue.length) {
+  if (!queue.some(j => !j.error)) {
     if (!infoLoaded) return;
     const r = buildOpts();
     if (r.error) { setStatus('err', r.error); return; }
@@ -1401,6 +1449,8 @@ $('downloadBtn').addEventListener('click', () => {
 
 function buildProject() {
   return {
+    sequence: window.sequenceProject?.(),
+    review: window.reviewProject?.(),
     title: $('title').textContent || null,
     url: currentLocalFile ? null : ($('url').value.trim() || null),
     localFile: currentLocalFile || null,
@@ -1408,12 +1458,13 @@ function buildProject() {
     formats: [...selectedFormats],
     trimEnable: $('trimEnable').checked,
     trim: { start: $('startTime').value, end: $('endTime').value },
-    track: { enabled: $('trackEnable').checked, mode: trackModeValue, point: trackPoint },
-    subtitle: { enabled: $('subEnable').checked, style: subStyleValue, model: subModelValue },
-    watermark: { enabled: $('wmEnable').checked, file: watermarkFile, position: watermarkPos },
-    titleText: { enabled: $('titleEnable').checked, text: $('titleText').value },
+    track: { enabled: $('trackEnable').checked, mode: trackModeValue, point: trackPoint, motion: $('trackMotion')?.value || 'balanced' },
+    subtitle: { enabled: $('subEnable').checked, style: subStyleValue, model: subModelValue, source: subPick },
+    watermark: { enabled: $('wmEnable').checked, file: watermarkFile, position: watermarkPos, size: +$('wmSize')?.value || 9 },
+    titleText: { enabled: $('titleEnable').checked, text: $('titleText').value, seconds: +$('titleSeconds')?.value || 3 },
     folder: $('folder').textContent || null,
-    queue: queue.map(j => j.opts)
+    queue: queue.map(j => j.opts),
+    queueState: queue.map(j => ({ opts: j.opts, ...(j.error ? { error: j.error } : {}) }))
   };
 }
 
@@ -1435,7 +1486,7 @@ function applyProjectSettings(p, includeTrim) {
     document.querySelectorAll('#trackMode .seg').forEach(b => b.classList.toggle('active', b.dataset.trackmode === trackModeValue));
     $('trackEnable').checked = !!p.track.enabled && selectedFormats.has('vertical');
     refreshTrackMode();
-    trackPoint = (p.track.point && typeof p.track.point.x === 'number') ? p.track.point : null;
+    trackPoint = includeTrim && p.track.point && [p.track.point.x, p.track.point.y].every(n => Number.isFinite(n) && n >= 0 && n <= 1) ? p.track.point : null;
   }
   if (p.subtitle) {
     if (p.subtitle.style) {
@@ -1447,8 +1498,8 @@ function applyProjectSettings(p, includeTrim) {
       document.querySelectorAll('#subModels .seg').forEach(b => b.classList.toggle('active', b.dataset.submodel === subModelValue));
     }
     // Altyazı anahtarı yalnızca kart görünürken (video için kaynak varsa) açılabilir
-    if (p.subtitle.enabled && !$('subCard').classList.contains('hidden')) {
-      $('subEnable').checked = true;
+    if (!$('subCard').classList.contains('hidden')) {
+      $('subEnable').checked = !!p.subtitle.enabled && $('quality').value !== 'audio';
       $('subEnable').dispatchEvent(new Event('change'));
     }
   }
@@ -1480,6 +1531,9 @@ function applyProjectSettings(p, includeTrim) {
       $('endTime').dispatchEvent(new Event('change'));
     }
   }
+  window.editorApplyProject?.(p, includeTrim);
+  window.reviewApplyProject?.(p.review, includeTrim);
+  if (includeTrim) window.sequenceApplyProject?.(p.sequence);
   return notes;
 }
 
@@ -1513,8 +1567,8 @@ async function openProjectFile(path) {
   if (!infoLoaded) return; // yükleme başarısız olduysa hata zaten ekranda
 
   const notes = applyProjectSettings(p, true);
-  if (Array.isArray(p.queue) && p.queue.length) {
-    p.queue.forEach(opts => { if (opts && opts.url !== undefined) queue.push({ opts }); });
+  if (Array.isArray(p.queueState) || Array.isArray(p.queue)) {
+    (p.queueState || p.queue.map(opts => ({ opts }))).forEach(job => { if (job?.opts && job.opts.url !== undefined) queue.push(job); });
     renderQueue();
     updateDownloadBtn();
   }
@@ -1660,46 +1714,14 @@ async function initSettings() {
   $('setPexelsKey').value = settings.pexelsKey || '';
   // Moodlar tercihleri (Faz 15)
   mdInitFromSettings();
+  window.connectionsInit?.();
 }
 
 // ---- API anahtarları (Faz 14) ----
 // Anahtarlar yalnızca yerelde (settings.json) durur; Gemini'ye/ElevenLabs'e
 // doğrudan istekte kullanılır, hiçbir ara sunucudan geçmez.
 
-$('setGeminiKey').addEventListener('change', () => {
-  const v = $('setGeminiKey').value.trim();
-  settings.geminiKey = v;
-  window.api.setSettings({ geminiKey: v });
-  $('geminiKeyStatus').textContent = v ? 'Kaydedildi' : 'AI Araçları ekranı için gerekli';
-});
-
-$('setElevenKey').addEventListener('change', () => {
-  const v = $('setElevenKey').value.trim();
-  settings.elevenKey = v;
-  window.api.setSettings({ elevenKey: v });
-});
-
-// Pexels anahtarı (Faz 16-B: B-Roll stok videoları)
-$('setPexelsKey').addEventListener('change', () => {
-  const v = $('setPexelsKey').value.trim();
-  settings.pexelsKey = v;
-  window.api.setSettings({ pexelsKey: v });
-});
-$('pexelsKeyPageBtn').addEventListener('click', () => window.api.openPexelsKeyPage());
-
-$('geminiKeyPageBtn').addEventListener('click', () => window.api.openGeminiKeyPage());
-
-$('geminiKeyTestBtn').addEventListener('click', async () => {
-  const key = $('setGeminiKey').value.trim();
-  $('geminiKeyTestBtn').disabled = true;
-  $('geminiKeyStatus').textContent = 'Doğrulanıyor…';
-  let r;
-  try { r = await window.api.aiTestKey(key); }
-  catch (err) { r = { error: err.message || String(err) }; }
-  $('geminiKeyTestBtn').disabled = false;
-  $('geminiKeyStatus').textContent = r.ok ? '✓ Anahtar geçerli' : r.error;
-});
-
+// Provider keys, connection checks and model chains live in connections.js.
 // Tema seçimi
 document.querySelectorAll('#themeSeg .seg').forEach(btn => {
   btn.addEventListener('click', () => {
@@ -1804,6 +1826,7 @@ function switchView(name) {
   if (name === 'settings') { refreshCacheInfo(); refreshYtdlpInfo(); }
   if (name === 'ai') aiRefreshView(); // anahtar/kaynak durumu her girişte tazelenir
   if (name === 'mood') mdRefreshView();
+  window.workspaceRefresh?.();
 }
 
 document.querySelectorAll('#sideNav .nav-item').forEach(btn => {
@@ -1948,6 +1971,7 @@ $('cmpStartBtn').addEventListener('click', async () => {
     : 'Tamamlandı — kaynak dosya zaten verimli kodlanmış';
   $('cmpResultSub').textContent = `${fmtBytes(r.beforeBytes)} → ${fmtBytes(r.afterBytes)}`;
   $('cmpResult').classList.remove('hidden');
+  window.workspaceResult?.('cmp', r.outFile);
   const outDir = r.outFile.slice(0, r.outFile.length - r.outFile.split(/[\\/]/).pop().length - 1);
   $('cmpOpenFolderBtn').onclick = () => window.api.openFolder(outDir);
   $('cmpOpenFolderBtn').classList.remove('hidden');
@@ -2169,6 +2193,7 @@ $('stApplyBtn').addEventListener('click', async () => {
   $('stResultTitle').textContent = `Kırpıldı — ${r.outFile.split(/[\\/]/).pop()}`;
   $('stResultSub').textContent = `${fmtClock(r.beforeDuration)} → ${fmtClock(r.afterDuration)}`;
   $('stResultCard').classList.remove('hidden');
+  window.workspaceResult?.('st', r.outFile);
   const outDir = r.outFile.slice(0, r.outFile.length - r.outFile.split(/[\\/]/).pop().length - 1);
   $('stOpenFolderBtn').onclick = () => window.api.openFolder(outDir);
   $('stOpenFolderBtn').classList.remove('hidden');
@@ -2638,10 +2663,11 @@ function mdRefreshView() {
 function mdRefreshButtons() {
   const pBtn = $('mdPlanBtn');
   pBtn.textContent = mdRunning === 'plan' ? 'Durdur' : (mdPlanData ? 'Planı yenile' : 'Kurgu planı oluştur');
-  pBtn.disabled = mdRunning ? mdRunning !== 'plan' : mdSourceMode() === 'none';
+  const gemReady = !!settings?.geminiKey?.trim();
+  pBtn.disabled = mdRunning ? mdRunning !== 'plan' : mdSourceMode() === 'none' || !gemReady;
   const rBtn = $('mdRenderBtn');
   rBtn.textContent = mdRunning === 'render' ? 'Durdur' : 'Seslendir ve Montajla';
-  rBtn.disabled = !!mdRunning && mdRunning !== 'render';
+  rBtn.disabled = mdRunning ? mdRunning !== 'render' : !mdPlanData || !gemReady || (mdTtsProvider === 'eleven' && !settings?.elevenKey?.trim());
   rBtn.classList.toggle('hidden', !mdPlanData);
   $('mdFileChange').disabled = !!mdRunning;
   $('mdUseFileBtn').disabled = !!mdRunning;
@@ -2682,11 +2708,13 @@ function mdCutterSourceChanged() {
 }
 
 async function mdLoadVoices() {
+  const requestedKey = settings?.elevenKey;
   const sel = $('mdVoice');
   sel.innerHTML = '<option value="">Yükleniyor…</option>';
   let r;
   try { r = await window.api.moodVoices(); }
   catch (err) { r = { error: err.message || String(err) }; }
+  if (requestedKey !== settings?.elevenKey || mdTtsProvider !== 'eleven') return;
   if (r.error) {
     sel.innerHTML = `<option value="">${r.error.length > 60 ? 'Ses listesi alınamadı' : r.error}</option>`;
     mdVoicesLoaded = false;
@@ -3037,7 +3065,7 @@ async function brSetFile(p) {
   $('brFileMeta').textContent = parts.join(' · ');
   $('brDrop').classList.add('hidden');
   $('brFileCard').classList.remove('hidden');
-  $('brAnalyzeBtn').disabled = false;
+  $('brAnalyzeBtn').disabled = !(settings?.geminiKey?.trim() && settings?.pexelsKey?.trim());
 }
 
 function brResetFile() {
@@ -3116,7 +3144,7 @@ function brSetRunning(running, phase) {
   brActivePhase = running ? phase : null;
   const aBtn = $('brAnalyzeBtn');
   aBtn.textContent = (running && phase === 'analyze') ? 'Durdur' : 'Önerileri getir';
-  aBtn.disabled = running ? phase !== 'analyze' : !brFile;
+  aBtn.disabled = running ? phase !== 'analyze' : !brFile || !(settings?.geminiKey?.trim() && settings?.pexelsKey?.trim());
   const pBtn = $('brApplyBtn');
   pBtn.textContent = (running && phase === 'apply') ? 'Durdur' : 'B-Roll\'u Göm';
   pBtn.disabled = running && phase !== 'apply';
@@ -3177,6 +3205,7 @@ $('brApplyBtn').addEventListener('click', async () => {
   $('brResultTitle').textContent = `Gömüldü — ${r.outFile.split(/[\\/]/).pop()}`;
   $('brResultSub').textContent = `${r.count} b-roll kesiti eklendi`;
   $('brResultCard').classList.remove('hidden');
+  window.workspaceResult?.('br', r.outFile);
   const outDir = r.outFile.slice(0, r.outFile.length - r.outFile.split(/[\\/]/).pop().length - 1);
   $('brOpenFolderBtn').onclick = () => window.api.openFolder(outDir);
   $('brOpenFolderBtn').classList.remove('hidden');

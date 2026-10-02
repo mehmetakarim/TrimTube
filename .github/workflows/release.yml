@@ -71,6 +71,12 @@ jobs:
 
       - run: npm ci
 
+      - name: Kurgu, altyazı ve sağlayıcı regresyonları
+        run: |
+          node scripts/check-timeline.cjs
+          node scripts/check-review.cjs
+          node scripts/check-providers.cjs
+
       - run: npm run ${{ matrix.fetch }}
 
       # Faz 10-B: kişi takibini kurulumsuz yapmak için tracker.py'yi PyInstaller ile

@@ -5,3 +5,4 @@ dist/
 build/
 resources/bin/
 __pycache__/
+.venv/

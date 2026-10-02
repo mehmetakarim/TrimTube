@@ -4,6 +4,9 @@ contextBridge.exposeInMainWorld('api', {
   getInfo: (url) => ipcRenderer.invoke('get-info', url),
   getPlaylist: (url) => ipcRenderer.invoke('get-playlist', url),
   download: (opts) => ipcRenderer.invoke('download', opts),
+  outputProof: request => ipcRenderer.invoke('output-proof', request),
+  outputProofCleanup: id => ipcRenderer.invoke('output-proof-cleanup', id),
+  outputProofCancel: () => ipcRenderer.invoke('output-proof-cancel'),
   cancel: () => ipcRenderer.invoke('cancel'),
   chooseFolder: () => ipcRenderer.invoke('choose-folder'),
   chooseImage: () => ipcRenderer.invoke('choose-image'),
@@ -17,6 +20,9 @@ contextBridge.exposeInMainWorld('api', {
   // Sürükle-bırakılan File nesnesinin gerçek disk yolunu güvenli şekilde verir
   // (Electron'da File.path kaldırıldı; webUtils.getPathForFile onun yerini alır)
   pathForFile: (file) => webUtils.getPathForFile(file),
+  subtitleReview: (opts) => ipcRenderer.invoke('subtitle-review', opts),
+  onSubtitleReviewProgress: cb => ipcRenderer.on('subtitle-review-progress', (e, p) => cb(p)),
+  cancelSubtitleReview: () => ipcRenderer.invoke('subtitle-review-cancel'),
   trackPreview: (opts) => ipcRenderer.invoke('track-preview', opts),
   cancelTrackPreview: () => ipcRenderer.invoke('track-preview-cancel'),
   cleanupTrackPreview: () => ipcRenderer.invoke('track-preview-cleanup'),
@@ -57,6 +63,8 @@ contextBridge.exposeInMainWorld('api', {
 
   // Faz 12: .trimtube proje dosyası + film şeridi
   projectSave: (data) => ipcRenderer.invoke('project-save', data),
+  projectDraftRead: () => ipcRenderer.invoke('project-draft-read'),
+  projectDraftSave: project => ipcRenderer.invoke('project-draft-save', project),
   projectOpen: (path) => ipcRenderer.invoke('project-open', path),
   projectAskMode: () => ipcRenderer.invoke('project-ask-mode'),
   getFilmstrip: (opts) => ipcRenderer.invoke('filmstrip', opts),
@@ -68,6 +76,10 @@ contextBridge.exposeInMainWorld('api', {
   onSmartTrimProgress: (cb) => ipcRenderer.on('smarttrim-progress', (e, p) => cb(p)),
 
   // Faz 14: AI Araçları (Gemini) — transkript + başlık/arama/hook/reklam kontrolü
+  providerTest: opts => ipcRenderer.invoke('provider-test', opts),
+  providerSave: patch => ipcRenderer.invoke('provider-settings-save', patch),
+  providerHistory: () => ipcRenderer.invoke('provider-history'),
+  onProviderAttempt: cb => ipcRenderer.on('provider-attempt', (e, record) => cb(record)),
   aiTestKey: (key) => ipcRenderer.invoke('ai-test-key', key),
   openGeminiKeyPage: () => ipcRenderer.invoke('open-gemini-key-page'),
   aiTranscript: (opts) => ipcRenderer.invoke('ai-transcript', opts),

@@ -41,6 +41,8 @@ const SETTINGS_DEFAULTS = {
   defaultFormats: ['original'],
   lastFolder: null,
   sidebarOpen: false,     // sol navigasyon menüsü (v1.12.0): kapalı başlar
+  geminiModelChain: '', // empty = live discovery with fallback defaults
+  geminiTtsChain: '',
   geminiKey: '',          // Faz 14: kullanıcının kendi Gemini API anahtarı (yalnızca yerelde durur)
   elevenKey: '',          // Faz 15: ElevenLabs anahtarı (seslendirme)
   moodVoice: null,        // Faz 15: son seçilen ElevenLabs sesi (voice_id)
@@ -63,8 +65,15 @@ function loadSettings() {
   return settingsCache;
 }
 function saveSettings(patch) {
-  settingsCache = { ...loadSettings(), ...patch };
-  try { fs.writeFileSync(settingsPath(), JSON.stringify(settingsCache, null, 2), 'utf8'); } catch {}
+  const next = { ...loadSettings(), ...patch };
+  try {
+    fs.writeFileSync(settingsPath() + '.pending', JSON.stringify(next, null, 2), 'utf8');
+    fs.renameSync(settingsPath() + '.pending', settingsPath());
+  } catch (err) {
+    try { win?.webContents.send('main-error', 'Ayarlar kaydedilemedi: ' + err.message); } catch {}
+    throw err;
+  }
+  settingsCache = next;
   return settingsCache;
 }
 
@@ -161,13 +170,19 @@ function resolveFfmpeg() {
 // resources/bin altında gelir (Python kurulumu gerekmez — Faz 10-B); geliştirme
 // ortamında sistemdeki python + tracker.py kullanılır. subtitle.py (Whisper)
 // hâlâ sistem Python'ı gerektirir (dev bağımlılığı; frozen kapsamı dışında).
+function resolvePython() {
+  const local = path.join(__dirname, '.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
+  if (!app.isPackaged && fs.existsSync(local)) return local;
+  return process.platform === 'win32' ? 'python' : 'python3';
+}
+
 function resolveTracker() {
   if (app.isPackaged) {
     const exe = process.platform === 'win32' ? 'tracker.exe' : 'tracker';
     const bundled = path.join(process.resourcesPath, 'bin', exe);
     if (fs.existsSync(bundled)) return { cmd: bundled, prefix: [] };
   }
-  const py = process.platform === 'win32' ? 'python' : 'python3';
+  const py = resolvePython();
   return { cmd: py, prefix: [path.join(__dirname, 'tracker.py')] };
 }
 
@@ -355,7 +370,12 @@ function createWindow() {
       nodeIntegration: false
     }
   });
+
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+  win.once('ready-to-show', () => {
+    win.show();
+    win.focus();
+  });
 
   // Soğuk başlatmada gelen derin bağlantı, renderer hazır olunca teslim edilir
   win.webContents.on('did-finish-load', () => {
@@ -559,7 +579,7 @@ function extractError(stderr) {
 }
 
 function toSec(hms) {
-  return hms.split(':').reverse().reduce((acc, p, i) => acc + parseInt(p, 10) * Math.pow(60, i), 0);
+  return hms.split(':').reverse().reduce((acc, p, i) => acc + Number(p) * Math.pow(60, i), 0);
 }
 
 // Bir alt süreci çalıştırır, stdout satırlarını onLine'a iletir.
@@ -902,6 +922,22 @@ ipcMain.handle('project-save', async (e, data) => {
   }
 });
 
+ipcMain.handle('project-draft-read', () => {
+  const file = path.join(app.getPath('userData'), 'project-draft.json');
+  try { return { ok: true, draft: JSON.parse(fs.readFileSync(file, 'utf8')) }; }
+  catch (err) { return err.code === 'ENOENT' ? { ok: true, draft: null } : { error: 'Kurtarma taslağı okunamadı.' }; }
+});
+ipcMain.handle('project-draft-save', (e, project) => {
+  try {
+    if (!project || (!project.localFile && !project.url)) throw Error('Taslak kaynağı eksik.');
+    const content = JSON.stringify({ app: 'trimtube', version: 2, savedAt: new Date().toISOString(), project });
+    if (Buffer.byteLength(content) > 5 * 1024 * 1024) throw Error('Taslak 5 MB sınırını aşıyor. Projeyi dosyaya kaydedin.');
+    const file = path.join(app.getPath('userData'), 'project-draft.json');
+    fs.writeFileSync(file + '.pending', content, 'utf8'); fs.renameSync(file + '.pending', file);
+    return { ok: true };
+  } catch (err) { return { error: 'Otomatik kayıt yapılamadı: ' + err.message }; }
+});
+
 ipcMain.handle('project-open', async (e, filePath) => {
   let p = filePath;
   if (!p) {
@@ -1020,14 +1056,14 @@ async function fetchSubtitle(url, videoId, lang, isAuto, runner = runProc) {
 // ister — subtitle.py'a --words-out da verilir, sonuç SRT'nin yanında ayrıca
 // önbellenir. SRT önbelleği varken kelime önbelleği yoksa (klip daha önce
 // statik stille işlendi) whisper bir kez yeniden çalışır.
-async function transcribeSubtitle(mediaFile, videoId, model, trim, clipSec, tmpDir, wantWords) {
+async function transcribeSubtitle(mediaFile, videoId, model, trim, clipSec, tmpDir, wantWords, runner = runProc, cancelled = () => cancelRequested, emit = (channel, value) => win.webContents.send(channel, value)) {
   const cacheDir = path.join(app.getPath('userData'), 'cache');
   fs.mkdirSync(cacheDir, { recursive: true });
-  const rangeKey = trim ? `${Math.round(toSec(trim.start))}_${Math.round(clipSec)}` : 'full';
+  const rangeKey = trim ? `${+toSec(trim.start).toFixed(3)}_${+clipSec.toFixed(3)}` : 'full';
   const cached = path.join(cacheDir, `${videoId}_sub_whisper_${model}_${rangeKey}.srt`);
   const cachedWords = path.join(cacheDir, `${videoId}_sub_whisperwords_${model}_${rangeKey}.json`);
   if (fs.existsSync(cached) && (!wantWords || fs.existsSync(cachedWords))) {
-    win.webContents.send('log', 'Otomatik altyazı önbellekten alındı.');
+    emit('log', 'Otomatik altyazı önbellekten alındı.');
     return { path: cached, wordsPath: fs.existsSync(cachedWords) ? cachedWords : null };
   }
 
@@ -1039,8 +1075,8 @@ async function transcribeSubtitle(mediaFile, videoId, model, trim, clipSec, tmpD
   exArgs.push('-i', mediaFile);
   if (trim) exArgs.push('-t', String(clipSec));
   exArgs.push('-vn', '-ac', '1', '-ar', '16000', '-c:a', 'pcm_s16le', audioFile);
-  const ex = await runProc(FFMPEG, exArgs, () => {});
-  if (cancelRequested) return { cancelled: true };
+  const ex = await runner(FFMPEG, exArgs, () => {});
+  if (cancelled()) return { cancelled: true };
   if (ex.code !== 0 || !fs.existsSync(audioFile)) {
     return { error: 'Altyazı için ses çıkarılamadı.' };
   }
@@ -1056,16 +1092,16 @@ async function transcribeSubtitle(mediaFile, videoId, model, trim, clipSec, tmpD
     '--out', outSrt, '--model', model, '--model-dir', modelDir,
     ...(wantWords ? ['--words-out', outWords] : [])
   ];
-  const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
+  const pythonCmd = resolvePython();
   let errLine = '';
-  const tr = await runProc(pythonCmd, args, (line) => {
+  const tr = await runner(pythonCmd, args, (line) => {
     const m = line.match(/^PROGRESS (\d+)/);
-    if (m) { win.webContents.send('progress', Math.min(99.9, +m[1])); return; }
-    if (line.startsWith('STATUS model')) win.webContents.send('log', 'Altyazı modeli hazırlanıyor (ilk kullanımda indirilir)…');
-    else if (line.startsWith('STATUS transcribe')) win.webContents.send('log', 'Konuşma metne çevriliyor…');
+    if (m) { emit('progress', Math.min(99.9, +m[1])); return; }
+    if (line.startsWith('STATUS model')) emit('log', 'Altyazı modeli hazırlanıyor (ilk kullanımda indirilir)…');
+    else if (line.startsWith('STATUS transcribe')) emit('log', 'Konuşma metne çevriliyor…');
     else if (line.startsWith('ERROR ')) errLine = line.slice(6).trim();
   });
-  if (cancelRequested) return { cancelled: true };
+  if (cancelled()) return { cancelled: true };
   if (tr.code !== 0 || !fs.existsSync(outSrt)) {
     let msg = errLine;
     if (!msg) {
@@ -1191,8 +1227,8 @@ function writeTitleAss(dir, text, dims, seconds) {
   const marginV = Math.round(dims.h * 0.045);
   // ASS metninde satır sonu \N; virgül/süslü parantez sorun çıkarmaz ama
   // kaçış için newline'ları \N'e çeviriyoruz
-  const safe = String(text).replace(/\r?\n/g, '\\N');
-  const end = `0:00:0${Math.min(9, seconds)}.00`;
+  const safe = assEscape(text).replace(/\r?\n/g, '\\N');
+  const end = `0:00:${String(Math.max(1, Math.min(15, Math.round(seconds)))).padStart(2, '0')}.00`;
   const ass = `[Script Info]
 ScriptType: v4.00+
 PlayResX: ${dims.w}
@@ -1221,28 +1257,17 @@ const ANIMATED_SUB_STYLES = new Set(['vurgulu', 'pop']);
 // kelimelere uzunluk-orantılı paylaştırılır (kelime ağırlığı = harf + sabit —
 // kısa kelimeler de asgari süre alır).
 function srtToWords(content) {
-  const toSec2 = (h, m, s, ms) => (+h) * 3600 + (+m) * 60 + (+s) + (+ms) / 1000;
-  const words = [];
+  const cues = [];
+  const seconds = (h, m, s, ms) => +h * 3600 + +m * 60 + +s + +ms / 1000;
   for (const block of content.split(/\r?\n\r?\n/)) {
-    const m = block.match(/(\d{2}):(\d{2}):(\d{2})[,.](\d{3})\s*-->\s*(\d{2}):(\d{2}):(\d{2})[,.](\d{3})/);
-    if (!m) continue;
-    const start = toSec2(m[1], m[2], m[3], m[4]);
-    const end = toSec2(m[5], m[6], m[7], m[8]);
+    const match = block.match(/(\d{2,}):(\d{2}):(\d{2})[,.](\d{3})\s*-->\s*(\d{2,}):(\d{2}):(\d{2})[,.](\d{3})/);
+    if (!match) continue;
     const lines = block.split(/\r?\n/);
-    const text = lines.slice(lines.findIndex(l => l.includes('-->')) + 1).join(' ')
-      .replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-    if (!text || end <= start) continue;
-    const toks = text.split(' ').filter(Boolean);
-    const weights = toks.map(t => t.length + 2);
-    const totalW = weights.reduce((a, b) => a + b, 0);
-    let t = start;
-    toks.forEach((tok, i) => {
-      const dur = (end - start) * (weights[i] / totalW);
-      words.push({ start: +t.toFixed(3), end: +(t + dur).toFixed(3), word: tok });
-      t += dur;
-    });
+    const text = lines.slice(lines.findIndex(line => line.includes('-->')) + 1).join(' ').replace(/<[^>]+>/g, ' ').trim();
+    const start = seconds(...match.slice(1, 5)), end = seconds(...match.slice(5, 9));
+    if (text && end > start) cues.push({ start, end, text });
   }
-  return words;
+  return ReviewData.wordsFromCues(cues);
 }
 
 // ASS metin kaçışı: süslü parantez ve ters bölü stil etiketi başlatır
@@ -1250,28 +1275,10 @@ function assEscape(s) {
   return String(s).replace(/\\/g, '').replace(/[{}]/g, '');
 }
 
-// Kelimeleri altyazı gruplarına böler: ≤4 kelime, ≤2.5 sn pencere; 1.2 sn'den
-// uzun konuşma arası yeni grup başlatır (Shorts altyazı konvansiyonu).
-function groupWords(words) {
-  const groups = [];
-  let cur = null;
-  for (const w of words) {
-    const tooLong = cur && (cur.words.length >= 4 || w.end - cur.start > 2.5 || w.start - cur.end > 1.2);
-    if (!cur || tooLong) {
-      cur = { start: w.start, end: w.end, words: [w] };
-      groups.push(cur);
-    } else {
-      cur.words.push(w);
-      cur.end = w.end;
-    }
-  }
-  return groups;
-}
-
 // Animasyonlu altyazı ASS dosyası üretir; dosya adı cwd=tmpDir ile göreli
 // kullanılır. marginV, format tanımlarındaki libass PlayRes(288) ölçeğinden
 // gerçek çıktı yüksekliğine ölçeklenir (ASS'ın PlayRes'i = çıktı boyutu).
-function writeKaraokeAss(dir, words, styleName, dims, marginV288, fname) {
+function writeKaraokeAss(dir, words, styleName, dims, marginV288, fname, sidePercent = null) {
   const fmtT = (sec) => {
     const cs = Math.max(0, Math.round(sec * 100));
     const h = Math.floor(cs / 360000);
@@ -1286,32 +1293,14 @@ function writeKaraokeAss(dir, words, styleName, dims, marginV288, fname) {
   // Renkler ASS BGR: beyaz ana, sarı vurgu
   const HIGHLIGHT = '\\1c&H00E5FF&';
 
-  const events = [];
-  const groups = groupWords(words);
-  for (const g of groups) {
-    if (isPop) {
-      // Kelime tek başına belirir; bir sonraki kelimeye kadar (veya kısa payla) kalır
-      g.words.forEach((w, i) => {
-        const next = g.words[i + 1];
-        const end = next ? next.start : Math.min(g.end + 0.35, w.end + 0.8);
-        if (end <= w.start) return;
-        const text = `{\\fscx55\\fscy55\\t(0,90,\\fscx100,\\fscy100)}${assEscape(w.word)}`;
-        events.push(`Dialogue: 0,${fmtT(w.start)},${fmtT(end)},Anim,,0,0,0,,${text}`);
-      });
-    } else {
-      // Grup sabit; her kelime aralığında aktif kelime sarı + hafif büyüme
-      g.words.forEach((w, i) => {
-        const next = g.words[i + 1];
-        const end = next ? next.start : g.end + 0.15;
-        if (end <= w.start) return;
-        const text = g.words.map((gw, j) => j === i
-          ? `{${HIGHLIGHT}\\t(0,80,\\fscx112,\\fscy112)}${assEscape(gw.word)}{\\r}`
-          : assEscape(gw.word)
-        ).join(' ');
-        events.push(`Dialogue: 0,${fmtT(w.start)},${fmtT(end)},Anim,,0,0,0,,${text}`);
-      });
-    }
-  }
+  const events = ReviewData.animationEvents(words, styleName).map(event => {
+    // A constant highlighted-word size keeps line wraps stable at transitions.
+    const text = isPop
+      ? `{\\fscx55\\fscy55\\t(0,90,\\fscx100,\\fscy100)}${assEscape(event.words[0])}`
+      : event.words.map((word, index) => index === event.active
+        ? `{${HIGHLIGHT}}${assEscape(word)}{\\r}` : assEscape(word)).join(' ');
+    return `Dialogue: 0,${fmtT(event.start)},${fmtT(event.end)},Anim,,0,0,0,,${text}`;
+  });
 
   const ass = `[Script Info]
 ScriptType: v4.00+
@@ -1320,7 +1309,7 @@ PlayResY: ${dims.h}
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, OutlineColour, BackColour, Bold, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV
-Style: Anim, Arial Black, ${fontSize}, &H00FFFFFF, &H00000000, &H00000000, 1, 1, ${outline}, 0, 2, 60, 60, ${marginV}
+Style: Anim, Arial Black, ${fontSize}, &H00FFFFFF, &H00000000, &H00000000, 1, 1, ${outline}, 0, 2, ${sidePercent === null ? 60 : Math.round(dims.w * sidePercent / 100)}, ${sidePercent === null ? 60 : Math.round(dims.w * sidePercent / 100)}, ${marginV}
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -1354,9 +1343,74 @@ const FORMAT_DEFS = {
   gif: { suffix: ' [gif]', vf: null, marginV: 25, label: 'GIF' }
 };
 
-ipcMain.handle('download', async (e, opts) => {
-  const { url, id, title, folder, quality, trim, vertical, duration, track, trackPoint, subtitle } = opts;
+const ReviewData = require('./renderer/review-data');
+const TimelineData = require('./renderer/timeline-data');
+const TimelineRender = require('./timeline-render');
+let exportOwner = null;
+ipcMain.handle('download', (e, opts) => performExport(e, opts, 'download'));
+async function performExport(e, opts, owner) {
+  if(exportOwner) return {ok:false,error:'Dışa aktarma veya çıktı provası devam ediyor.'};
+  exportOwner=owner;
+  let sequenceDir = null;
+  try {
+    return await exportMedia(e, JSON.parse(JSON.stringify(opts)), () => (sequenceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'trimtube-sequence-'))));
+  } catch (err) { return { ok: false, error: err.message }; }
+  finally { exportOwner=null; if (sequenceDir) { try { fs.rmSync(sequenceDir, { recursive: true, force: true }); } catch {} } }
+}
+const proofFiles = new Map();
+ipcMain.handle('output-proof', async(e, request) => {
+  const opts=request?.opts, start=request?.start;
+  if(!opts || !Number.isFinite(start) || start<0 || opts.quality==='audio') return {error:'Prova için geçerli video ve başlangıç seçin.'};
+  if(exportOwner) return {error:'Devam eden işlemin tamamlanmasını bekleyin.'};
+  const format=request.format;
+  if(!['original','vertical','square'].includes(format) || !opts.formats?.includes(format)) return {error:'Çıktıda seçili bir video formatını kullanın.'};
+  if(opts.track && format==='vertical' && !opts.framingPath) return {error:'Takipli prova için kadraj kontrol masasında yolu uygulayıp onaylayın.'};
+  let total;
+  try { total=opts.sequence?TimelineData.duration(TimelineData.validate(opts.sequence,opts.duration)):opts.trim?toSec(opts.trim.end)-toSec(opts.trim.start):opts.duration; }
+  catch(err) { return {error:err.message}; }
+  if(!Number.isFinite(total)||start>=total) return {error:'Prova başlangıcı çıktı süresinin dışında.'};
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'trimtube-proof-'));
+  const result=await performExport(e,{...opts,folder:dir,title:'Çıktı provası',formats:[format],proof:{start,duration:Math.min(5,total-start)}},'proof');
+  if(!result.ok) { try { fs.rmSync(dir,{recursive:true,force:true}); } catch {} return result.cancelled?{cancelled:true}:{error:result.error}; }
+  const id=path.basename(dir); proofFiles.set(id,dir);
+  return {id,url:pathToFileURL(result.files[0]).href,duration:Math.min(5,total-start)};
+});
+ipcMain.handle('output-proof-cleanup',(e,id)=> {
+  const dir=proofFiles.get(id); if(!dir) return;
+  try {fs.rmSync(dir,{recursive:true,force:true});proofFiles.delete(id);} catch {}
+});
+ipcMain.handle('output-proof-cancel',()=> {
+  if(exportOwner!=='proof') return;
+  cancelRequested=true;
+  if(currentProc) { if(process.platform==='win32') spawn('taskkill',['/pid',String(currentProc.pid),'/T','/F'],{windowsHide:true}); else currentProc.kill(); }
+});
+app.on('before-quit',()=> { for(const dir of proofFiles.values()) {try {fs.rmSync(dir,{recursive:true,force:true});} catch {}} });
+async function exportMedia(e, opts, allocateSequenceDir) {
+  if (subtitleReviewBusy) return { ok: false, error: 'Önce altyazı oluşturmayı tamamlayın veya iptal edin.' };
+  if (opts.subtitle && opts.subtitle.source !== 'edited') return { ok: false, error: 'Altyazıyı önce oluşturun, metni kontrol edip onaylayın ve işi yeniden kuyruğa ekleyin.' };
+  if (opts.subtitle?.source === 'edited') {
+    try { opts.subtitle.srt = ReviewData.serialize(ReviewData.parse(opts.subtitle.srt, opts.trim ? toSec(opts.trim.end) - toSec(opts.trim.start) : opts.duration)); }
+    catch (err) { return { ok: false, error: err.message }; }
+  }
+  if(opts.subtitle) opts.subtitle.words = ReviewData.alignedWords(ReviewData.parse(opts.subtitle.srt), opts.subtitle.words);
+  if (opts.framingPath && !ReviewData.pathValid(opts.framingPath, opts.trim ? toSec(opts.trim.end) - toSec(opts.trim.start) : opts.duration)) return { ok: false, error: 'Kaydedilen kadraj yolu geçersiz.' };
+  let { url, id, title, folder, quality, trim, vertical, duration, track, trackPoint, subtitle } = opts;
+  if (opts.sequence) {
+    opts.sequence = TimelineData.validate(opts.sequence, duration);
+    const baseStart = trim ? toSec(trim.start) : 0, baseEnd = trim ? toSec(trim.end) : duration;
+    if ((subtitle || opts.framingPath) && !TimelineData.covered(opts.sequence, baseStart, baseEnd)) return { ok: false, error: 'Kurgu parçaları onaylanan altyazı/kadraj aralığının dışında. Kaynakta tüm parçaları kapsayan aralığı seçip yeniden onaylayın.' };
+    if (trackPoint && !opts.framingPath && Math.abs(opts.sequence[0].start - baseStart) > .01) return { ok: false, error: 'Kurgunun ilk parçası değişti. Kişi seçimini otomatiğe alın veya kadraj yolunu onaylayın.' };
+    if (subtitle) {
+      const cues = TimelineData.remapCues(ReviewData.parse(subtitle.srt, baseEnd - baseStart), opts.sequence, baseStart);
+      if (!cues.length) return { ok: false, error: 'Kurgu parçalarında onaylı altyazı yok. Altyazıyı kapatın veya kaynak metnini kontrol edin.' };
+      subtitle.srt = ReviewData.serialize(cues);
+      subtitle.words = TimelineData.remapWords(subtitle.words, opts.sequence, baseStart);
+    }
+    if (opts.framingPath) opts.framingPath = TimelineData.remapPath(opts.framingPath, opts.sequence, baseStart);
+  }
   cancelRequested = false;
+  if (trackPoint && (![trackPoint.x, trackPoint.y].every(n => Number.isFinite(n) && n >= 0 && n <= 1))) return { ok: false, error: 'Kişi seçimi geçersiz. Önizlemede yeniden seçin.' };
+  if (opts.watermark && !fs.existsSync(opts.watermark.file || '')) return { ok: false, error: 'Logo dosyası bulunamadı. Yeniden seçin.' };
 
   const isAudio = quality === 'audio';
   // Yerel dosya modu (Faz 8): indirme atlanır, dosya doğrudan işlenir
@@ -1365,12 +1419,13 @@ ipcMain.handle('download', async (e, opts) => {
   const formats = (!isAudio && Array.isArray(opts.formats) && opts.formats.length)
     ? opts.formats.filter(f => FORMAT_DEFS[f])
     : [vertical && !isAudio ? 'vertical' : 'original'];
-  const wantTrack = !isAudio && track && formats.includes('vertical');
-  const wantSubs = !!subtitle && !isAudio; // altyazı gömme yeniden kodlama gerektirir
+  const wantTrack = !isAudio && (track || opts.framingPath) && formats.includes('vertical');
+  const hasVisual = !isAudio && formats.some(f => f !== 'gif');
+  const wantSubs = !!subtitle && hasVisual; // altyazı gömme yeniden kodlama gerektirir
   // Marka öğeleri (Faz 6): logo/watermark + başlık metni
-  const watermark = (!isAudio && opts.watermark && opts.watermark.file && fs.existsSync(opts.watermark.file)) ? opts.watermark : null;
-  const titleText = (!isAudio && opts.titleText && String(opts.titleText).trim()) ? String(opts.titleText).trim() : null;
-  const needPost = !!trim || wantSubs || !!watermark || !!titleText || formats.some(f => f !== 'original') || formats.length > 1;
+  const watermark = (hasVisual && opts.watermark && opts.watermark.file && fs.existsSync(opts.watermark.file)) ? opts.watermark : null;
+  const titleText = (hasVisual && opts.titleText && String(opts.titleText).trim()) ? String(opts.titleText).trim() : null;
+  const needPost = !!opts.proof || !!opts.sequence || (isAudio && !!localFile) || !!trim || wantSubs || !!watermark || !!titleText || formats.some(f => f !== 'original') || formats.length > 1;
 
   // --- Basit durum: kesme/dönüştürme yok → doğrudan hedef klasöre indir ---
   if (!needPost) {
@@ -1400,12 +1455,13 @@ ipcMain.handle('download', async (e, opts) => {
   if (localFile) {
     cacheFile = localFile; // yerel kaynak: indirme yok, dosya doğrudan işlenir
   } else {
-    const cacheName = `${id}_${quality}.${isAudio ? 'mp3' : 'mp4'}`;
+    const sourceQuality = opts.sequence && isAudio ? 'best' : quality;
+    const cacheName = `${id}_${sourceQuality}.${isAudio && !opts.sequence ? 'mp3' : 'mp4'}`;
     cacheFile = path.join(cacheDir, cacheName);
 
     if (!fs.existsSync(cacheFile)) {
       win.webContents.send('phase', 'download');
-      const dl = await runYtdlp([...qualityArgs(quality), '-o', path.join(cacheDir, `${id}_${quality}.%(ext)s`), url]);
+      const dl = await runYtdlp([...qualityArgs(sourceQuality), '-o', path.join(cacheDir, `${id}_${sourceQuality}.%(ext)s`), url]);
       if (cancelRequested) return { ok: false, cancelled: true };
       if (dl.code !== 0) return { ok: false, error: extractError(dl.stderr) };
       if (!fs.existsSync(cacheFile)) return { ok: false, error: 'İndirilen dosya bulunamadı.' };
@@ -1415,6 +1471,17 @@ ipcMain.handle('download', async (e, opts) => {
     }
   }
 
+  if (opts.sequence) {
+    win.webContents.send('phase', 'convert');
+    win.webContents.send('log', `${opts.sequence.length} parça kurgu sırasıyla birleştiriliyor…`);
+    const total = TimelineData.duration(opts.sequence);
+    const assembled = await TimelineRender.assemble({ source: cacheFile, clips: opts.sequence, dir: allocateSequenceDir(), ffmpeg: FFMPEG, run: runProc, cancelled: () => cancelRequested, progress: line => {
+      const m = line.match(/^out_time=(\d+):(\d+):([\d.]+)/);
+      if (m) win.webContents.send('progress', Math.min(99, (+m[1] * 3600 + +m[2] * 60 + +m[3]) / total * 100));
+    } });
+    if (assembled.cancelled) return { ok: false, cancelled: true };
+    cacheFile = assembled.file; duration = assembled.duration; trim = null;
+  }
   const clipSec = trim ? (toSec(trim.end) - toSec(trim.start)) : (duration || 0);
 
   // --- Altyazı hazırlığı: indir (önbellekten), kesim penceresine kaydır ---
@@ -1427,59 +1494,24 @@ ipcMain.handle('download', async (e, opts) => {
   let subStyleBase = null;   // klasik/kutulu/dolgun → SRT + force_style yolu
   let subAnimWords = null;   // vurgulu/pop → kelime çizelgesi + ASS yolu (Faz 16-A)
   if (wantSubs) {
-    win.webContents.send('log', 'Altyazı hazırlanıyor…');
-    const isWhisper = subtitle.source === 'whisper';
-    const wantAnim = ANIMATED_SUB_STYLES.has(subtitle.style);
-    // Whisper: kesim aralığının sesinden üretir; sonuç zaten klip başına göre
-    // zamanlıdır (kaydırma gerekmez). YouTube altyazısı: tam videonunkini indirip
-    // kesim penceresine kaydırır.
-    let content = null;
-    let whisperWords = null;
-    if (isWhisper) {
-      win.webContents.send('phase', 'subtitle');
-      win.webContents.send('progress', 0);
-      const res = await transcribeSubtitle(cacheFile, id, subtitle.model || 'small', trim, clipSec, tmpDir, wantAnim);
-      if (cancelRequested || res.cancelled) { cleanupTmp(); return { ok: false, cancelled: true }; }
-      if (res.error) { cleanupTmp(); return { ok: false, error: res.error }; }
-      content = fs.readFileSync(res.path, 'utf8'); // zaten klip-göreli
-      if (wantAnim && res.wordsPath) {
-        try { whisperWords = (JSON.parse(fs.readFileSync(res.wordsPath, 'utf8')).words || []); } catch {}
-      }
+    // Only reviewed text is accepted; export never transcribes or fetches again.
+    const content = subtitle.srt;
+    if (ANIMATED_SUB_STYLES.has(subtitle.style)) {
+      subAnimWords = subtitle.words?.length ? subtitle.words : srtToWords(content);
+      if (!subAnimWords.length) { cleanupTmp(); return { ok: false, error: 'Altyazı kelimeleri bulunamadı.' }; }
     } else {
-      const sub = await fetchSubtitle(url, id, subtitle.lang, subtitle.auto);
-      if (cancelRequested) { cleanupTmp(); return { ok: false, cancelled: true }; }
-      if (sub.path) {
-        const raw = fs.readFileSync(sub.path, 'utf8');
-        content = trim ? shiftSrt(raw, toSec(trim.start), clipSec) : raw;
-      }
-    }
-    if (content && content.trim()) {
-      if (wantAnim) {
-        // Kelime kaynağı: Whisper'dan gerçek zamanlar; YouTube'da SRT bloklarının
-        // uzunluk-orantılı bölünmesi (tahmini ama akıcı)
-        subAnimWords = (whisperWords && whisperWords.length) ? whisperWords : srtToWords(content);
-        if (!subAnimWords.length) {
-          win.webContents.send('log', 'Kelime zamanları üretilemedi, altyazısız devam ediliyor.');
-          subAnimWords = null;
-        }
-      } else {
-        fs.writeFileSync(path.join(tmpDir, 'subs.srt'), content, 'utf8');
-        subStyleBase = SUBTITLE_STYLES[subtitle.style] || SUBTITLE_STYLES.klasik;
-      }
-    } else if (isWhisper) {
-      win.webContents.send('log', 'Seçilen aralıkta konuşma bulunmuyor.');
-    } else if (content !== null) {
-      win.webContents.send('log', 'Seçilen aralıkta altyazı bulunmuyor.');
-    } else {
-      win.webContents.send('log', 'Altyazı indirilemedi, altyazısız devam ediliyor.');
+      fs.writeFileSync(path.join(tmpDir, 'subs.srt'), content, 'utf8');
+      subStyleBase = SUBTITLE_STYLES[subtitle.style] || SUBTITLE_STYLES.klasik;
     }
   }
+  const subBottom = Math.max(5, Math.min(45, Number(subtitle?.bottom) || 19));
+  const subSide = Math.max(3, Math.min(30, Number(subtitle?.side) || 8));
   const subFilterFor = (marginV) => subStyleBase
-    ? `subtitles=subs.srt:force_style='${subStyleBase},MarginV=${marginV}'`
+    ? `subtitles=subs.srt:force_style='${subStyleBase},MarginV=${Math.round(subBottom * 2.88)},MarginL=${Math.round(subSide * 3.84)},MarginR=${Math.round(subSide * 3.84)}'`
     : '';
 
   // Ortak çıktı adı parçaları
-  const baseSuffix = trim ? ` [${trim.start.replace(/:/g, '.')}-${trim.end.replace(/:/g, '.')}]` : '';
+  const baseSuffix = opts.sequence ? ' [kurgu]' : trim ? ` [${trim.start.replace(/:/g, '.')}-${trim.end.replace(/:/g, '.')}]` : '';
   const subSuffix = (subStyleBase || subAnimWords) ? ' [altyazılı]' : '';
   const brandSuffix = (watermark || titleText) ? ' [marka]' : '';
   const targetFor = (fmt, tracked) => {
@@ -1527,7 +1559,7 @@ ipcMain.handle('download', async (e, opts) => {
     win.webContents.send('progress', 0);
     // Önbellekteki yt-dlp çıktısı zaten mp3 → kayıpsız kopya yeterli;
     // yerel video kaynağından ise ses MP3'e kodlanmalı
-    const codecArgs = localFile ? ['-vn', '-c:a', 'libmp3lame', '-q:a', '2'] : ['-c', 'copy'];
+    const codecArgs = localFile || opts.sequence ? ['-vn', '-c:a', 'libmp3lame', '-q:a', '2'] : ['-c', 'copy'];
     const ff = await runProc(FFMPEG, ['-y', ...inputArgs, ...codecArgs, '-progress', 'pipe:1', '-nostats', target], ffProgress);
     cleanupTmp();
     if (cancelRequested) { try { fs.rmSync(target, { force: true }); } catch {} return { ok: false, cancelled: true }; }
@@ -1556,9 +1588,14 @@ ipcMain.handle('download', async (e, opts) => {
         if (cut.code !== 0) { cleanupTmp(); return { ok: false, error: 'Kesme başarısız:\n' + cut.stderr.split(/\r?\n/).filter(Boolean).slice(-3).join('\n') }; }
       }
 
+      if (opts.framingPath) {
+        const dims = await probeDims(trackClipFile);
+        const maxX = Math.max(0, dims.w - Math.min(dims.w, dims.h * 9 / 16));
+        fs.writeFileSync(path.join(tmpDir, 'cmds.txt'), opts.framingPath.map(p => `${p.t.toFixed(3)} crop x ${Math.round(Math.min(maxX, p.x * dims.w))};`).join('\n'));
+      } else {
       win.webContents.send('phase', 'track');
       win.webContents.send('progress', 0);
-      const trackArgs = [...TRACKER.prefix, trackClipFile, '--out', path.join(tmpDir, 'cmds.txt')];
+      const trackArgs = [...TRACKER.prefix, trackClipFile, '--out', path.join(tmpDir, 'cmds.txt'), '--boxes-out', path.join(tmpDir, 'boxes.txt'), '--motion', ['calm', 'responsive'].includes(opts.trackMotion) ? opts.trackMotion : 'balanced'];
       if (opts.speakerMode) {
         // Aktif konuşanı takip (Faz 10): sesi mono wav'a çıkarıp konuşmacı moduna ver
         const wav = path.join(tmpDir, 'track.wav');
@@ -1578,6 +1615,9 @@ ipcMain.handle('download', async (e, opts) => {
       if (tr.code !== 0 || !fs.existsSync(path.join(tmpDir, 'cmds.txt'))) {
         cleanupTmp();
         return { ok: false, error: trackerErrorMessage(tr.stderr) };
+      }
+      const trackedBoxes = fs.readFileSync(path.join(tmpDir, 'boxes.txt'), 'utf8').trim().split(/\r?\n/);
+      if (!trackedBoxes.some(line => line.trim().split(/\s+/).length === 5)) { cleanupTmp(); return { ok: false, error: 'Bu kesitte kişi bulunamadı. Kişiyi işaretleyin veya farklı bir başlangıç seçin.' }; }
       }
       trackReady = true;
     }
@@ -1619,18 +1659,18 @@ ipcMain.handle('download', async (e, opts) => {
       // Temel görüntü filtre zinciri: kadraj → altyazı → başlık (hepsi [0:v] üzerinde)
       const baseParts = [];
       if (tracked) {
-        baseParts.push('sendcmd=f=cmds.txt,crop=w=ih*9/16:h=ih:x=(iw-ow)/2:y=0,scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2');
+        baseParts.push('sendcmd=f=cmds.txt,crop=w=min(iw\\,ih*9/16):h=ih:x=(iw-ow)/2:y=0,scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2');
       } else if (def.vf) {
         baseParts.push(def.vf);
       }
       // Animasyonlu stil: format başına ASS üretilir (PlayRes = çıktı boyutu,
       // MarginV formata göre ölçekli); statik stiller SRT + force_style yolunda
       const sf = subAnimWords
-        ? 'subtitles=' + writeKaraokeAss(tmpDir, subAnimWords, subtitle.style, outDims, def.marginV, `anim_${fmt}.ass`)
+        ? 'subtitles=' + writeKaraokeAss(tmpDir, subAnimWords, subtitle.style, outDims, subBottom * 2.88, `anim_${fmt}.ass`, subSide)
         : subFilterFor(def.marginV);
       if (sf) baseParts.push(sf);
       if (titleText) {
-        writeTitleAss(tmpDir, titleText, outDims, 3);
+        writeTitleAss(tmpDir, titleText, outDims, Number(opts.titleSeconds) || 3);
         baseParts.push('subtitles=title.ass'); // cwd=tmpDir ile göreli
       }
       const baseChain = baseParts.join(',');
@@ -1642,15 +1682,17 @@ ipcMain.handle('download', async (e, opts) => {
       const mainInput = tracked
         ? ['-i', trackClipFile]
         : [...(trim ? ['-ss', trim.start] : []), '-i', cacheFile];
-      const durArg = (!tracked && trim) ? ['-t', String(clipSec)] : [];
+      const durArg = opts.proof ? ['-ss',String(opts.proof.start),'-t',String(opts.proof.duration)] : (!tracked && trim) ? ['-t', String(clipSec)] : [];
 
       // Watermark: ikinci girdi (logo) + filter_complex overlay; yoksa düz -vf
       const buildArgs = (hwaccel, venc) => {
         if (watermark) {
           const pad = Math.round(outDims.w * 0.03);
-          const logoH = Math.round(outDims.h * 0.09);
+          const logoFraction = Math.min(20, Math.max(4, Number(watermark.size) || 9)) / 100;
+          const logoH = Math.round(outDims.h * logoFraction);
+          const logoMaxW = Math.round(outDims.w * 0.35);
           const overlay = watermarkOverlayExpr(watermark.position, pad);
-          const chain = `[0:v]${baseChain || 'null'}[base];[1:v]scale=-1:${logoH}[wm];[base][wm]overlay=${overlay}[out]`;
+          const chain = `[0:v]${baseChain || 'null'}[base];[1:v]scale=${logoMaxW}:${logoH}:force_original_aspect_ratio=decrease[wm];[base][wm]overlay=${overlay}[out]`;
           return ['-y', ...hwaccel, ...mainInput, '-i', watermark.file,
             '-filter_complex', chain, '-map', '[out]', '-map', '0:a?',
             ...venc, '-c:a', 'aac', '-b:a', '192k', ...durArg,
@@ -1682,7 +1724,7 @@ ipcMain.handle('download', async (e, opts) => {
     cleanupTmp();
     return { ok: false, error: err.message };
   }
-});
+}
 
 ipcMain.handle('cancel', () => {
   cancelRequested = true;
@@ -1747,7 +1789,11 @@ ipcMain.handle('track-preview-cancel', () => {
 // Modal kapanınca tutulan geçici klip/veri klasörünü sil
 ipcMain.handle('track-preview-cleanup', () => { cleanupTrackPrevTmp(); });
 
-ipcMain.handle('track-preview', async (e, { url, videoId, localFile, start, duration, trackPoint, speakerMode }) => {
+let trackPreviewJobActive = false;
+ipcMain.handle('track-preview', async (e, { url, videoId, localFile, start, duration, trackPoint, speakerMode, trackMotion, tracking = true }) => {
+  if (!Number.isFinite(start) || start < 0 || !Number.isFinite(duration) || duration <= 0) return { error: 'Önizleme aralığı geçersiz.' };
+  if (trackPoint && ![trackPoint.x, trackPoint.y].every(n => Number.isFinite(n) && n >= 0 && n <= 1)) return { error: 'Kişi seçimi geçersiz.' };
+  if (trackPreviewJobActive) return { error: 'Önceki kadraj analizi kapanıyor. Birkaç saniye sonra yeniden deneyin.' };
   trackPrevCancelled = false;
   cleanupTrackPrevTmp(); // önceki önizlemenin klibini bırak
   // Kaynak önceliği: yerel dosya > önbellekteki tam video > 360p önizleme akışı
@@ -1759,6 +1805,7 @@ ipcMain.handle('track-preview', async (e, { url, videoId, localFile, start, dura
   const cleanup = () => { try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {} };
   const send = (p) => { try { win.webContents.send('track-preview-progress', p); } catch {} };
 
+  trackPreviewJobActive = true;
   try {
     // 1) Aralığı 480p'ye küçültülmüş sessiz geçici klibe al — tracker zaten
     //    480p üzerinde çalışır, tam çözünürlük yalnızca gereksiz yük olur.
@@ -1784,7 +1831,7 @@ ipcMain.handle('track-preview', async (e, { url, videoId, localFile, start, dura
     // 2) tracker.py — render'daki takiple aynı kod; ek olarak takip kutusu yolu
     const cmds = path.join(tmpDir, 'cmds.txt');
     const boxesFile = path.join(tmpDir, 'boxes.txt');
-    const args = [...TRACKER.prefix, clip, '--out', cmds, '--boxes-out', boxesFile];
+    const args = [...TRACKER.prefix, clip, '--out', cmds, '--boxes-out', boxesFile, '--motion', ['calm', 'responsive'].includes(trackMotion) ? trackMotion : 'balanced'];
     if (speakerMode) {
       // Aktif konuşanı takip: 480p klibin sesini wav'a çıkarıp ver
       const wav = path.join(tmpDir, 'prev.wav');
@@ -1794,10 +1841,11 @@ ipcMain.handle('track-preview', async (e, { url, videoId, localFile, start, dura
     } else if (trackPoint) {
       args.push('--point', `${trackPoint.x.toFixed(4)},${trackPoint.y.toFixed(4)}`);
     }
-    const tr = await runPreviewProc(TRACKER.cmd, args, (line) => {
+    const tr = tracking ? await runPreviewProc(TRACKER.cmd, args, (line) => {
       const m = line.match(/^PROGRESS (\d+)/);
       if (m) send({ stage: 'track', pct: +m[1] });
-    });
+    }) : { code: 0 };
+    if (!tracking) { const d = await probeDims(clip); fs.writeFileSync(cmds, `0 crop x ${Math.round(Math.max(0, (d.w - d.h * 9 / 16) / 2))};`); }
     if (trackPrevCancelled) { cleanup(); return { cancelled: true }; }
     if (tr.code !== 0 || !fs.existsSync(cmds)) {
       cleanup();
@@ -1832,13 +1880,17 @@ ipcMain.handle('track-preview', async (e, { url, videoId, localFile, start, dura
     trackPrevTmpDir = tmpDir;
     return {
       path: pathArr,
-      cropW: (dims.h * 9 / 16) / dims.w,
+      cropW: Math.min(1, (dims.h * 9 / 16) / dims.w),
+      sourceAspect: dims.w / dims.h,
+      coverage: boxes.length ? Math.round(100 * boxes.filter(b => b.x !== null).length / boxes.length) : 0,
       boxes,
       clipUrl: pathToFileURL(clip).href
     };
   } catch (err) {
     cleanup();
     return { error: err.message };
+  } finally {
+    trackPreviewJobActive = false;
   }
 });
 
@@ -2103,7 +2155,7 @@ ipcMain.handle('smarttrim-analyze', async (e, { file, model, threshold, includeF
     fs.mkdirSync(modelDir, { recursive: true });
     const wordsJson = path.join(tmpDir, 'words.json');
     const throwawaySrt = path.join(tmpDir, 'throwaway.srt');
-    const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
+    const pythonCmd = resolvePython();
     let errLine = '';
     const tr = await runSmartTrimProc(pythonCmd, [
       path.join(__dirname, 'subtitle.py'), audioFile,
@@ -2305,8 +2357,34 @@ ipcMain.handle('smarttrim-apply', async (e, { file, duration, cuts, sfx, jcut })
 // yasaklar; anahtar kullanıcının kendisinindir ve yalnızca settings.json'da
 // yerel durur. İndirme/sıkıştırma/akıllı kırpma işlerinden bağımsız kendi
 // süreç takibi + fetch iptali vardır (compress/smarttrim ile aynı desen).
-const GEMINI_MODEL = 'gemini-2.5-flash';
-const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta';
+const { createProviderClient, parseChain, eligible } = require('./provider-client');
+const apiAttempts = [];
+const providerClient = createProviderClient({ fetchImpl: (...args) => fetch(...args), onAttempt: attempt => {
+  const record = { ...attempt, at: Date.now() }; apiAttempts.push(record);
+  if (apiAttempts.length > 20) apiAttempts.shift();
+  try { win.webContents.send('provider-attempt', record); } catch {}
+} });
+ipcMain.handle('provider-test', (e, { provider, key }) => providerClient.testConnection(provider, key));
+ipcMain.handle('provider-history', () => apiAttempts);
+ipcMain.handle('provider-settings-save', (e, patch) => {
+  try {
+    const allowed = ['geminiKey', 'elevenKey', 'pexelsKey', 'geminiModelChain', 'geminiTtsChain'];
+    const clean = {};
+    for (const key of allowed) if (Object.hasOwn(patch, key)) clean[key] = String(patch[key] || '').trim();
+    for (const [key, kind] of [['geminiModelChain', 'text'], ['geminiTtsChain', 'tts']]) if (Object.hasOwn(clean, key)) {
+      const chain = parseChain(clean[key]);
+      if (chain.some(name => !eligible(name, kind))) return { error: 'Metin ve seslendirme modellerini ayrı zincirlere yazın.' };
+      clean[key] = chain.join('\n');
+    }
+    const next = { ...loadSettings(), ...clean };
+    const temporary = settingsPath() + '.pending';
+    try { fs.writeFileSync(temporary, JSON.stringify(next, null, 2), 'utf8'); fs.renameSync(temporary, settingsPath()); }
+    finally { try { fs.rmSync(temporary, { force: true }); } catch {} }
+    settingsCache = next;
+    if (['geminiKey', 'geminiModelChain', 'geminiTtsChain'].some(k => Object.hasOwn(clean, k))) apiAttempts.length = 0;
+    return { ok: true };
+  } catch { return { error: 'Ayarlar kaydedilemedi. Model kimliklerini ve ayar klasörü yazma iznini kontrol edin.' }; }
+});
 
 let aiProc = null;
 let aiCancelled = false;
@@ -2345,56 +2423,14 @@ ipcMain.handle('ai-cancel', () => {
 
 function aiSend(p) { try { win.webContents.send('ai-progress', p); } catch {} }
 
-// Gemini HTTP hatalarını kullanıcıya gösterilebilir Türkçe mesaja çevirir
-function geminiErrorMessage(status, body) {
-  const raw = String(body || '');
-  if (status === 400 && /API_KEY_INVALID|API key not valid/i.test(raw)) {
-    return 'Gemini API anahtarı geçersiz. Ayarlar ekranından kontrol edin.';
-  }
-  if (status === 401 || status === 403) return 'Gemini API anahtarı reddedildi (yetki yok). Anahtarı Ayarlar ekranından kontrol edin.';
-  if (status === 429) return 'Gemini kota sınırına takıldı (ücretsiz katmanda dakika başına istek sınırı vardır). Bir dakika sonra tekrar deneyin.';
-  if (status === 404) return `Gemini modeli bulunamadı (${GEMINI_MODEL}). Uygulama güncellemesi gerekebilir.`;
-  if (status >= 500) return 'Gemini hizmeti şu an yanıt veremiyor. Birkaç dakika sonra tekrar deneyin.';
-  const m = raw.match(/"message"\s*:\s*"([^"]+)"/);
-  return `Gemini isteği başarısız (${status})` + (m ? `: ${m[1]}` : '');
-}
-
-// Tek Gemini çağrısı: prompt → JSON. Yanıt responseMimeType ile JSON istenir;
-// yine de kod bloğu çitleriyle gelirse temizlenip öyle parse edilir.
-// setAbort/isCancelled parametreli: her akış (AI araçları / Moodlar) kendi iptal
-// denetleyicisini kaydeder — biri diğerinin süren isteğini iptal edemez.
+// Every text tool uses the same model chain and independent cancellation owner.
 async function geminiRequest(prompt, temperature, setAbort, isCancelled) {
-  const key = (loadSettings().geminiKey || '').trim();
-  if (!key) return { error: 'Gemini API anahtarı girilmemiş. Ayarlar ekranından ücretsiz bir anahtar ekleyin.' };
-  const ctrl = new AbortController();
-  setAbort(ctrl);
-  const timer = setTimeout(() => { try { ctrl.abort(); } catch {} }, 120000);
-  try {
-    const res = await fetch(`${GEMINI_BASE}/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(key)}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      signal: ctrl.signal,
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature, responseMimeType: 'application/json' }
-      })
-    });
-    if (!res.ok) return { error: geminiErrorMessage(res.status, await res.text().catch(() => '')) };
-    const j = await res.json();
-    const parts = (((j.candidates || [])[0] || {}).content || {}).parts || [];
-    const text = parts.map(p => p.text || '').join('').trim();
-    if (!text) return { error: 'AI boş yanıt döndürdü — içerik güvenlik filtresine takılmış olabilir.' };
-    const clean = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
-    try { return { data: JSON.parse(clean) }; }
-    catch { return { error: 'AI yanıtı çözümlenemedi (beklenmeyen biçim). Tekrar deneyin.' }; }
-  } catch (err) {
-    if (isCancelled()) return { cancelled: true };
-    if (err && err.name === 'AbortError') return { error: 'Gemini isteği zaman aşımına uğradı (120 sn).' };
-    return { error: 'Gemini bağlantısı kurulamadı: ' + (err && err.message ? err.message : err) };
-  } finally {
-    clearTimeout(timer);
-    setAbort(null);
-  }
+  const settings = loadSettings();
+  return providerClient.generate({ key: (settings.geminiKey || '').trim(), chain: settings.geminiModelChain, setAbort, isCancelled,
+    body: model => ({ contents: [{ parts: [{ text: prompt }] }], generationConfig: {
+      responseMimeType: 'application/json', ...(model.startsWith('gemini-2.') ? { temperature } : {})
+    } })
+  });
 }
 
 // AI araçları akışının sarmalayıcısı (aiAbort/aiCancelled ile)
@@ -2402,22 +2438,8 @@ function geminiGenerate(prompt, temperature) {
   return geminiRequest(prompt, temperature, (c) => { aiAbort = c; }, () => aiCancelled);
 }
 
-// Anahtar doğrulama: modele küçük bir GET (üretim maliyeti olmadan)
-ipcMain.handle('ai-test-key', async (e, key) => {
-  key = String(key || '').trim();
-  if (!key) return { error: 'Anahtar boş.' };
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => { try { ctrl.abort(); } catch {} }, 15000);
-  try {
-    const res = await fetch(`${GEMINI_BASE}/models/${GEMINI_MODEL}?key=${encodeURIComponent(key)}`, { signal: ctrl.signal });
-    if (res.ok) return { ok: true };
-    return { error: geminiErrorMessage(res.status, await res.text().catch(() => '')) };
-  } catch (err) {
-    return { error: err && err.name === 'AbortError' ? 'Doğrulama zaman aşımına uğradı.' : 'Bağlantı kurulamadı: ' + err.message };
-  } finally {
-    clearTimeout(timer);
-  }
-});
+// Read-only discovery validates credentials independently of an individual model.
+ipcMain.handle('ai-test-key', (e, key) => providerClient.testConnection('gemini', key));
 
 ipcMain.handle('open-gemini-key-page', () => shell.openExternal('https://aistudio.google.com/apikey'));
 ipcMain.handle('open-pexels-key-page', () => shell.openExternal('https://www.pexels.com/api/'));
@@ -2474,7 +2496,7 @@ async function whisperSegments(media, model, tmpDir, runner, sendStage, isCancel
   const modelDir = path.join(app.getPath('userData'), 'whisper-models');
   fs.mkdirSync(modelDir, { recursive: true });
   const outSrt = path.join(tmpDir, 'ai.srt');
-  const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
+  const pythonCmd = resolvePython();
   let errLine = '';
   const tr = await runner(pythonCmd, [
     path.join(__dirname, 'subtitle.py'), wav,
@@ -2885,9 +2907,10 @@ const ELEVEN_BASE = 'https://api.elevenlabs.io/v1';
 
 function elevenErrorMessage(status, body) {
   const raw = String(body || '');
+  if (status === 403) return 'ElevenLabs anahtarının bu işlem için izni yok. Ses listesi ve ses üretimi izinlerini kontrol edin.';
   if (status === 401) return 'ElevenLabs anahtarı geçersiz veya reddedildi. Ayarlar ekranından kontrol edin.';
   if (status === 429) return 'ElevenLabs istek sınırına takıldı. Biraz bekleyip tekrar deneyin.';
-  if (status === 402 || /quota_exceeded|character/i.test(raw)) return 'ElevenLabs karakter kotası doldu — hesabınızı kontrol edin.';
+  if (status === 402 || /quota_exceeded|insufficient.*credit/i.test(raw)) return 'ElevenLabs karakter kotası doldu — hesabınızı kontrol edin.';
   if (status >= 500) return 'ElevenLabs hizmeti şu an yanıt veremiyor. Birkaç dakika sonra tekrar deneyin.';
   return `ElevenLabs isteği başarısız (${status}).`;
 }
@@ -2944,39 +2967,26 @@ async function elevenTts(text, voiceId, outFile) {
 // geri bildirimi: herkesin ElevenLabs üyeliği yok). Yanıt ham PCM döner
 // (audio/L16), ffmpeg ile MP3'e çevrilir ki montaj boru hattı (süre ölçümü,
 // adelay/amix) ElevenLabs çıktısıyla birebir aynı kalsın.
-const GEMINI_TTS_MODEL = 'gemini-2.5-flash-preview-tts';
 
 async function geminiTts(text, voiceName, outFile, tmpDir) {
   const key = (loadSettings().geminiKey || '').trim();
   if (!key) return { error: 'Gemini API anahtarı girilmemiş — Google seslendirmesi için gerekli. Ayarlar ekranından ekleyin.' };
-  const ctrl = new AbortController();
-  moodAbort = ctrl;
-  const timer = setTimeout(() => { try { ctrl.abort(); } catch {} }, 60000);
   try {
-    const res = await fetch(`${GEMINI_BASE}/models/${GEMINI_TTS_MODEL}:generateContent?key=${encodeURIComponent(key)}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      signal: ctrl.signal,
-      body: JSON.stringify({
-        contents: [{ parts: [{ text }] }],
-        generationConfig: {
-          responseModalities: ['AUDIO'],
-          speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voiceName || 'Kore' } } }
-        }
-      })
+    const result = await providerClient.generate({ key, chain: loadSettings().geminiTtsChain, kind: 'tts',
+      setAbort: ctrl => { moodAbort = ctrl; }, isCancelled: () => moodCancelled,
+      body: { contents: [{ parts: [{ text }] }], generationConfig: {
+        responseModalities: ['AUDIO'], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voiceName || 'Kore' } } }
+      } }
     });
-    if (!res.ok) {
-      if (res.status === 404) return { error: `Google TTS modeli bulunamadı (${GEMINI_TTS_MODEL}) — uygulama güncellemesi gerekebilir.` };
-      return { error: geminiErrorMessage(res.status, await res.text().catch(() => '')) };
-    }
-    const j = await res.json();
-    const parts = (((j.candidates || [])[0] || {}).content || {}).parts || [];
-    const audio = parts.find(p => p.inlineData && p.inlineData.data);
-    if (!audio) return { error: 'Google TTS ses üretmedi — metni değiştirip tekrar deneyin.' };
+    if (result.error || result.cancelled) return result;
+    const audio = { inlineData: result.audio };
     const rate = (String(audio.inlineData.mimeType || '').match(/rate=(\d+)/) || [])[1] || '24000';
-    const pcm = path.join(tmpDir, `gtts-${Date.now()}.pcm`);
+    const mime = String(audio.inlineData.mimeType || '').toLowerCase();
+    const raw = /audio\/(l16|pcm)/.test(mime);
+    if (!raw && !/audio\/(wav|x-wav|mpeg|mp3|ogg|flac)/.test(mime)) return { error: 'Google TTS desteklenmeyen bir ses biçimi döndürdü.' };
+    const pcm = path.join(tmpDir, `gtts-${Date.now()}.${raw ? 'pcm' : 'audio'}`);
     fs.writeFileSync(pcm, Buffer.from(audio.inlineData.data, 'base64'));
-    const cv = await runMoodProc(FFMPEG, ['-y', '-f', 's16le', '-ar', rate, '-ac', '1', '-i', pcm, '-c:a', 'libmp3lame', '-q:a', '2', outFile], () => {});
+    const cv = await runMoodProc(FFMPEG, ['-y', ...(raw ? ['-f', 's16le', '-ar', rate, '-ac', '1'] : []), '-i', pcm, '-c:a', 'libmp3lame', '-q:a', '2', outFile], () => {});
     try { fs.rmSync(pcm, { force: true }); } catch {}
     if (moodCancelled) return { cancelled: true };
     if (cv.code !== 0 || !fs.existsSync(outFile)) return { error: 'Google TTS sesi dönüştürülemedi.' };
@@ -2986,7 +2996,6 @@ async function geminiTts(text, voiceName, outFile, tmpDir) {
     if (err && err.name === 'AbortError') return { error: 'Google TTS isteği zaman aşımına uğradı.' };
     return { error: 'Google TTS bağlantısı kurulamadı: ' + (err && err.message ? err.message : err) };
   } finally {
-    clearTimeout(timer);
     moodAbort = null;
   }
 }
@@ -3572,4 +3581,63 @@ ipcMain.handle('broll-render', async (e, { file, items }) => {
     cleanup();
     return { error: err.message };
   }
+});
+
+// Review generation owns its subprocess, independent of the export queue.
+let subtitleReviewBusy = false, subtitleReviewProc = null, subtitleReviewCancelled = false;
+function cancelSubtitleReview() {
+  subtitleReviewCancelled = true;
+  if (subtitleReviewProc) {
+    if (process.platform === 'win32') spawn('taskkill', ['/pid', String(subtitleReviewProc.pid), '/T', '/F'], { windowsHide: true });
+    else subtitleReviewProc.kill('SIGTERM');
+  }
+}
+ipcMain.handle('subtitle-review-cancel', cancelSubtitleReview);
+app.on('before-quit', cancelSubtitleReview);
+ipcMain.handle('subtitle-review', async (e, opts) => {
+  if (subtitleReviewBusy || currentProc) return { error: 'Devam eden işlemin tamamlanmasını bekleyin.' };
+  const { start, duration } = opts;
+  if (!Number.isFinite(start) || start < 0 || !Number.isFinite(duration) || duration <= 0) return { error: 'Altyazı aralığı geçersiz.' };
+  subtitleReviewBusy = true; subtitleReviewCancelled = false;
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'trimtube-sub-review-'));
+  const runner = (cmd, args, onLine) => new Promise(resolve => {
+    if (subtitleReviewCancelled) return resolve({ code: -1, stderr: 'İptal edildi.' });
+    const proc = spawn(cmd, args, { windowsHide: true, env: procEnv }); subtitleReviewProc = proc;
+    proc.stdout.setEncoding('utf8'); proc.stderr.setEncoding('utf8');
+    let stderr = '', pending = '';
+    const consume = data => { pending += data.toString(); const lines = pending.split(/[\r\n]+/); pending = lines.pop(); lines.forEach(onLine); };
+    proc.stdout.on('data', consume);
+    proc.stderr.on('data', data => { stderr = (stderr + data).slice(-16000); consume(data); });
+    proc.on('error', err => { if (subtitleReviewProc === proc) subtitleReviewProc = null; resolve({ code: -1, stderr: err.message }); });
+    proc.on('close', code => { if (subtitleReviewProc === proc) subtitleReviewProc = null; resolve({ code, stderr }); });
+  });
+  try {
+    let content, words = [];
+    if (opts.source === 'youtube') {
+      const res = await fetchSubtitle(opts.url, opts.videoId, opts.lang, opts.auto, runner);
+      if (res.error) return res;
+      content = shiftSrt(fs.readFileSync(res.path, 'utf8'), start, duration);
+    } else {
+      let media = opts.localFile || findCachedMedia(opts.videoId);
+      if (!media && opts.url) {
+        media = path.join(tmp, 'source.audio');
+        win.webContents.send('subtitle-review-progress', { message: 'Altyazı için kaynak ses alınıyor…' });
+        const dl = await runner(YTDLP, ['--no-playlist', '--no-warnings', '-f', 'bestaudio/b', '-o', media, opts.url], () => {});
+        if (subtitleReviewCancelled) return { cancelled: true };
+        if (dl.code !== 0 || !fs.existsSync(media)) return { error: 'Kaynak ses alınamadı: ' + extractError(dl.stderr) };
+      }
+      if (!media) return { error: 'Önce videoyu açın.' };
+      const res = await transcribeSubtitle(media, opts.videoId, ['tiny', 'base', 'small', 'medium'].includes(opts.model) ? opts.model : 'small', { start: String(start), end: String(start + duration) }, duration, tmp, true, runner, () => subtitleReviewCancelled, (channel, value) => win.webContents.send('subtitle-review-progress', channel === 'progress' ? { pct: value } : { message: value }));
+      if (res.error || res.cancelled) return res;
+      content = fs.readFileSync(res.path, 'utf8');
+      if(res.wordsPath) words = JSON.parse(fs.readFileSync(res.wordsPath,'utf8')).words || [];
+    }
+    if (subtitleReviewCancelled) return { cancelled: true };
+    // Rolling captions may overlap; end the preceding cue at the next start.
+    const cues = parseSrtSegments(content).sort((a, b) => a.start - b.start);
+    cues.forEach((cue, i) => { cue.end = Math.min(duration, cue.end, cues[i + 1]?.start ?? duration); });
+    const srt = ReviewData.serialize(ReviewData.parse(ReviewData.serialize(cues.filter(c => c.end > c.start)), duration));
+    return { srt, words: ReviewData.alignedWords(ReviewData.parse(srt),words) };
+  } catch (err) { return { error: err.message }; }
+  finally { subtitleReviewBusy = false; try { fs.rmSync(tmp, { recursive: true, force: true }); } catch {} }
 });

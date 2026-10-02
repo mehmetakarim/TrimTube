@@ -58,14 +58,60 @@ Bu akış yalnızca **Windows**'ta güvenilir çalışır. **macOS**'ta uygulama
 
 ## Nasıl çalışır
 
-1. YouTube bağlantısını yapıştırıp **Bilgi Al**'a basın — ya da bir video dosyasını pencereye **sürükleyip bırakın**. (Playlist bağlantısında videoları seçip toplu kuyruğa alabilirsiniz.)
+### Reji masası ve araçlar (güncel kaynak kod)
+
+- **Video Kes:** video karelerinden sarın; 15/30/60 saniyelik hızlı kesit seçin.
+  Ses şeridini yakınlaştırıp kaydırarak sınırları ayarlayın. **Kesiti izle** seçilen
+  aralığı döngüde oynatır. Klavye kısayolları ve açık/koyu tema desteklenir.
+- **Kadraj:** kişi takibini açmak 9:16 çıktısını da seçer. Tek kişiyi izlemek için
+  **Kişi seç** düğmesi başlangıç karesine döner; görüntüde yüzüne tıklayın.
+  Başlangıç değiştiğinde kişi yeniden seçilir. **Aktif konuşan** modu ses/ağız
+  hareketini kullanır; doğruluğu her sahnede garanti edilmez. Sakin, Dengeli ve
+  Çevik kamera seçeneklerini **Kadrajı önizle** ile karşılaştırabilirsiniz.
+  Önizlemede kutu görünürlük oranı gösterilir; bu oran kimlik doğruluğu puanı değildir.
+- **Altyazı:** YouTube dili veya Whisper modelini seçip **Altyazıyı oluştur** düğmesine basın.
+  Metin ve zamanları kontrol masasında düzeltin, gerekirse satır ekleyin/silin.
+  **Uygula ve onayla** sonrasında dışa aktarma aynı metni kullanır; yeniden konuşma
+  çözümlemesi yapılmaz. Kaynak, kesit, dil veya model değişirse tekrar kontrol gerekir.
+- **Kontrol masası:** zaman sürgüsü, 1/30 saniye adımlama, oynatma hızı ve çıktı büyütme;
+  yatay kadraj düzeltmesi ve analiz edilen yola dönüş. Düzeltme seçilen andan sona
+  sabit kadraj uygular; sonraki noktada yeniden ayarlanabilir. Onaylanan kadraj yolu
+  dışa aktarmada doğrudan kullanılır. **Uygula ve dışa aktar** mevcut seçimi kuyruğa ekler.
+- **Güvenli alan:** TikTok / Shorts / Reels maskeleri üzerinde gerçek altyazı metnini
+  izleyin; alt ve yan boşlukları ayarlayın veya platform yerleşimini uygulayın.
+  Maskeler yaklaşık rehberdir. Font yerleşimi tarayıcı ile libass arasında küçük
+  farklar gösterebilir. Vurgulu ve pop stilleri ortak kelime zamanlamasıyla önizlenir. Düzeltilmiş animasyonlu metnin
+  kelime süreleri satır zamanlarından tahmin edilir.
+- **Proje:** onaylı metin, kadraj yolu ve yerleşim `.trimtube` dosyasında saklanır.
+  Şablon olarak açıldığında metin ve kadraj yolu başka videoya taşınmaz.
+
+- **Marka:** logo yüksekliğini ve köşesini belirleyin; başlığı 3, 5 veya 10 saniye
+  gösterin. Eksik logo ve boş başlık dışa aktarmadan önce bildirilir.
+- **Sıkıştır / Akıllı Kırpma:** dosyayı küçültün veya sessizlik/dolgu seslerini
+  tespit edip onayladığınız aralıkları çıkarın. Kurgu masasındaki yerel dosyayı
+  doğrudan kullanabilir, üretilen sonucu tekrar kurgu masasında açabilirsiniz.
+- **İçerik Asistanı** (önceki adı AI Araçları): ortak transkriptten başlık ve
+  paylaşım metni, konu arama, dikkat çekici anlar ve içerik uyarıları üretir.
+  Gemini anahtarı gerektirir; bir telif/Content ID kontrolü değildir.
+- **Hikâye Kurgusu** (önceki adı Moodlar): tarz ve süre seçerek sahne planı
+  oluşturun, gözden geçirip seslendirin. Gemini veya ElevenLabs seslendirmesi
+  kullanılabilir; hizmet kullanımı sağlayıcı hesabınıza bağlıdır.
+- **Destek Görüntüleri** (B-Roll): Gemini + Pexels önerilerini gözden geçirin;
+  seçtiğiniz stok videolar özgün ses korunarak kaynak görüntünün üzerine eklenir.
+- **Ayarlar:** çalışma ortamı ve hizmet bağlantıları ayrı bölümlerdedir.
+
+GIF çıktısına kişi takibi, altyazı ve marka uygulanmaz. MP3 çıktısı yalnızca ses
+içerir. Yeni kamera, altyazı kaynağı ve marka seçenekleri `.trimtube` projelerine
+kaydedilir. Şablon olarak uygularken başka videodaki kişi konumu taşınmaz.
+
+1. YouTube bağlantısını yapıştırıp **Videoyu aç**'a basın — ya da bir video dosyasını pencereye **sürükleyip bırakın**. (Playlist bağlantısında videoları seçip toplu kuyruğa alabilirsiniz.)
 2. "Belirli aralığı kes" açıksa uygulama içi oynatıcıdan (dalga formu destekli ince ayar şeridiyle) kesim noktalarını seçin.
 3. Format olarak **Orijinal / 9:16 / 1:1** (birden fazla) seçin. Dikeyde **Kişiyi takip et**'i açıp:
    - **İşaretlenen kişi** — önizlemede takip edilecek kişiye tıklayın, veya
    - **Aktif konuşan** — sahnede o an konuşana kadrajı otomatik kaydırır (işaret gerekmez).
    İsterseniz **Kadrajı önizle** ile takibi render'dan önce ayrı pencerede izleyin.
 4. İsteğe bağlı: **altyazı** (YouTube'dan veya Whisper ile sesten), **logo/filigran**, **başlık metni** ekleyin.
-5. Kalite ve kayıt klasörünü ayarlayıp **İndir** (veya **+ Kuyruk**) deyin. Kuyruk arka planda işlenirken yeni video hazırlamaya devam edebilirsiniz.
+5. Kalite ve kayıt klasörünü ayarlayıp **Dışa aktar** (veya **+ Kuyruk**) deyin. Kuyruk arka planda işlenirken yeni video hazırlamaya devam edebilirsiniz.
 
 Video, `yt-dlp`'nin paralel indiricisiyle tam olarak indirilir; kesme ve dönüştürme yerelde `ffmpeg` ile (uygun donanımda GPU hızlandırmalı: NVENC/QuickSync/AMF/VideoToolbox) yapılır. Bu sayede uzun videolarda bile indirme hızlı olur ve aynı videodan alınan ek klipler önbellekten anında kesilir.
 
@@ -88,6 +134,57 @@ npm install
 npm start
 ```
 
+Python bağımlılıklarını projeye özel ortamda tutmak için Windows'ta:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+```
+
+macOS/Linux'ta ikinci komut `.venv/bin/python -m pip install -r requirements.txt`
+şeklindedir. Geliştirme sürümü `.venv` varsa otomatik kullanır; bu klasör kurulum
+paketine girmez. Whisper model ağırlıkları ilk kullanımda ayrıca indirilir.
+
+Yerel regresyon kontrolleri:
+
+```powershell
+.\.venv\Scripts\python.exe scripts/check_tracker.py
+node scripts/check-media.cjs
+node scripts/check-review.cjs
+.\node_modules\electron\dist\electron.exe scripts/check-studio.cjs
+```
+
+Takip testleri deterministik yüz/takip senaryolarını, medya testleri gerçek FFmpeg
+ve OpenCV çalışmasını, arayüz testleri Electron etkileşimlerini kapsar. Arayüz
+testinde dış servisler taklit edilir; gerçek Gemini/ElevenLabs/Pexels çağrısı
+yapılmaz. Test dosyaları ve ekran görüntüleri `build/` altında tutulur.
+
+### API bağlantıları ve model zinciri
+
+Ayarlar → Bağlantılar bölümünde Gemini, ElevenLabs ve Pexels anahtarlarını ayrı
+kaydedip test edebilirsiniz. Test sonuçları yalnızca liste/arama erişimini doğrular;
+üretim izni, bakiye veya her modelin kullanılabilirliğini garanti etmez.
+
+**Gemini model seçimi ve tanılama** altında metin ve Google seslendirmesi için
+ayrı model sıraları bulunur. Alanlar boşsa canlı model keşfi ve varsayılan zincir
+kullanılır. Özel zincirde satır veya virgülle en fazla 8 model yazılabilir; canlı
+listeden model eklenebilir. 404, 429 ve geçici sunucu hatalarında sıradaki model
+bir kez denenir. Anahtar/yetki hatalarında zincir durur. İstekler zaman aşımı ve
+iptal ile sınırlıdır; ücretler/kotalar modele göre değişebilir. Oturum içindeki
+model denemeleri tanılama alanında görülebilir; anahtar ve içerik kaydedilmez.
+
+Gemini anahtarı tek bir model yerine `models.list` ile doğrulanır. Model adları
+anahtar yenilendikten sonra da hesaba göre erişim hatası verebilir. Üretim akışları
+`provider-client.js` üzerinden ortak zinciri kullanır. Yeni TTS modellerinin WAV
+ve önceki modellerin PCM yanıtları ayrı biçimlerde çözümlenir.
+
+Model zinciri/hata senaryoları için: `node scripts/check-providers.cjs`.
+Referans yaklaşım: [SEO Yöneticisi Gemini altyapısı](https://github.com/mehmetakarim/Seo-Yoneticisi/blob/HEAD/src-tauri/core/src/gemini/mod.rs).
+API kaynakları: [Gemini modelleri](https://ai.google.dev/api/models),
+[Gemini TTS biçim değişikliği](https://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash-tts),
+[ElevenLabs ses listesi](https://elevenlabs.io/docs/api-reference/voices/search),
+[Pexels API](https://www.pexels.com/api/documentation/).
+
 ### Kurulum paketi üretmek
 
 ```bash
@@ -99,6 +196,40 @@ npm run build:linux   # Linux .deb (Linux'ta çalıştırılmalı)
 Bu komutlar önce ilgili platform için `yt-dlp` ikilisini indirir, sonra `electron-builder` ile paketler. `v*` deseninde bir etiket (ör. `v1.0.1`) push edildiğinde [GitHub Actions](.github/workflows/release.yml) üç ayrı runner'da (Windows, Apple Silicon, Linux) paralel derleme yapıp hepsini aynı GitHub Release'e (taslak olarak) ekler.
 
 ## Teknik notlar
+
+### Kurgu masası (geliştirme sürümü)
+
+**2 Ekim güncellemesi:** Whisper'dan gelen kelime zamanları düzenleme, proje
+kaydı, kurgu sıralaması ve animasyonlu çıktıda korunur. Değişen metindeki
+eşleşmeyen kelimeler tahmini zamanlanır; kontrol masasında kaç kelimenin tahmini
+olduğu gösterilir. YouTube veya elle yazılmış metinde ölçülmüş kelime zamanı
+yoksa tahmini zamanlama sürer.
+
+Kadraj kontrolünde **Başlangıç/Bitiş** ile yalnız belirli aralığı düzeltin;
+aralık bitince önceki takip yolu devam eder. **Bu andan 5 sn** oynatma anından
+başlayan kısa bir düzeltme aralığı seçer.
+
+**5 sn gerçek çıktı provası** ile çıktıdaki başlangıcı ve seçili formatı seçip
+gerçek kodlanmış videoyu oynatabilirsiniz. Kontrol masasındaki **Çıktı provası**
+düğmesi düzenlemeleri önce uygular/onaylar. Altyazı, logo, başlık ve kaydedilmiş
+kadraj normal dışa aktarmayla aynı işleme zincirinden geçer. Ayar veya prova
+aralığı değişirse eski prova geçersizleşir. Dosya geçicidir; asıl kayıt için
+**Dışa aktar** kullanılır. Beş saniye, videonun gösterilecek süresidir; kaynak
+indirme/kurgu birleştirme hazırlığı ek zaman ve disk alanı gerektirebilir.
+
+- **Kaynak seçimi** görünümünde aralığı belirleyip **Seçili aralığı ekle** ile kurguya alın.
+- **Kurgu** görünümünde cetvele/parçaya tıklayarak oynatma kafasını taşıyın; **Böl** (`S`) ile ayırın. Parçanın ortasını sürükleyerek sıralayın, iki kenarını sürükleyerek kırpın. Giriş/çıkış saniyeleri sayısal olarak da düzenlenebilir.
+- Video ve bağlı kaynak sesi birlikte taşınır; parçalar boşluksuz birleşir. Çoğalt/sil, yakınlaştır/sığdır ve önceye/sonraya taşıma düğmeleri bulunur. Odaktaki parçayı `Alt+←/→` ile taşıyabilirsiniz.
+- **Kurguyu izle** seçilen sırayı kaynak oynatıcıda izletir. **Kurguyu dışa aktar** parçaları tek çıktı olarak üretir; sağdaki format, logo, başlık ve onaylı altyazı ayarları uygulanır. İşaret kaldırılırsa eski kaynak aralığı dışa aktarımı kullanılır.
+- Onaylı altyazı/kadraj aralığı bütün parçaları kapsamalıdır; olay zamanları yeni sıraya taşınır. Kaynak aralığı dışındaki onaysız metin otomatik üretilmez. Kurgunun ilk parçası değiştiğinde eski kişi seçim noktası için otomatik seçim veya onaylı kadraj gerekir.
+- **Geri al / ileri al** kurgu ve düzenleme kararlarını geri getirir. Metin alanlarında işletim sisteminin metin düzenleme kısayolları korunur; altyazı kontrol masasında ayrı geri alma düğmeleri vardır.
+- Proje dosyası kurgu sırasını içerir. Otomatik taslak `userData/project-draft.json` içinde saklanır; sonraki açılışta geri yükleme sunulur. Bu, kaynak videonun yedeğini oluşturmaz. Yazma başarısızsa arayüzde bildirilir.
+- Hatalı dışa aktarma kuyrukta kalır; **Yeniden dene** aynı iş ayarlarıyla tekrar çalıştırır.
+- Altyazı metni içinde imleçte bölme, sonraki satırla birleştirme ve büyük/küçük harfe duyarlı toplu bul-değiştir kullanılabilir. Bölünen satırın zamanı metin uzunluğundan tahmin edilir; düzenleme sonrası yeniden onay gerekir.
+
+İlk kurgu sürümü **tek kaynak videonun en fazla 100 parçasını** düzenler. Ayrı videoları aynı projede birleştirme, bağımsız müzik kanalı ve geçiş efektleri bu sürümün kapsamında değildir. Kurgu önizlemesi kaynak görüntü/ses sırasını gösterir; nihai altyazı/marka provası değildir. Uzun kayıtlarda ters sıralı parçaların bellekte birikmesini önlemek için parçalar sırayla kayıpsız geçici dosyalara hazırlanır; bu işlem ek disk alanı ve işlem süresi kullanır. Geçici kurgu dosyaları başarı, hata ve iptal sonunda temizlenir.
+
+Regresyon: `node scripts/check-timeline.cjs`, `node scripts/check-review.cjs`, `node scripts/check-providers.cjs`, `node scripts/check-media.cjs`; gerçek arayüz için `electron scripts/check-studio.cjs`. Testler kendi yerel örneklerini kullanır; üretim API anahtarlarıyla istek göndermez.
 
 - Kesme/dönüştürme gereken indirmelerde tam video önbelleğe alınır (`%APPDATA%/trimtube/cache`); tutulacak video sayısı Ayarlar'dan yapılandırılır (varsayılan 2, 1–10).
 - Kesim `-ss <başlangıç> -i` + yeniden kodlama ile kare hassasiyetindedir; MP3'te yeniden kodlamasız (`-c copy`) kesilir.

@@ -5,6 +5,11 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src https: data:; style-src 'self'; script-src 'self'; media-src https: file:">
   <title>TrimTube</title>
   <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="studio.css">
+  <link rel="stylesheet" href="workspace.css">
+  <link rel="stylesheet" href="review.css">
+  <link rel="stylesheet" href="connections.css">
+  <link rel="stylesheet" href="timeline.css">
 </head>
 <body>
   <main class="app">
@@ -14,6 +19,7 @@
          ayarlarda hatırlanır. Gelecek fazların (GIF, Moodlar…) ekleneceği yer. -->
     <aside id="sideNav" class="side-nav collapsed">
       <div class="side-nav-inner">
+        <div class="nav-brand" title="TrimTube"><span class="brand-symbol">T<span>›</span></span><span class="brand-name">TrimTube</span></div>
         <button class="nav-item active" data-view="cutter">
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4 8.12 15.88M14.47 14.48 20 20M8.12 8.12 12 12"/></svg>
           <span>Video Kes</span>
@@ -28,15 +34,15 @@
         </button>
         <button class="nav-item" data-view="ai">
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 4.4L18.5 9l-4.6 1.6L12 15l-1.9-4.4L5.5 9l4.6-1.6L12 3Z" fill="currentColor" stroke="none"/><path d="M19 14l.9 2.1L22 17l-2.1.9L19 20l-.9-2.1L16 17l2.1-.9L19 14Z" fill="currentColor" stroke="none"/><path d="M5.5 15l.7 1.6 1.7.7-1.7.7-.7 1.6-.7-1.6-1.7-.7 1.7-.7.7-1.6Z" fill="currentColor" stroke="none"/></svg>
-          <span>AI Araçları</span>
+          <span>İçerik Asistanı</span>
         </button>
         <button class="nav-item" data-view="mood">
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.2 6 3 11l-.9-2.4c-.3-1.1.3-2.2 1.3-2.5l13.5-3.9c1-.3 2.1.3 2.4 1.4z"/><path d="M6.2 5.3 8.4 9M11 3.9l2.2 3.7M15.8 2.5 18 6.2"/><path d="M3 11h18v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
-          <span>Moodlar</span>
+          <span>Hikâye Kurgusu</span>
         </button>
         <button class="nav-item" data-view="broll">
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M2 8h20M2 16h20M7 4v16M17 4v16"/></svg>
-          <span>B-Roll</span>
+          <span>Destek Görüntüleri</span>
         </button>
         <div class="nav-spacer"></div>
         <button class="nav-item" data-view="settings">
@@ -80,9 +86,9 @@
       </button>
       <div class="url-pill">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#86868b" stroke-width="2.2" stroke-linecap="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>
-        <input type="text" id="url" placeholder="YouTube video bağlantısını yapıştırın…" spellcheck="false">
+        <input type="text" id="url" aria-label="YouTube video bağlantısı" placeholder="YouTube video bağlantısını yapıştırın…" spellcheck="false">
       </div>
-      <button id="fetchBtn" class="btn-primary">Bilgi Al</button>
+      <button id="fetchBtn" class="btn-primary">Videoyu aç</button>
       <button id="openFileBtn" class="icon-btn" title="Yerel video aç" aria-label="Yerel video aç">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.5l-2-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2z"/><path d="m10 11 4 2.5-4 2.5z" fill="currentColor" stroke="none"/></svg>
       </button>
@@ -247,8 +253,8 @@
     <section id="viewAI" class="view view-scroll hidden">
       <div class="view-inner">
         <div class="view-head">
-          <span class="view-title">AI Araçları</span>
-          <span class="view-sub">Gemini ile başlık üret, konu ara, hook bul, reklam uygunluğunu tara</span>
+          <span class="view-title">İçerik Asistanı</span>
+          <span class="view-sub">Önemli anları bul, kesit seç ve paylaşım metnini hazırla.</span>
         </div>
 
         <div id="aiKeyWarn" class="ai-key-warn hidden">
@@ -354,8 +360,8 @@
     <section id="viewMood" class="view view-scroll hidden">
       <div class="view-inner">
         <div class="view-head">
-          <span class="view-title">Moodlar</span>
-          <span class="view-sub">Bölümden seçtiğin havada, anlatıcılı kısa kurgu (AI Director)</span>
+          <span class="view-title">Hikâye Kurgusu</span>
+          <span class="view-sub">Bir anlatım tarzı seç; sahneleri ve seslendirmeyi tek bir hikâyede birleştir.</span>
         </div>
 
         <div id="mdKeyWarn" class="ai-key-warn hidden">
@@ -389,7 +395,7 @@
 
         <!-- 2) Mood + hedef süre + anlatıcı sesi -->
         <div id="mdOptions" class="setting-group">
-          <span class="label">Mood</span>
+          <span class="label">Anlatım tarzı</span>
           <div class="segmented" id="mdMoodSeg">
             <button class="seg active" data-md-mood="komedi">Komedi</button>
             <button class="seg" data-md-mood="dram">Dram</button>
@@ -471,8 +477,8 @@
     <section id="viewBroll" class="view view-scroll hidden">
       <div class="view-inner">
         <div class="view-head">
-          <span class="view-title">B-Roll</span>
-          <span class="view-sub">Konuşma videosuna otomatik stok görüntü önerisi ve gömme</span>
+          <span class="view-title">Destek Görüntüleri</span>
+          <span class="view-sub">Anlattığını göster. Konuşmanın üzerine uygun stok görüntüler ekle.</span>
         </div>
 
         <div id="brDrop" class="cmp-drop">
@@ -591,21 +597,21 @@
             <input type="password" id="setGeminiKey" class="ai-key-input" placeholder="AIza…" spellcheck="false" autocomplete="off">
           </div>
           <div class="cache-row">
-            <span id="geminiKeyStatus" class="cache-info">AI Araçları ekranı için gerekli</span>
+            <span id="geminiKeyStatus" class="cache-info">İçerik Asistanı ve Hikâye Kurgusu için</span>
             <button id="geminiKeyPageBtn" class="btn-ghost small">Ücretsiz anahtar al</button>
             <button id="geminiKeyTestBtn" class="btn-ghost small">Doğrula</button>
           </div>
           <div class="ai-key-row">
             <span class="cache-limit-label">ElevenLabs anahtarı</span>
-            <input type="password" id="setElevenKey" class="ai-key-input" placeholder="İleride: seslendirme (Moodlar)" spellcheck="false" autocomplete="off">
+            <input type="password" id="setElevenKey" class="ai-key-input" placeholder="İsteğe bağlı ElevenLabs seslendirmesi" spellcheck="false" autocomplete="off">
           </div>
           <!-- Faz 16-B: B-Roll stok videoları için Pexels anahtarı -->
           <div class="ai-key-row">
             <span class="cache-limit-label">Pexels anahtarı</span>
-            <input type="password" id="setPexelsKey" class="ai-key-input" placeholder="B-Roll ekranı için" spellcheck="false" autocomplete="off">
+            <input type="password" id="setPexelsKey" class="ai-key-input" placeholder="Destek Görüntüleri için" spellcheck="false" autocomplete="off">
           </div>
           <div class="cache-row">
-            <span class="cache-info">B-Roll stok videoları (ücretsiz)</span>
+            <span class="cache-info">Destek görüntüleri · Pexels</span>
             <button id="pexelsKeyPageBtn" class="btn-ghost small">Ücretsiz anahtar al</button>
           </div>
           <div class="setting-note">Anahtarlar yalnızca bu bilgisayarda saklanır ve doğrudan Google/ElevenLabs/Pexels'e gönderilir.</div>
@@ -649,6 +655,7 @@
             </div>
           </div>
         </div>
+        <div class="tp-assessment"><strong id="tpTrackState">Takip hazırlanıyor</strong><span id="tpAssessment"></span></div>
         <div class="tp-modal-foot">
           <button id="tpPlayBtn" class="btn-ghost small">Duraklat</button>
           <button id="tpMuteBtn" class="btn-ghost small">Sesi kapat</button>
@@ -688,8 +695,9 @@
 
       <!-- Sol: oynatıcı ve kesim -->
       <section class="stage">
+        <div class="stage-heading"><div><span class="studio-eyebrow">KURGU MASASI</span><h1 id="studioTitle">Bir an seç. Hikâyeni oluştur.</h1></div><span id="sourceBadge" class="source-badge">Kaynak bekleniyor</span></div>
         <div class="player-box" id="playerWrap">
-          <div id="playerEmpty" class="player-empty">Bağlantı yapıştırın ya da bir video dosyası sürükleyip bırakın</div>
+          <div id="playerEmpty" class="player-empty"><div class="empty-content"><span class="empty-frame" aria-hidden="true">▷</span><strong>İyi bir kesit, doğru anla başlar.</strong><span>YouTube bağlantısı ekle veya videonu buraya bırak.</span><button id="studioOpenFile" class="btn-primary">Dosyadan video aç</button><small>MP4 · MOV · MKV · WEBM · M4V · AVI</small></div></div>
           <video id="preview" preload="metadata" class="hidden"></video>
           <div id="trackMarker" class="track-marker hidden"></div>
           <!-- Native kontrol çubuğu yerine ince özel şerit: sarma işi ana/ince çubuklarda -->
@@ -704,55 +712,58 @@
               <svg id="volOnIcon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round"><path d="M11 5 6 9H2v6h4l5 4V5z" fill="#fff" stroke="none"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/></svg>
               <svg id="volOffIcon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" class="hidden"><path d="M11 5 6 9H2v6h4l5 4V5z" fill="#fff" stroke="none"/><path d="m16 9 5 5M21 9l-5 5"/></svg>
             </button>
-            <input type="range" id="volume" min="0" max="1" step="0.05" value="1">
+            <input type="range" id="volume" aria-label="Önizleme ses düzeyi" min="0" max="1" step="0.05" value="1">
           </div>
         </div>
 
-        <div id="trimControls" class="trim-area disabled">
-          <!-- Kare önizlemeli film şeridi (Faz 12): videoya eşit aralıklı 12 kare;
-               ana kaydırıcıyla aynı zaman eksenini paylaşır, tıklanamaz süs katmanı -->
-          <div id="filmstripBand" class="filmstrip-band hidden"><img id="filmstrip" alt=""></div>
-          <div class="slider-wrap">
-            <div class="slider-track"></div>
-            <div class="slider-range" id="sliderRange"></div>
-            <div class="playhead hidden" id="playheadMain"></div>
-            <input type="range" id="rangeStart" min="0" value="0" step="1">
-            <input type="range" id="rangeEnd" min="0" value="0" step="1">
-          </div>
-
-          <!-- Seçili aralığın etrafına yakınlaşan ince ayar şeridi (dalga formu arka planlı) -->
+        <div class="timeline-shell">
+          <div class="timeline-toolbar"><div class="timeline-name">Zaman çizelgesi <span id="timelineSummary">Videonu ekleyerek başla</span></div><button id="loopSelection" class="btn-ghost small" aria-pressed="false" disabled title="Seçili aralığı döngüde oynat">↻ Kesiti izle</button></div>
+          <div class="timeline-actions"><span class="label">Hızlı kesit</span><button class="duration-preset" data-seconds="15" disabled>15 sn</button><button class="duration-preset" data-seconds="30" disabled>30 sn</button><button class="duration-preset" data-seconds="60" disabled>60 sn</button><span class="timeline-help">Kolları sürükle · Şeride tıklayıp sar</span></div>
+          <div id="trimControls" class="trim-area disabled">
+          <div class="track-row"><span class="track-label">V1<small>Video</small></span><div class="track-content">
+            <div id="mainRuler" class="time-ruler" aria-hidden="true"></div>
+            <div id="videoTimeline" class="slider-wrap video-timeline" role="group" aria-label="Video zaman çizelgesi">
+              <div class="track-placeholder">Video kareleri burada görünür</div>
+              <div id="filmstripBand" class="filmstrip-band hidden"><img id="filmstrip" alt="Video kareleri"></div>
+              <div class="slider-range" id="sliderRange"></div>
+              <div class="playhead hidden" id="playheadMain"></div>
+              <input type="range" id="rangeStart" min="0" value="0" step="1" aria-label="Kesit başlangıcı">
+              <input type="range" id="rangeEnd" min="0" value="0" step="1" aria-label="Kesit bitişi">
+            </div>
+          </div></div>
           <div class="zoom-area">
-            <div class="zoom-head">
-              <span class="label">İnce ayar</span>
-              <span id="zoomLabel" class="zoom-label">–</span>
-            </div>
-            <div class="slider-wrap zoom">
-              <img id="waveform" class="waveform hidden" alt="">
-              <div class="slider-track"></div>
-              <div class="slider-range" id="sliderRangeFine"></div>
-              <div class="playhead hidden" id="playheadFine"></div>
-              <input type="range" id="rangeStartFine" min="0" value="0" step="1">
-              <input type="range" id="rangeEndFine" min="0" value="0" step="1">
-            </div>
+            <div class="zoom-head"><span class="label">Ses ile ince ayar</span><span id="zoomLabel" class="zoom-label">–</span><div class="zoom-tools"><button id="zoomOut" class="mini-btn" title="Uzaklaş" aria-label="Zaman çizelgesinden uzaklaş">−</button><button id="zoomFit" class="mini-btn fit-btn" title="Seçili kesiti sığdır">Sığdır</button><button id="zoomIn" class="mini-btn" title="Yakınlaş" aria-label="Zaman çizelgesine yakınlaş">+</button></div></div>
+            <div class="track-row"><span class="track-label audio-label">A1<small>Ses</small></span><div class="track-content">
+              <div id="fineRuler" class="time-ruler" aria-hidden="true"></div>
+              <div id="audioTimeline" class="slider-wrap zoom" role="group" aria-label="Ses zaman çizelgesi">
+                <span id="waveStatus" class="wave-status" role="status">Ses dalgası için bir kesit seç</span>
+                <img id="waveform" class="waveform hidden" alt="Kaynak sesinin dalga formu">
+                <div class="slider-track"></div><div class="slider-range" id="sliderRangeFine"></div>
+                <div class="playhead hidden" id="playheadFine"></div>
+                <input type="range" id="rangeStartFine" min="0" value="0" step="1" aria-label="İnce ayar başlangıcı">
+                <input type="range" id="rangeEndFine" min="0" value="0" step="1" aria-label="İnce ayar bitişi">
+              </div>
+              <input id="timelinePan" class="timeline-pan" type="range" min="0" max="0" value="0" step="1" aria-label="Yakınlaştırılmış zaman çizelgesinde gezin" title="Ses şeridini videonun başka bir bölümüne taşı">
+            </div></div>
           </div>
 
           <div class="times-row">
             <div class="time-group">
               <div class="time-block">
                 <span class="label">Başlangıç</span>
-                <input type="text" id="startTime" value="00:00:00" spellcheck="false">
+                <input type="text" id="startTime" aria-label="Kesit başlangıç zamanı" value="00:00:00" spellcheck="false">
               </div>
-              <button id="setStartBtn" class="btn-ghost">Bu anı başlangıç yap</button>
+              <button id="setStartBtn" class="btn-ghost"><kbd>I</kbd> Başlangıç</button>
             </div>
             <div class="clip-chip">
               <span class="label">Kesit</span>
               <span id="clipLen" class="clip-value">00:00:00</span>
             </div>
             <div class="time-group right">
-              <button id="setEndBtn" class="btn-ghost">Bu anı bitiş yap</button>
+              <button id="setEndBtn" class="btn-ghost">Bitiş <kbd>O</kbd></button>
               <div class="time-block right">
                 <span class="label">Bitiş</span>
-                <input type="text" id="endTime" value="00:00:00" spellcheck="false">
+                <input type="text" id="endTime" aria-label="Kesit bitiş zamanı" value="00:00:00" spellcheck="false">
               </div>
             </div>
           </div>
@@ -761,10 +772,12 @@
             <kbd>Boşluk</kbd> oynat/duraklat · <kbd>I</kbd>/<kbd>O</kbd> başlangıç/bitiş işaretle · <kbd>J</kbd>/<kbd>L</kbd> ∓5 sn · <kbd>←</kbd>/<kbd>→</kbd> ∓1 sn
           </div>
         </div>
+        </div><!-- timeline-shell -->
       </section>
 
       <!-- Sağ panel -->
       <aside class="panel">
+        <div class="inspector-heading"><span class="studio-eyebrow">ÇIKTI AYARLARI</span><h2>Kesitini hazırla</h2><p>Kadraj, görünüm ve kayıt seçenekleri.</p></div>
         <div id="videoInfo" class="video-info hidden">
           <span id="title" class="video-title"></span>
           <span id="meta" class="video-meta"></span>
@@ -776,7 +789,7 @@
             <span class="card-sub">Sadece seçilen kısım kaydedilir</span>
           </div>
           <label class="switch">
-            <input type="checkbox" id="trimEnable">
+            <input type="checkbox" id="trimEnable" aria-label="Belirli aralığı kes">
             <span class="knob"></span>
           </label>
         </div>
@@ -821,8 +834,8 @@
         <div id="trackCard" class="hidden">
           <div class="card-toggle">
             <div class="card-text">
-              <span class="card-title">🎯 Kişiyi takip et</span>
-              <span class="card-sub">Akıllı kadraj kişiyi izler</span>
+              <span class="card-title">Kişiyi kadrajda tut</span>
+              <span class="card-sub">Dikey kadrajı kişiye veya konuşana yönlendir</span>
             </div>
             <label class="switch">
               <input type="checkbox" id="trackEnable">
@@ -831,14 +844,20 @@
           </div>
           <!-- Takip modu (Faz 10): işaretlenen tek kişi veya sahnede aktif konuşan -->
           <div id="trackMode" class="segmented sub-styles hidden">
-            <button class="seg active" data-trackmode="single">İşaretlenen kişi</button>
+            <button class="seg active" data-trackmode="single">Tek kişi</button>
             <button class="seg" data-trackmode="speaker">Aktif konuşan</button>
           </div>
           <div id="trackHint" class="track-hint hidden">
-            Önizlemede, <b>kesitin başlangıç anındaki</b> konumunda kişiye tıklayın. İşaretlemezseniz en büyük yüz otomatik seçilir.
+            Başlangıçta en büyük yüz seçilir. Belirli birini izlemek için <b>Kişi seç</b> ile işaretle.
           </div>
           <div id="trackHintSpeaker" class="track-hint hidden">
             Sahnedeki yüzler arasından o an <b>konuşanı</b> (ses + dudak hareketi) otomatik seçip kadrajı ona kaydırır — işaretlemeye gerek yok. Röportaj/diyalog kliplerinde idealdir.
+          </div>
+          <div id="trackTuning" class="tool-controls hidden">
+            <div class="tool-button-row"><button id="selectPersonBtn" class="btn-ghost small">Kişi seç</button><button id="clearPersonBtn" class="btn-ghost small" disabled>Otomatik seç</button></div>
+            <span id="personStatus" class="tool-note" role="status">İlk görünen en büyük yüz otomatik seçilir.</span>
+            <label class="label" for="trackMotion">Kamera hareketi</label><div class="select-wrap"><select id="trackMotion"><option value="balanced">Dengeli</option><option value="calm">Sakin · daha az hareket</option><option value="responsive">Çevik · daha hızlı takip</option></select></div>
+            <p class="tool-note">Takip yalnızca 9:16 çıktısına uygulanır. Kaybolan kişide kamera son konumunu korur.</p>
           </div>
           <div id="trackPreviewRow" class="track-prev-row hidden">
             <button id="trackPreviewBtn" class="btn-ghost small">Kadrajı önizle</button>
@@ -857,6 +876,8 @@
               <span class="knob"></span>
             </label>
           </div>
+          <div id="subtitleSourceControls" class="tool-controls hidden"><label class="label" for="subtitleSource">Altyazı kaynağı</label><div class="select-wrap"><select id="subtitleSource"></select></div></div>
+          <div id="subtitleSample" class="subtitle-sample hidden"><small>Stil örneği · gerçek transkript değil</small><span>Hikâyenin <b>başladığı</b> an.</span></div>
           <div id="subStyles" class="segmented sub-styles hidden">
             <button class="seg active" data-substyle="klasik">Klasik</button>
             <button class="seg" data-substyle="kutulu">Kutulu</button>
@@ -899,6 +920,7 @@
                 <button id="wmChooseBtn" class="btn-ghost">Logo seç…</button>
                 <span id="wmFile" class="wm-file">Dosya seçilmedi</span>
               </div>
+              <div class="tool-controls"><label class="label" for="wmSize">Logo yüksekliği · <output id="wmSizeLabel">%9</output></label><input id="wmSize" type="range" min="4" max="20" value="9" step="1"><span class="tool-note">Çıktı yüksekliğine göre; genişlik en fazla %35.</span></div>
               <div class="wm-pos-grid" id="wmPos">
                 <button class="wm-pos" data-pos="sol-ust" title="Sol üst">◤</button>
                 <button class="wm-pos active" data-pos="sag-ust" title="Sağ üst">◥</button>
@@ -912,14 +934,15 @@
             <div class="card-toggle">
               <div class="card-text">
                 <span class="card-title">Başlık metni</span>
-                <span class="card-sub">İlk 3 saniyede üstte gösterilir</span>
+                <span class="card-sub">Kesitin başında, üstte gösterilir</span>
               </div>
               <label class="switch">
                 <input type="checkbox" id="titleEnable">
                 <span class="knob"></span>
               </label>
             </div>
-            <input type="text" id="titleText" class="title-input hidden" placeholder="Örn. Aile Saadeti — Bölüm 8" maxlength="80" spellcheck="false">
+            <input aria-label="Videoya eklenecek başlık" type="text" id="titleText" class="title-input hidden" placeholder="İzleyicinin ilk göreceği cümle" maxlength="80" spellcheck="false">
+            <div id="titleTiming" class="tool-controls hidden"><label class="label" for="titleSeconds">Ekranda kalma süresi</label><div class="select-wrap"><select id="titleSeconds"><option value="3">3 saniye</option><option value="5">5 saniye</option><option value="10">10 saniye</option></select></div><span id="titleCount" class="tool-note">0 / 80 karakter</span></div>
           </div>
         </div>
 
@@ -955,7 +978,7 @@
             <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg>
           </button>
           <button id="addQueueBtn" class="btn-ghost queue-add" disabled title="Mevcut seçimi kuyruğa ekle">+ Kuyruk</button>
-          <button id="downloadBtn" class="btn-download" disabled>İndir</button>
+          <button id="downloadBtn" class="btn-download" disabled>Dışa aktar</button>
         </div>
       </aside>
     </div>
@@ -972,5 +995,15 @@
     </div><!-- /.app-main -->
   </main>
   <script src="app.js"></script>
+  <script src="studio.js"></script>
+  <script src="editor-tools.js"></script>
+  <script src="workspace.js"></script>
+  <script src="review-data.js"></script>
+  <script src="review.js"></script>
+  <script src="connections.js"></script>
+  <script src="timeline-data.js"></script>
+  <script src="timeline.js"></script>
+  <script src="project-session.js"></script>
+  <script src="output-proof.js"></script>
 </body>
 </html>
