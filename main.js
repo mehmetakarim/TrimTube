@@ -113,23 +113,40 @@ function resolveYtdlp() {
   return 'yt-dlp';
 }
 
-// yt-dlp --version'ı senkron okur (kısa; tarih-tabanlı sürüm dizesi, ör. 2026.07.04).
+// yt-dlp --version'ı ASENKRON okur (v1.18.1). Eskiden spawnSync idi; iki kusur
+// vardı: (1) ana süreci (event loop) bloklayıp arayüzü dondururdu, (2) 10 sn
+// zaman aşımı yetersizdi. macOS 26 imzasız/notarize-olmayan ikilileri her
+// çalıştırmada güvenlik değerlendirmesine soktuğu için standalone yt-dlp'nin
+// AÇILMASI bile 20-30 sn sürebiliyor (ölçüldü: 32.87 sn gerçek / 0.8 sn CPU) —
+// eski sınırla sürüm okuma hep null dönüyordu.
 // --ignore-config: kullanıcının global yt-dlp config'i (varsa) eski ikiliye
 // tanımadığı bayrak enjekte edip çökertmesin (self-update sırasında kanıtlandı).
-function ytdlpVersionSync(exe) {
-  try {
-    const r = require('child_process').spawnSync(exe, ['--ignore-config', '--version'],
-      { encoding: 'utf8', timeout: 10000, windowsHide: true, env: procEnv });
-    const v = (r.stdout || '').trim().split(/\r?\n/)[0];
-    return /^\d{4}\.\d{2}\.\d{2}/.test(v) ? v : null;
-  } catch { return null; }
+const YTDLP_VERSION_TIMEOUT = 90000;
+
+function ytdlpVersion(exe) {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (v) => { if (!done) { done = true; resolve(v); } };
+    try {
+      const proc = spawn(exe, ['--ignore-config', '--version'], { windowsHide: true, env: procEnv });
+      let out = '';
+      const timer = setTimeout(() => { try { proc.kill(); } catch {} finish(null); }, YTDLP_VERSION_TIMEOUT);
+      proc.stdout.on('data', (d) => { out += d.toString('utf8'); });
+      proc.on('close', () => {
+        clearTimeout(timer);
+        const v = out.trim().split(/\r?\n/)[0];
+        finish(/^\d{4}\.\d{2}\.\d{2}/.test(v) ? v : null);
+      });
+      proc.on('error', () => { clearTimeout(timer); finish(null); });
+    } catch { finish(null); }
+  });
 }
 
-// Gömülü ikiliyi yazılabilir userData/bin'e hazırlar. Kopya yoksa seed'ler;
-// varsa DOWNGRADE KORUMASI: gömülü sürüm kopyadan yeniyse (uygulama güncellemesi
-// taze ikili getirmiş olabilir) üstüne yazar — asla eskiye düşürmez. Kendini
-// güncelleme runtime'da userData kopyası üzerinde çalışır. Hata olursa sessizce
-// gömülü ikiliyle devam (resolveYtdlp fallback'i).
+// Gömülü ikiliyi yazılabilir userData/bin'e hazırlar — YALNIZCA dosya işlemleri
+// (hızlı, ~100 ms). yt-dlp ilk çağrılmadan önce YTDLP'nin doğru yolu göstermesi
+// gerektiği için bu kısım senkron kalır; pahalı olan sürüm karşılaştırması
+// aşağıdaki adoptNewerBundledYtdlp'ye taşındı (v1.18.1 — açılış donmasının
+// asıl kaynağı oydu).
 function ensureYtdlpWritable() {
   if (!app.isPackaged) return;
   const bundled = bundledYtdlp();
@@ -140,19 +157,33 @@ function ensureYtdlpWritable() {
     if (!fs.existsSync(writable)) {
       fs.copyFileSync(bundled, writable);
       if (process.platform !== 'win32') fs.chmodSync(writable, 0o755);
-    } else {
-      // Sürüm karşılaştırması (string; tarih-tabanlı sıralanabilir)
-      const vb = ytdlpVersionSync(bundled);
-      const vw = ytdlpVersionSync(writable);
-      if (vb && vw && vb > vw) {
-        fs.copyFileSync(bundled, writable);
-        if (process.platform !== 'win32') fs.chmodSync(writable, 0o755);
-      }
     }
     YTDLP = writable;
   } catch (err) {
     console.error('[ytdlp] yazılabilir kopya hazırlanamadı:', err.message);
     // YTDLP resolveYtdlp() ile gömülüye zaten ayarlı kalır
+  }
+}
+
+// DOWNGRADE KORUMASI (arka planda, açılışı bloklamaz): uygulama güncellemesi
+// gömülü ikiliyi tazelemiş olabilir; gömülü sürüm userData kopyasından yeniyse
+// üstüne yazılır — asla eskiye düşürülmez. İki sürüm okuması da asenkron.
+async function adoptNewerBundledYtdlp() {
+  if (!app.isPackaged) return;
+  const bundled = bundledYtdlp();
+  const writable = writableYtdlpPath();
+  if (!bundled || !fs.existsSync(writable)) return;
+  try {
+    const [vb, vw] = await Promise.all([ytdlpVersion(bundled), ytdlpVersion(writable)]);
+    if (vb && vw && vb > vw) {   // tarih-tabanlı sürüm dizesi: string karşılaştırması sıralanabilir
+      fs.copyFileSync(bundled, writable);
+      if (process.platform !== 'win32') fs.chmodSync(writable, 0o755);
+      saveSettings({ ytdlpVersion: vb });
+    } else if (vw) {
+      saveSettings({ ytdlpVersion: vw });   // Ayarlar ekranı doğru sürümü göstersin
+    }
+  } catch (err) {
+    console.error('[ytdlp] gömülü sürüm karşılaştırması başarısız:', err.message);
   }
 }
 
@@ -467,10 +498,13 @@ if (!gotSingleInstanceLock) {
     const initial = deepLinkFromArgv(process.argv);
     if (initial) pendingDeepLink = initial;
 
-    ensureYtdlpWritable();  // yt-dlp'yi yazılabilir userData kopyasına taşı (self-update için)
+    ensureYtdlpWritable();  // yt-dlp'yi yazılabilir userData kopyasına taşı (yalnız dosya işlemi — hızlı)
     createWindow();
     initAutoUpdate();
     getEncoder().then((e) => console.log('[encoder]', e)); // ilk render'dan önce arka planda tespit edilsin
+    // Sürüm karşılaştırmaları pahalı (ikili macOS'ta 20-30 sn'de açılabiliyor) →
+    // pencere açıldıktan SONRA, arka planda; açılışı bloklamazlar (v1.18.1).
+    adoptNewerBundledYtdlp().catch(() => {});
     maybeAutoUpdateYtdlp();  // günde bir, sessiz, arka planda (indirmeyi engellemez)
   });
 }
@@ -483,6 +517,11 @@ app.on('window-all-closed', () => app.quit());
 // güncellemeyi, güncelleme de indirmeyi öldürmesin).
 let ytdlpUpdating = false;
 const YTDLP_UPDATE_INTERVAL = 24 * 60 * 60 * 1000; // günde bir
+// Güncelleme zaman aşımı (v1.18.1): eski 60 sn YETERSİZDİ. Bütçe = ikilinin
+// açılması (macOS 26'da 20-30 sn) + ~37 MB indirme (yavaş bağlantıda dakikalar)
+// + yerine yazma. Kısa sınır güncellemeyi tam ortasında öldürüyordu; sahada
+// yt-dlp aylarca eski kalıp indirmeler HTTP 403 veriyordu.
+const YTDLP_UPDATE_TIMEOUT = 10 * 60 * 1000;
 
 // --update-to stable@latest → kendini son kararlı sürüme çeker. --ignore-config
 // ZORUNLU: kullanıcının global yt-dlp config'i eski ikiliye tanımadığı bayrak
@@ -490,23 +529,29 @@ const YTDLP_UPDATE_INTERVAL = 24 * 60 * 60 * 1000; // günde bir
 function runYtdlpUpdate() {
   return new Promise((resolve) => {
     if (ytdlpUpdating) return resolve({ error: 'Güncelleme zaten sürüyor.' });
-    if (!app.isPackaged) return resolve({ ok: true, updated: false, version: ytdlpVersionSync(YTDLP), dev: true });
+    if (!app.isPackaged) {
+      return ytdlpVersion(YTDLP).then(v => resolve({ ok: true, updated: false, version: v, dev: true }));
+    }
     ytdlpUpdating = true;
     const proc = spawn(YTDLP, ['--ignore-config', '--update-to', 'stable@latest'],
       { windowsHide: true, env: procEnv });
     let out = '';
-    const timer = setTimeout(() => { try { proc.kill(); } catch {} }, 60000);
+    let timedOut = false;
+    const timer = setTimeout(() => { timedOut = true; try { proc.kill(); } catch {} }, YTDLP_UPDATE_TIMEOUT);
     proc.stdout.on('data', (d) => { out += d.toString('utf8'); });
     proc.stderr.on('data', (d) => { out += d.toString('utf8'); });
-    proc.on('close', (code) => {
+    proc.on('close', async (code) => {
       clearTimeout(timer);
       ytdlpUpdating = false;
       const mUpd = out.match(/Updated yt-dlp to stable@(\d{4}\.\d{2}\.\d{2}[^\s]*)/);
       const mCur = out.match(/is up to date \(stable@(\d{4}\.\d{2}\.\d{2}[^\s)]*)/);
-      const version = (mUpd && mUpd[1]) || (mCur && mCur[1]) || ytdlpVersionSync(YTDLP);
       if (code === 0) {
+        // Sürüm önce çıktıdan okunur; yoksa ikiliye sorulur (asenkron)
+        const version = (mUpd && mUpd[1]) || (mCur && mCur[1]) || await ytdlpVersion(YTDLP);
         if (version) saveSettings({ ytdlpVersion: version });
         resolve({ ok: true, updated: !!mUpd, version });
+      } else if (timedOut) {
+        resolve({ error: 'Güncelleme zaman aşımına uğradı — bağlantınız yavaş olabilir, sonra tekrar deneyin.' });
       } else {
         resolve({ error: out.split(/\r?\n/).filter(Boolean).slice(-2).join('\n') || 'Güncelleme başarısız.' });
       }
@@ -515,24 +560,33 @@ function runYtdlpUpdate() {
   });
 }
 
-// Günde bir sessiz otomatik güncelleme: pencere yüklendikten sonra gecikmeli
-// çalışır (ilk indirmeyi engellemez); başarıda ytdlpLastCheck yazılır, bildirim
-// gösterilmez. Ağ yoksa/başarısızsa sessizce mevcut kopyayla devam.
+// Sessiz otomatik güncelleme (v1.18.1'de sağlamlaştırıldı): pencere yüklendikten
+// sonra gecikmeli çalışır (ilk indirmeyi engellemez), bildirim göstermez.
+// - Hiç kontrol edilmediyse (ilk açılış) daha erken tetiklenir: yt-dlp'nin
+//   güncel olması indirmenin çalışması için kritik.
+// - Başarısızlıkta ytdlpLastCheck YAZILMAZ → sonraki açılışta yeniden denenir
+//   (24 saat beklenmez); ağ yoksa sessizce mevcut kopyayla devam edilir.
 function maybeAutoUpdateYtdlp() {
   if (!app.isPackaged) return;
   const last = loadSettings().ytdlpLastCheck || 0;
   if (Date.now() - last < YTDLP_UPDATE_INTERVAL) return;
+  const delay = last === 0 ? 4000 : 12000;  // ilk açılışta erken başla
   setTimeout(async () => {
     const r = await runYtdlpUpdate();
     if (r.ok) saveSettings({ ytdlpLastCheck: Date.now() });
-  }, 12000);
+    else console.error('[ytdlp] otomatik güncelleme başarısız (sonraki açılışta yeniden denenecek):', r.error);
+  }, delay);
 }
 
-// Ayarlar ekranı gösterimi: bilinen sürüm + son kontrol zamanı
-ipcMain.handle('ytdlp-info', () => {
+// Ayarlar ekranı gösterimi: bilinen sürüm + son kontrol zamanı.
+// v1.18.1: sürüm okuma asenkron — Ayarlar ekranı artık donmuyor.
+ipcMain.handle('ytdlp-info', async () => {
   const s = loadSettings();
   let version = s.ytdlpVersion;
-  if (!version) { version = ytdlpVersionSync(YTDLP); if (version) saveSettings({ ytdlpVersion: version }); }
+  if (!version) {
+    version = await ytdlpVersion(YTDLP);
+    if (version) saveSettings({ ytdlpVersion: version });
+  }
   return { version: version || null, lastCheck: s.ytdlpLastCheck || 0 };
 });
 
