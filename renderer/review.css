@@ -97,3 +97,11 @@
 .review-caption[data-style=kutulu] { -webkit-text-stroke: 0; }
 .review-caption[data-style=vurgulu], .review-caption[data-style=pop] { font-family: 'Arial Black', Arial, sans-serif; }
 .review-word-active { color: #ffe500; }
+
+.review-text-cut { border: 1px solid var(--border); border-left: 3px solid var(--accent); background: var(--bg); border-radius: 8px; padding: 12px; }
+.review-text-cut p { color: var(--muted); font-size: 11px; line-height: 1.5; margin: 5px 0 10px; }
+.review-text-cut-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+#reviewCutSummary { font: 11px Consolas, monospace; color: var(--muted); margin-right: auto; }
+.review-cut-pick { display: flex; align-items: center; gap: 6px; cursor: pointer; margin-left: auto; }
+.review-cut-pick input { accent-color: var(--accent); }
+.review-cue.cut-selected { background: var(--bg); box-shadow: inset 3px 0 var(--accent); border-radius: 6px; }

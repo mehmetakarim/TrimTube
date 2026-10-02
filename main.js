@@ -1,3 +1,4 @@
+const TranscriptStore = require('./transcript-store');
 const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const { spawn, execFile } = require('child_process');
@@ -2550,11 +2551,12 @@ async function whisperSegments(media, model, tmpDir, runner, sendStage, isCancel
   const modelDir = path.join(app.getPath('userData'), 'whisper-models');
   fs.mkdirSync(modelDir, { recursive: true });
   const outSrt = path.join(tmpDir, 'ai.srt');
+  const outWords = path.join(tmpDir, 'ai-words.json');
   const pythonCmd = resolvePython();
   let errLine = '';
   const tr = await runner(pythonCmd, [
     path.join(__dirname, 'subtitle.py'), wav,
-    '--out', outSrt, '--model', model, '--model-dir', modelDir
+    '--out', outSrt, '--words-out', outWords, '--model', model, '--model-dir', modelDir
   ], (line) => {
     const m = line.match(/^PROGRESS (\d+)/);
     if (m) { sendStage({ stage: 'transcribe', pct: +m[1] }); return; }
@@ -2571,7 +2573,7 @@ async function whisperSegments(media, model, tmpDir, runner, sendStage, isCancel
     }
     return { error: 'Transkript başarısız: ' + msg };
   }
-  return { segments: parseSrtSegments(fs.readFileSync(outSrt, 'utf8')) };
+  return { segments: parseSrtSegments(fs.readFileSync(outSrt, 'utf8')), words: fs.existsSync(outWords) ? JSON.parse(fs.readFileSync(outWords, 'utf8')).words || [] : [] };
 }
 
 // Transkript edinimi — AI Araçları (ai-transcript) ve Moodlar (mood-plan) ortak
@@ -2584,6 +2586,8 @@ async function ensureTranscript(opts, runner, sendStage, isCancelled) {
   if (!id) return { error: 'Önce bir video yükleyin.' };
   const cacheDir = cacheDirPath();
   fs.mkdirSync(cacheDir, { recursive: true });
+  const shared = TranscriptStore.get(cacheDir, opts);
+  if (shared) return { ...shared, ok: true, cachedHit: true };
   let isYt = opts.source === 'youtube';
   const model = opts.model || 'small';
   const ytCached = isYt
@@ -2593,8 +2597,8 @@ async function ensureTranscript(opts, runner, sendStage, isCancelled) {
   // YouTube istendiğinde daha önce üretilmiş bir Whisper transkripti de kabul
   // edilir (aynı videonun metni — yeniden üretim gereksiz yük olur)
   for (const c of [ytCached, whisperCached].filter(Boolean)) {
-    if (fs.existsSync(c)) {
-      try { return { ok: true, cachedHit: true, ...JSON.parse(fs.readFileSync(c, 'utf8')) }; } catch {}
+    if (!opts.localFile && fs.existsSync(c)) {
+      try { const legacy = JSON.parse(fs.readFileSync(c, 'utf8')); TranscriptStore.put(cacheDir, { ...opts, source: legacy.source }, legacy); return { ok: true, cachedHit: true, ...legacy }; } catch {}
     }
   }
 
@@ -2657,13 +2661,14 @@ async function ensureTranscript(opts, runner, sendStage, isCancelled) {
       const w = await whisperSegments(media, model, tmpDir, runner, sendStage, isCancelled);
       if (w.cancelled || w.error) return w;
       segments = w.segments;
-      doc = { source: 'whisper', model, segments };
+      doc = { source: 'whisper', model, segments, words: w.words };
     }
     if (!segments.length) return { error: 'Bu videoda kullanılabilir konuşma/altyazı metni bulunamadı.' };
     // Üretilen kaynağa göre doğru önbellek anahtarına yaz (yt yolu Whisper'a
     // düşmüşse whisper anahtarı kullanılır)
     const cacheTo = doc.source === 'youtube' ? ytCached : whisperCached;
     try { fs.writeFileSync(cacheTo, JSON.stringify(doc), 'utf8'); } catch {}
+    try { TranscriptStore.put(cacheDir, { ...opts, source: doc.source }, doc); } catch {}
     return { ok: true, ...doc };
   } catch (err) {
     return { error: err.message };
@@ -3667,7 +3672,11 @@ ipcMain.handle('subtitle-review', async (e, opts) => {
   });
   try {
     let content, words = [];
-    if (opts.source === 'youtube') {
+    const shared = TranscriptStore.get(cacheDirPath(), opts, { start, duration });
+    if (shared) {
+      content = ReviewData.serialize(shared.segments); words = shared.words;
+      win.webContents.send('subtitle-review-progress', { message: 'Ortak transkriptten alındı; yeniden çözümleme yapılmadı.' });
+    } else if (opts.source === 'youtube') {
       const res = await fetchSubtitle(opts.url, opts.videoId, opts.lang, opts.auto, runner);
       if (res.error) return res;
       content = shiftSrt(fs.readFileSync(res.path, 'utf8'), start, duration);
@@ -3691,7 +3700,11 @@ ipcMain.handle('subtitle-review', async (e, opts) => {
     const cues = parseSrtSegments(content).sort((a, b) => a.start - b.start);
     cues.forEach((cue, i) => { cue.end = Math.min(duration, cue.end, cues[i + 1]?.start ?? duration); });
     const srt = ReviewData.serialize(ReviewData.parse(ReviewData.serialize(cues.filter(c => c.end > c.start)), duration));
-    return { srt, words: ReviewData.alignedWords(ReviewData.parse(srt),words) };
+    if (!shared) {
+      const absolute = c => ({ ...c, start: c.start + start, end: c.end + start });
+      try { TranscriptStore.put(cacheDirPath(), opts, { source: opts.source === 'youtube' ? 'youtube' : 'whisper', model: opts.model || 'small', lang: opts.lang, auto: opts.auto, segments: ReviewData.parse(srt).map(absolute), words: words.map(absolute) }, { start, duration }); } catch {}
+    }
+    return { srt, words: ReviewData.alignedWords(ReviewData.parse(srt),words), cachedHit: !!shared };
   } catch (err) { return { error: err.message }; }
   finally { subtitleReviewBusy = false; try { fs.rmSync(tmp, { recursive: true, force: true }); } catch {} }
 });

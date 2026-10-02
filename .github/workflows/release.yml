@@ -73,6 +73,7 @@ jobs:
 
       - name: Kurgu, altyazı ve sağlayıcı regresyonları
         run: |
+          node scripts/check-transcripts.cjs
           node scripts/check-timeline.cjs
           node scripts/check-review.cjs
           node scripts/check-providers.cjs

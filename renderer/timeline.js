@@ -192,6 +192,15 @@
     if (e.key === 'Delete') { e.preventDefault(); $('sequenceDelete').click(); }
     if (['ArrowLeft', 'ArrowRight'].includes(e.key)) { e.preventDefault(); e.stopPropagation(); stop(); position(Math.max(0, playTime + (e.key === 'ArrowRight' ? .1 : -.1))); }
   });
+  // Validate the entire batch before changing history or existing clips.
+  window.sequenceAppendRanges = ranges => {
+    if (!infoLoaded || queueRunning) throw Error('Kaynağı aç ve devam eden dışa aktarmanın bitmesini bekle.');
+    if (!Array.isArray(ranges) || !ranges.length) throw Error('Kurguya eklemek için metin satırı seç.');
+    const next = D.validate([...clips, ...ranges.map(r => ({ id: uid(), start: r.start, end: r.end }))], videoDuration);
+    edit(next, clips.length); mode(true); render();
+    note(`${ranges.length} metin parçası kurgunun sonuna eklendi. Sıralayabilir, kırpabilir veya geri alabilirsin.`);
+    return true;
+  };
   window.sequenceProject = () => ({ version: 1, enabled, clips: D.copy(clips) });
   window.sequenceApplyProject = data => {
     stop(); clips = []; enabled = false;

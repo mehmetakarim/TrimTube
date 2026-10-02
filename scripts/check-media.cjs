@@ -32,6 +32,17 @@ const invoke = (name, data) => handlers.get(name)({}, data);
 const checks = [];
 const base = { localFile: source, id: 'qa', title: 'Yerel test', folder: out, quality: 'best', formats: ['original'], duration: 2 };
 async function main() {
+  const store = require('../transcript-store');
+  const sharedSource = path.join(out, 'shared-source.mp4'); fs.copyFileSync(source, sharedSource);
+  const sharedOpts = { videoId: 'shared-qa', localFile: sharedSource, source: 'whisper', model: 'small' };
+  store.put(path.join(userData,'cache'), sharedOpts, { source:'whisper',model:'small',segments:[{start:0,end:2,text:'Ortak metin'}],words:[{start:.2,end:.7,word:'Ortak'},{start:1,end:1.8,word:'metin'}] });
+  const sharedAi = await invoke('ai-transcript',sharedOpts);
+  assert.ok(sharedAi.ok && sharedAi.cachedHit); assert.equal(sharedAi.words[0].start,.2);
+  checks.push('AI transcript reuses shared recognition with acoustic words');
+  const sharedReview = await invoke('subtitle-review',{...sharedOpts,start:.5,duration:1});
+  assert.ok(sharedReview.cachedHit,sharedReview.error); assert.match(sharedReview.srt,/Ortak metin/); assert.equal(sharedReview.words[0].start,0);
+  checks.push('Subtitle review reuses full transcript and shifts words to the requested clip');
+
   const sequence = [{ id: 'b', start: 1, end: 1.75 }, { id: 'a', start: 0, end: .5 }, { id: 'c', start: 1, end: 1.25 }];
   const assembled = await invoke('download', { ...base, title: 'Kurgu testi', sequence });
   assert.ok(assembled.ok, assembled.error);

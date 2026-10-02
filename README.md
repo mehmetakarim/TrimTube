@@ -240,3 +240,16 @@ Regresyon: `node scripts/check-timeline.cjs`, `node scripts/check-review.cjs`, `
 ## Kullanılan araçlar
 
 [Electron](https://www.electronjs.org/) · [electron-builder](https://www.electron.build/) · [electron-updater](https://www.electron.build/auto-update) · [yt-dlp](https://github.com/yt-dlp/yt-dlp) · [ffmpeg](https://ffmpeg.org) · [OpenCV](https://opencv.org/) (YuNet, SFace, CSRT) · [faster-whisper](https://github.com/SYSTRAN/faster-whisper) · [PyInstaller](https://pyinstaller.org/)
+
+### Metinden kurgu (v1.20.0)
+
+Video Kes → Altyazı → Metni ve yerleşimi incele → Altyazı metni yolunda,
+video olarak almak istediğiniz satırlarda **Kurguya seç** işaretini kullanın.
+**Seçilenleri kurguya ekle**, satırları kaynak sırasıyla mevcut kurgunun sonuna
+ekler. Her satır ayrı parçadır; aradaki boşluklar eklenmez. Kurgu masasında
+parçaları kırpabilir, sıralayabilir ve toplu eklemeyi tek adımda geri alabilirsiniz.
+Altyazılı çıktı için metni ayrıca onaylayın. Metin yeniden oluşturulmaz.
+
+AI ekranlarında hazırlanmış tam transkript, aynı kaynak/model için Video Kes
+alt yazı hazırlığında yeniden kullanılabilir. Kesit zamanları otomatik kaydırılır;
+Whisper kelime zamanları korunur. Kullanıcı düzeltmeleri projeye özeldir.

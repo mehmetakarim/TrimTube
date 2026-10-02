@@ -182,6 +182,23 @@ app.whenReady().then(async () => {
   await run(`$('reviewCues').querySelector('.review-cue-actions button:nth-child(2)').click()`);
   await check('Adjacent subtitle rows merge without overlap', `reviewProject().doc.cues.length===2 && reviewProject().doc.cues[0].end<=reviewProject().doc.cues[1].start`);
   await run(`reviewApplyProject(reviewBackup,true); reviewRefreshCues()`);
+  await run(`$('reviewSelectAll').click()`);
+  await check('Transcript selection preserves approval and reports duration', `reviewProject().doc.approved && document.querySelectorAll('[data-cut]:checked').length===2 && !$('reviewCutAdd').disabled`);
+  await screenshot('text-to-edit');
+  await run(`globalThis.cutExpected=reviewProject().doc.cues.map(c=>({start:currentRange().start+c.start,end:currentRange().start+c.end})); $('reviewCutAdd').click()`);
+  await check('Selected text creates source-relative clips and closes review', `sequenceProject().clips.length===2 && sequenceProject().clips.every((c,i)=>c.start===cutExpected[i].start && c.end===cutExpected[i].end) && $('trackPreviewModal').classList.contains('hidden')`);
+  await run(`$('editUndo').click()`);
+  await check('Text batch is undone as one edit', `sequenceProject().clips.length===0`);
+  await run(`$('editRedo').click()`);
+  await check('Text batch redo restores both ranges', `sequenceProject().clips.length===2`);
+  await run(`globalThis.beforeBad=JSON.stringify(sequenceProject()); try { sequenceAppendRanges([{start:0,end:9999}]); } catch {} `);
+  await check('Invalid batch leaves the existing edit untouched', `JSON.stringify(sequenceProject())===beforeBad`);
+  await run(`sequenceAppendRanges([{start:1,end:2}])`);
+  await check('Text append preserves existing clips', `sequenceProject().clips.length===3 && sequenceProject().clips[0].start===cutExpected[0].start && sequenceProject().clips[2].start===1`);
+  await run(`$('editUndo').click(); $('editUndo').click(); computeTrackPreview()`); await delay(350);
+  await run(`$('reviewTabText').click(); $('reviewSelectAll').click(); $('reviewClearSelection').click()`);
+  await check('Clear selection disables append without editing subtitles', `$('reviewCutAdd').disabled && !document.querySelector('[data-cut]:checked') && reviewProject().doc.approved`);
+
   await delay(100);
   await check('Subtitle shown over output with platform safety check', `$('reviewCaption').textContent.includes('Düzeltilmiş') && $('reviewSafety').textContent.includes('taşmıyor')`);
   await screenshot('review-desk');

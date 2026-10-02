@@ -1,5 +1,40 @@
 # TrimTube geliştirme planı
 
+## 2 Ekim 2026 — ortak transkript / v1.20.0
+
+- AI transkript yardımcısı ve Video Kes altyazı hazırlığı ortak, atomik yazılan
+  `transcript-store.js` deposuna bağlandı. AI ekranlarının ürettiği tam metin
+  istenen kesite kaydırılarak yeniden çözümleme olmadan kullanılabilir.
+- Yeni tam Whisper çözümlemeleri kelime zamanlarını da saklar. Kısmi kayıt
+  yalnız kapsadığı aralık için kullanılır; tam kaynak transkriptinin yerine geçmez.
+- Kaynak, model, YouTube dili/otomatik türü ayrılır; yeni yerel kayıt anahtarı
+  dosya yolu, boyut ve değişiklik zamanını içerir. Bozuk kayıt önbellek kaçırmasıdır.
+- Ham metin paylaşılır; kullanıcı düzeltmeleri/onaylar projede kalır. Eski
+  kesit önbelleği uyumluluğu korunur. Eşzamanlı istek birleştirme ve tüm eski
+  önbelleklerin tek şemaya geçirilmesi kapsam dışıdır.
+- 110 UI, 36 medya/IPC, 9 depo, 17 review, 8 timeline, 17 sağlayıcı kontrolü geçti.
+  Harici AI çağrısı veya yeni Whisper model indirmesi yapılmadı.
+- Yayın/marka profilleri ve güvenli anahtar saklama sonraki işlerdir.
+
+## 2 Ekim 2026 — metinden kurgu ilk adımı (yerel geliştirme)
+
+- Kontrol masası / Altyazı metni altında satır seçimi, tümünü seç/temizle,
+  seçili toplam süre ve “Seçilenleri kurguya ekle” eklendi.
+- Mevcut altyazı belgesi yeniden kullanılır; yeni AI isteği yapılmaz. Seçim
+  metin onayını değiştirmez. Satırlar kaynak sırasıyla mevcut kurgunun sonuna
+  eklenir; aralarındaki boşluklar alınmaz, her satır ayrı parça olur.
+- Kesit başlangıcı kaynak zamanına eklenir. Tüm parti eklenmeden doğrulanır;
+  geçersiz zaman veya 100 parça sınırı mevcut kurguyu değiştirmez.
+- Toplu ekleme tek geri alma adımıdır; proje/taslak ve mevcut dışa aktarma
+  yolları aynı kurgu verisini kullanır. Metin onayı ayrıca gereklidir.
+- Doğrulama: 110 Electron arayüz kontrolü geçti (7 yeni); zaman dönüşümü,
+  onay koruma, toplu undo/redo, geçersiz parti ve mevcut parçaları koruma.
+  Kontrol masası geniş/küçük pencerede görsel incelendi. Yeni export motoru yok.
+- Bu adım kelime seçimi, otomatik nefes payı, tam kaynak transkript merkezi
+  veya diğer AI ekranlarıyla ortak transkript deposunu tamamlamaz.
+- v1.19.0 yayını değişmedi; bu geliştirme sonraki sürüm içindir.
+
+
 ## 2 Ekim 2026 — kelime zamanları, aralıklı kadraj ve gerçek prova
 
 - Whisper inceleme akışı artık kelime zamanlarını da ister ve döndürür. Belge,

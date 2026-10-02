@@ -43,7 +43,7 @@
     panel.classList.toggle('hidden', !$('subEnable').checked);
     $('reviewGenerate').textContent = busy ? 'Oluşturmayı iptal et' : currentDoc() ? 'Yeniden oluştur' : 'Altyazıyı oluştur';
     $('reviewOpen').disabled = busy || !infoLoaded;
-    if (!busy) status(currentDoc() ? (doc.approved ? 'Metin onaylandı · dışa aktarmaya hazır' : 'Metin hazır · düzelt ve onayla') : 'Bu kaynak ve kesit için henüz onaylanmış metin yok.');
+    if (!busy) status(currentDoc() ? (doc.approved ? 'Metin onaylandı · dışa aktarmaya hazır' : (doc.cachedHit ? 'Ortak transkriptten hazır · düzelt ve onayla' : 'Metin hazır · düzelt ve onayla')) : 'Bu kaynak ve kesit için henüz onaylanmış metin yok.');
   }
   const error = message => { $('reviewSaveStatus').textContent = message; status(message); };
   function readCues() {
@@ -63,9 +63,32 @@
     replaceCues(readCues().map(c => ({ ...c, text: c.text.split(find).join(replacement) })));
     error('Metin değiştirildi. Kontrol edip yeniden onayla.');
   };
+  const cutTools = document.createElement('div'); cutTools.className = 'review-text-cut';
+  cutTools.innerHTML = '<div><strong>Metinden kurgu</strong><p>Satırları seç; videodaki karşılıklarını mevcut kurgunun sonuna ekle. Satır aralarındaki boşluklar alınmaz.</p></div><div class="review-text-cut-actions"><button id="reviewSelectAll" class="btn-ghost small">Tümünü seç</button><button id="reviewClearSelection" class="btn-ghost small">Seçimi temizle</button><output id="reviewCutSummary" aria-live="polite">0 satır seçili</output><button id="reviewCutAdd" class="btn-ghost small" disabled>Seçilenleri kurguya ekle</button></div>';
+  search.before(cutTools);
+  function selectedRows() { return [...$('reviewCues').children].filter(row => row.querySelector('[data-cut]')?.checked); }
+  function refreshCutSelection() {
+    const rows = selectedRows(), seconds = rows.reduce((n, row) => n + Math.max(0, +row.querySelector('[data-end]').value - +row.querySelector('[data-start]').value), 0);
+    $('reviewCutSummary').textContent = `${rows.length} satır · ${Number.isFinite(seconds) ? seconds.toFixed(2) : '—'} sn`;
+    $('reviewCutAdd').disabled = !rows.length || !currentDoc() || queueRunning;
+  }
+  for (const [id, checked] of [['reviewSelectAll', true], ['reviewClearSelection', false]]) $(id).onclick = () => {
+    $('reviewCues').querySelectorAll('[data-cut]').forEach(box => { box.checked = checked; box.closest('.review-cue').classList.toggle('cut-selected', checked); }); refreshCutSelection();
+  };
+  $('reviewCutAdd').onclick = () => {
+    try {
+      if (!currentDoc()) throw Error('Kaynak veya kesit değişti. Metni yeniden aç.');
+      const range = currentRange();
+      const cues = ReviewData.parse(ReviewData.serialize(readCues()), range.duration);
+      const indices = [...$('reviewCues').children].flatMap((row, i) => row.querySelector('[data-cut]')?.checked ? [i] : []);
+      const ranges = indices.map(i => ({ start: range.start + cues[i].start, end: range.start + cues[i].end }));
+      window.sequenceAppendRanges(ranges);
+      closeTrackModal(); $('sequenceEditTab').focus(); $('sequenceDesk').scrollIntoView({ block: 'nearest' });
+    } catch (err) { error(err.message); }
+  };
   function renderCues() {
     animationCache.cues = null;
-    $('reviewCues').replaceChildren();
+    $('reviewCues').replaceChildren(); refreshCutSelection();
     const d = currentDoc(); $('reviewCueCount').textContent = d ? `· ${d.cues.length} satır` : '';
     if (!d) { $('reviewCues').textContent = 'Altyazı sekmesinden önce metni oluştur. İstersen bu ana bir satır ekleyerek elle başlayabilirsin.'; return; }
     d.cues.forEach((cue, index) => {
@@ -75,7 +98,7 @@
       const end = document.createElement('input'); end.type = 'number'; end.min = 0; end.step = .01; end.value = cue.end; end.dataset.end = ''; end.setAttribute('aria-label', `${index + 1}. altyazı bitişi`);
       const text = document.createElement('textarea'); text.rows = 2; text.value = cue.text; text.setAttribute('aria-label', `${index + 1}. altyazı metni`);
       const remove = document.createElement('button'); remove.className = 'btn-ghost small'; remove.textContent = 'Sil'; remove.onclick = () => { row.remove(); syncDoc(); renderCues(); };
-      row.append(jump, start, end, text, remove); row.addEventListener('input', syncDoc); $('reviewCues').append(row);
+      row.append(jump, start, end, text, remove); row.addEventListener('input', e => { if (e.target.matches('[data-cut]')) return; syncDoc(); refreshCutSelection(); }); $('reviewCues').append(row);
       const actions = document.createElement('div'); actions.className = 'review-cue-actions';
       const split = document.createElement('button'); split.className = 'btn-ghost small'; split.textContent = 'İmleçte böl';
       split.onclick = () => {
@@ -88,7 +111,11 @@
       };
       const merge = document.createElement('button'); merge.className = 'btn-ghost small'; merge.textContent = 'Sonrakiyle birleştir'; merge.disabled = index === d.cues.length - 1;
       merge.onclick = () => { const cues = readCues(), a = cues[index], b = cues[index + 1]; if (!b) return; cues.splice(index, 2, { start: a.start, end: b.end, text: `${a.text.trim()} ${b.text.trim()}` }); replaceCues(cues); };
-      actions.append(split, merge); row.append(actions);
+      actions.append(split, merge);
+      const pick = document.createElement('label'); pick.className = 'review-cut-pick';
+      const box = document.createElement('input'); box.type = 'checkbox'; box.dataset.cut = ''; box.setAttribute('aria-label', `${index + 1}. satırı kurgu için seç`);
+      box.onchange = () => { row.classList.toggle('cut-selected', box.checked); refreshCutSelection(); };
+      pick.append(box, 'Kurguya seç'); actions.append(pick); row.append(actions);
     });
   }
   window.api.onSubtitleReviewProgress(p => { if (busy) status(p.message || `Konuşma metne çevriliyor · %${Math.round(p.pct || 0)}`); });
@@ -103,7 +130,7 @@
       if (token !== generation || key !== textKey()) { status('İşlem iptal edildi veya kaynak/kesit değişti. Metin uygulanmadı.'); return; }
       if (result?.error) throw Error(result.error);
       if (!result || result.cancelled) return;
-      doc = { key, cues: ReviewData.parse(result.srt, currentRange().duration), words: result.words || [], approved: false };
+      doc = { key, cues: ReviewData.parse(result.srt, currentRange().duration), words: result.words || [], cachedHit: !!result.cachedHit, approved: false };
       busy = false; refresh(); await computeTrackPreview();
     } catch (err) { status(err.message); }
     finally { busy = false; $('reviewGenerate').textContent = currentDoc() ? 'Yeniden oluştur' : 'Altyazıyı oluştur'; $('reviewOpen').disabled = !infoLoaded; }
