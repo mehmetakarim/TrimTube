@@ -2,11 +2,16 @@
 
 Bu dosya, farklı ortamlardaki (ev: macOS M-serisi, ofis: Windows 11) geliştirme oturumlarında karşılaşılan problemleri ve uygulanan kalıcı çözümleri barındırır. Her başlık hangi ortama ait olduğunu belirtir — iki ortam arasında hafıza aktarımı bu dosya üzerinden yapılır.
 
+## v1.19.0 release — 2026-10-02
+
+Published: https://github.com/mehmetakarim/TrimTube/releases/tag/v1.19.0
+Main/tag commit: `279a1d5`. GitHub Actions run `36996140495`: Windows, macOS arm64 and Linux succeeded. All 10 assets uploaded; latest manifests verified for version, filenames and sizes. Release is public, stable and latest (user published the draft). Local checks: 103 UI, 34 media/IPC, 17 review, 8 timeline, 17 providers, 8 tracker; passed. Scope and limitations: `RELEASE-v1.19.0.md`; continuing product plan: `GELISTIRME-PLANI.md`.
+
 ---
 
 ## 📍 GÜNCEL DURUM & SIRADAKİ İŞLER (yeni oturum buradan başlasın)
 
-**Yayındaki sürüm:** `v1.18.1` · Windows/macOS(arm64)/Linux · GitHub: mehmetakarim/TrimTube
+**Yayındaki sürüm:** `v1.19.0` · Windows/macOS(arm64)/Linux · GitHub: mehmetakarim/TrimTube
 **Yapılacaklar listesi (asıl kaynak):** proje kökündeki `YOL-HARITASI.md` (onay kutulu, faz faz).
 
 **Windows kişi takibi düzeltmesi — v1.19.0 yayın paketine dahil edildi. Önceki hata ve doğrulama kaydı:**
