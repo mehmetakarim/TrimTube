@@ -9,11 +9,14 @@
   const message = (id, text, kind = '') => { const el = $(`${id}KeyStatus`); el.textContent = text; el.dataset.state = kind; };
   async function persist(id) {
     const s = states[id], value = s.input.value.trim(), revision = s.revision;
+    if (!s.dirty) return true;
+    if (!value && !s.removing) { message(id, 'Anahtarı kaldırmak için Kaldır düğmesini kullan.'); return false; }
     message(id, 'Kaydediliyor…');
     const operation = saveTail.catch(() => {}).then(() => window.api.providerSave({ [s.setting]: value })); saveTail = operation;
     let result; try { result = await operation; } catch { result = { error: 'Ayar kaydedilemedi. Yeniden deneyin.' }; }
     if (result?.ok) {
-      settings[s.setting] = value;
+      settings[s.setting] = result.settings?.[s.setting] || (value ? 'stored' : '');
+      if (revision === s.revision) { s.input.value = ''; s.dirty = false; s.removing = false; s.input.placeholder = value ? 'Kayıtlı · değiştirmek için yeni anahtar' : 'API anahtarını gir'; }
       if (id === 'eleven') mdVoicesLoaded = false;
       window.workspaceRefresh?.();
     }
@@ -24,22 +27,25 @@
     const card = document.createElement('section'); card.className = 'connection-card';
     card.innerHTML = `<div class="connection-heading"><strong>${title}</strong><span>${purpose}</span></div><label class="connection-key-label" for="${existing[id].id}">API anahtarı</label><div class="connection-key"></div><div class="connection-actions"><button id="${id}KeySaveBtn" class="btn-ghost small">Kaydet</button><button id="${id}KeyTestBtn" class="btn-ghost small">Bağlantıyı test et</button></div><p id="${id}KeyStatus" class="connection-status" role="status">Henüz doğrulanmadı</p>`;
     const input = existing[id]; card.querySelector('.connection-key').append(input);
-    const reveal = document.createElement('button'); reveal.className = 'btn-ghost small'; reveal.textContent = 'Göster'; reveal.type = 'button'; reveal.setAttribute('aria-label', `${title} anahtarını göster`); reveal.setAttribute('aria-pressed', 'false');
-    reveal.onclick = () => { const show = input.type === 'password'; input.type = show ? 'text' : 'password'; reveal.textContent = show ? 'Gizle' : 'Göster'; reveal.setAttribute('aria-pressed', String(show)); };
+    const reveal = document.createElement('button'); reveal.className = 'btn-ghost small'; reveal.textContent = 'Girdiğini göster'; reveal.type = 'button'; reveal.setAttribute('aria-label', `${title} anahtarını göster`); reveal.setAttribute('aria-pressed', 'false');
+    reveal.onclick = () => { const show = input.type === 'password'; input.type = show ? 'text' : 'password'; reveal.textContent = show ? 'Gizle' : 'Girdiğini göster'; reveal.setAttribute('aria-pressed', String(show)); };
     card.querySelector('.connection-key').append(reveal);
     if (pageButtons[id]) card.querySelector('.connection-actions').append(pageButtons[id]);
     host.append(card);
-    const state = states[id] = { input, setting, revision: 0 };
-    input.addEventListener('input', () => { state.revision++; message(id, 'Değişiklik kaydedilmedi'); if (id === 'gemini') { $('modelCatalog').replaceChildren(); $('modelCatalogStatus').textContent = 'Anahtar değişti. Modelleri görmek için bağlantıyı yeniden test edin.'; } });
+    const state = states[id] = { input, setting, revision: 0, dirty: false, removing: false };
+    input.addEventListener('input', () => { state.revision++; state.dirty = true; state.removing = false; message(id, 'Değişiklik kaydedilmedi'); if (id === 'gemini') { $('modelCatalog').replaceChildren(); $('modelCatalogStatus').textContent = 'Anahtar değişti. Modelleri görmek için bağlantıyı yeniden test edin.'; } });
     input.addEventListener('change', () => { persist(id); });
     $(`${id}KeySaveBtn`).onclick = () => persist(id);
+    const remove = document.createElement('button'); remove.id = `${id}KeyRemoveBtn`; remove.className = 'btn-ghost small'; remove.textContent = 'Kaldır';
+    remove.onclick = () => { state.revision++; state.dirty = true; state.removing = true; input.value = ''; persist(id); };
+    card.querySelector('.connection-actions').append(remove);
     $(`${id}KeyTestBtn`).onclick = async () => {
       const button = $(`${id}KeyTestBtn`), revision = state.revision;
       button.disabled = true;
       try {
         if (!await persist(id) || revision !== state.revision) return;
         message(id, 'Bağlantı kontrol ediliyor…');
-        const result = await window.api.providerTest({ provider: id, key: input.value.trim() });
+        const result = await window.api.providerTest({ provider: id });
         if (revision !== state.revision) return;
         message(id, result?.ok ? `✓ ${result.message}` : result?.error || 'Kontrol tamamlanamadı.', result?.ok ? 'ok' : 'error');
         if (id === 'gemini' && result?.ok) catalog(result);
@@ -52,7 +58,7 @@
   const models = document.createElement('details'); models.className = 'connection-card model-routing';
   models.innerHTML = `<summary>Gemini model seçimi ve tanılama</summary><div class="connection-heading"><strong>Gemini model sırası</strong><span>Model kullanılamazsa, kotaya takılırsa veya geçici hizmet hatası verirse sıradaki denenir.</span></div><p class="connection-note">Boş bırak: canlı listeden otomatik seç. Özel sıra: her satıra bir model kimliği yaz (en fazla 8). Metin ve seslendirme ayrı tutulur. Alternatif modellerin fiyatları ve kotaları değişebilir.</p><label for="geminiModelChain">Metin üretimi</label><textarea id="geminiModelChain" rows="3" spellcheck="false" placeholder="Otomatik · canlı model keşfi"></textarea><label for="geminiTtsChain">Google seslendirmesi</label><textarea id="geminiTtsChain" rows="3" spellcheck="false" placeholder="Otomatik · seslendirme modelleri"></textarea><div class="connection-actions"><button id="modelChainSave" class="btn-ghost small">Model sırasını kaydet</button><button id="modelChainReset" class="btn-ghost small">Otomatik seçime dön</button></div><p id="modelChainStatus" role="status" class="connection-status"></p><label for="modelCatalog">Canlı model listesi</label><div class="connection-actions"><select id="modelCatalog" aria-label="Kullanılabilir Gemini modelleri"></select><button id="modelCatalogAdd" class="btn-ghost small">Sıraya ekle</button></div><p id="modelCatalogStatus" class="connection-note">Modelleri görmek için Gemini bağlantısını test edin. Listeye erişim, üretim garantisi değildir.</p><details><summary>Bu oturumda denenen modeller</summary><ol id="providerHistory" class="provider-history"></ol></details>`;
   host.insertBefore(models, host.children[1]);
-  const note = document.createElement('p'); note.className = 'connection-note'; note.textContent = 'Anahtarlar bu bilgisayardaki ayar dosyasında saklanır; yalnızca ilgili sağlayıcıya gönderilir. Bağlantı testleri içerik veya ses üretmez. Pexels testi bir arama isteği kullanır.'; host.append(note);
+  const note = document.createElement('p'); note.className = 'connection-note'; note.textContent = 'Anahtarlar işletim sistemi desteğiyle şifrelenir; kayıtlı değer ekrana geri gönderilmez. Boş alan kayıtlı anahtarı silmez. Yalnız ilgili sağlayıcıya gönderilir. Bağlantı testleri içerik veya ses üretmez. Pexels testi bir arama isteği kullanır.'; host.append(note);
   let chainRevision = 0;
   for (const id of ['geminiModelChain', 'geminiTtsChain']) $(id).oninput = () => { chainRevision++; $('modelChainStatus').textContent = 'Model sırası kaydedilmedi'; };
   $('modelChainSave').onclick = async () => {
@@ -92,7 +98,9 @@
   window.connectionsInit = () => {
     if (!settings || initialized) return; initialized = true;
     for (const id of ['geminiModelChain', 'geminiTtsChain']) $(id).value = settings[id] || '';
-    for (const [id,,,setting] of fields) message(id, settings[setting] ? 'Kayıtlı · henüz doğrulanmadı' : 'Anahtar eklenmedi');
+    for (const [id,,,setting] of fields) { states[id].input.value = ''; states[id].input.placeholder = settings[setting] ? 'Kayıtlı · değiştirmek için yeni anahtar' : 'API anahtarını gir'; message(id, settings[setting] ? 'Kayıtlı · henüz doğrulanmadı' : 'Anahtar eklenmedi'); }
+    if (settings.credentialStorage?.warning) note.textContent = settings.credentialStorage.warning;
+    else if (settings.credentialStorage?.available === false) note.textContent = 'Güvenli anahtar deposu kullanılamıyor. Yeni anahtar kaydetmeden önce sistem kasasını açıp uygulamayı yeniden başlatın.';
   };
   window.connectionsInit();
 })();

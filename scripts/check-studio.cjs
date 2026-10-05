@@ -38,7 +38,7 @@ for (const [, channel] of fs.readFileSync(path.join(root, 'preload.js'), 'utf8')
     if (channel === 'project-draft-save') { lastDraft = { app: 'trimtube', version: 2, project: data }; return { ok: true }; }
     if (channel === 'project-draft-read') return { ok: true, draft: lastDraft };
     if (channel === 'set-settings') return Object.assign(settings, data);
-    if (channel === 'provider-settings-save') { if (Object.values(data).includes('reject-test')) return {error:'Test: yazma izni yok'}; Object.assign(settings,data); return {ok:true}; }
+    if (channel === 'provider-settings-save') { if (Object.values(data).includes('reject-test')) return {error:'Test: yazma izni yok'}; for (const [k,v] of Object.entries(data)) settings[k]=['geminiKey','elevenKey','pexelsKey'].includes(k)?(v?'stored':''):v; return {ok:true,settings}; }
     if (channel === 'provider-history') return [];
     if (channel === 'provider-test') { await new Promise(resolve=>setTimeout(resolve,100)); return {ok:true,message:'Listeye erişildi; üretim garantisi değildir.',models:['gemini-3.8-flash'],ttsModels:['gemini-3.8-flash-tts'],textChain:['gemini-3.8-flash'],ttsChain:['gemini-3.8-flash-tts']}; }
     if (channel === 'get-default-folder') return out;
@@ -266,16 +266,22 @@ app.whenReady().then(async () => {
   if (!exported?.subtitle?.srt.includes('Düzeltilmiş') || !exported.framingPath?.length) throw Error('Review export did not send approved state');
   checks.push('Apply and export sends approved text and saved framing through the queue');
   await run(`switchView('settings'); $('setGeminiKey').value='qa-key'; $('setGeminiKey').dispatchEvent(new Event('input')); $('geminiKeyTestBtn').click()`); await delay(200);
-  await check('Gemini settings separate discovery from generation guarantees', `$('geminiKeyStatus').textContent.includes('garantisi') && $('modelCatalog').options.length===2 && settings.geminiKey==='qa-key'`);
+  await check('Gemini settings separate discovery from generation guarantees', `$('geminiKeyStatus').textContent.includes('garantisi') && $('modelCatalog').options.length===2 && settings.geminiKey==='stored'`);
   await run(`$('modelCatalog').value='gemini-3.8-flash'; $('modelCatalogAdd').click(); $('modelChainSave').click()`); await delay(70);
+  await check('Saved credentials are not retained in key inputs', `$('setGeminiKey').value==='' && settings.geminiKey==='stored'`);
   await check('Discovered model can be added to saved text chain', `settings.geminiModelChain==='gemini-3.8-flash' && $('geminiTtsChain').value===''`);
   await run(`$('geminiKeyTestBtn').click()`); await delay(20); await run(`$('setGeminiKey').value='new-qa-key'; $('setGeminiKey').dispatchEvent(new Event('input'))`); await delay(130);
   await check('Stale API check cannot validate an edited credential', `$('geminiKeyStatus').textContent==='Değişiklik kaydedilmedi' && $('modelCatalog').options.length===0`);
   await run(`$('setElevenKey').value='qa-eleven'; $('setElevenKey').dispatchEvent(new Event('input')); $('elevenKeyTestBtn').click(); $('setPexelsKey').value='qa-pexels'; $('setPexelsKey').dispatchEvent(new Event('input')); $('pexelsKeyTestBtn').click()`); await delay(200);
   await check('ElevenLabs and Pexels have independent tested status', `$('elevenKeyStatus').dataset.state==='ok' && $('pexelsKeyStatus').dataset.state==='ok'`);
   await run(`$('setGeminiKey').value='reject-test'; $('setGeminiKey').dispatchEvent(new Event('input')); $('geminiKeySaveBtn').click()`); await delay(80);
-  await check('Failed key save is reported without changing saved key', `$('geminiKeyStatus').textContent.includes('yazma izni') && settings.geminiKey==='qa-key'`);
+  await check('Failed key save is reported without changing saved key', `$('geminiKeyStatus').textContent.includes('yazma izni') && settings.geminiKey==='stored'`);
   await run(`$('setGeminiKey').value='qa-key'; $('setGeminiKey').dispatchEvent(new Event('input')); $('geminiKeyTestBtn').click(); $('toastClose').click()`); await delay(200);
+  await run(`$('geminiKeySaveBtn').click()`); await delay(60);
+  await check('Saving an untouched empty field preserves the stored key', `settings.geminiKey==='stored' && $('setGeminiKey').value===''`);
+  await run(`$('geminiKeyRemoveBtn').click()`); await delay(60);
+  await check('Explicit remove clears only the selected provider', `settings.geminiKey==='' && !!settings.elevenKey && !!settings.pexelsKey`);
+  await run(`$('setGeminiKey').value='qa-key'; $('setGeminiKey').dispatchEvent(new Event('input')); $('geminiKeySaveBtn').click()`); await delay(70);
   win.setSize(1280,900); await run(`applyTheme('dark')`); await screenshot('settings-connections');
   win.setSize(900,640); await run(`applyTheme('light'); $('setGeminiKey').closest('.connection-card').scrollIntoView({block:'start'})`); await screenshot('settings-connections-compact');
   await check('Connection cards fit compact settings screen', `document.documentElement.scrollWidth<=innerWidth && $('viewSettings').scrollWidth<=$('viewSettings').clientWidth`);
@@ -332,6 +338,29 @@ app.whenReady().then(async () => {
   await check('Changing the proof range invalidates stale rendered video', `$('proofVideo').classList.contains('hidden') && $('proofStatus').textContent.includes('yeniden')`);
   await run(`$('proofGenerate').click()`);await delay(120);await run(`$('proofClose').click()`);await delay(300);
   await check('Closing an in-flight proof rejects late results', `$('proofModal').classList.contains('hidden') && $('proofVideo').classList.contains('hidden') && !window.outputProofBusy`);
+  await run(`$('subEnable').checked=true; $('subEnable').dispatchEvent(new Event('change')); $('reviewGenerate').click()`); await delay(400);
+  await run(`$('reviewSave').click(); closeTrackModal()`);
+  await check('Profile test starts with an approved transcript', `!!reviewProject().doc?.approved`);
+  await run(`$('packageEnable').checked=true; $('packageSrt').checked=true; $('packageTitle').value='Bölüm 1'; $('packageDescription').value='Yayın açıklaması'; $('packageCover').value=.5; $('layoutEnabled').checked=true; $('layoutBottom').value=35; $('layoutEnabled').dispatchEvent(new Event('change'));`);
+  await check('Publication options include approved SRT and independent format layout', `buildOpts().opts.publishPackage.srt && buildOpts().opts.publishLayouts.vertical.bottom===35`);
+  await run(`window.packageProject=buildProject(); publishingApply(null); applyProjectSettings(packageProject,true)`);
+  await check('Project restore retains publication settings', `$('packageTitle').value==='Bölüm 1' && publishingProject().layouts.vertical.bottom===35`);
+  await run(`$('packageCover').value=9999`);
+  await check('Invalid publication cover time blocks enqueue', `buildOpts().error.includes('Kapak')`);
+  await run(`$('packageCover').value=.5; $('publishPackagePanel').open=true; $('publishPackagePanel').scrollIntoView({block:'center'})`); await screenshot('publication-panel');
+  await run(`$('publishProfiles').open=true; $('publishProfileName').value='Röportaj'; $('wmSize').value=14; $('titleSeconds').value=5; $('publishProfileSave').click()`); await delay(100);
+  await check('Named visual profile saves successfully', `!!$('publishProfileSelect').value && $('publishProfileStatus').textContent.includes('kaydedildi')`);
+  await run(`globalThis.profileBefore=JSON.stringify([currentLocalFile,currentRange(),sequenceProject(),reviewProject().doc]); $('wmSize').value=6; $('titleSeconds').value=3; $('publishProfileApply').click()`);
+  await check('Applying a profile restores visual settings and preserves edit content', `+$('wmSize').value===14 && +$('titleSeconds').value===5 && JSON.stringify([currentLocalFile,currentRange(),sequenceProject(),reviewProject().doc])===profileBefore`);
+  await run(`$('editUndo').click()`);
+  await check('Profile application is undoable', `+$('wmSize').value===6 && +$('titleSeconds').value===3`);
+  await run(`$('publishProfileName').value='Röportaj'; $('publishProfileSave').click()`); await delay(100);
+  await check('Duplicate profile names do not overwrite saved profiles', `$('publishProfileSelect').options.length===2 && $('publishProfileStatus').textContent.includes('zaten')`);
+  await run(`$('publishProfiles').scrollIntoView({block:'center'})`); await screenshot('publish-profiles');
+  await win.loadFile(path.join(root,'renderer/index.html')); await delay(400);
+  await check('Profiles remain available after renderer restart', `$('publishProfileSelect').options.length===2 && $('publishProfileSelect').options[1].text==='Röportaj'`);
+  await run(`$('publishProfileSelect').selectedIndex=1; $('publishProfileSelect').dispatchEvent(new Event('change')); $('publishProfileDelete').click()`); await delay(100);
+  await check('Profile removal persists', `$('publishProfileSelect').options.length===1 && $('publishProfileStatus').textContent.includes('silindi')`);
   if (errors.length) throw Error(errors.join('\n'));
   fs.writeFileSync(path.join(out, 'results.json'), JSON.stringify({ checks, errors, waveformRequests: calls.filter(c => c.channel === 'waveform').length }, null, 2));
   app.exit(0);

@@ -19,7 +19,7 @@ const source = path.join(out, 'source.mp4');
 ff(['-f', 'lavfi', '-i', 'testsrc2=size=640x360:rate=12', '-f', 'lavfi', '-i', 'sine=frequency=400:sample_rate=16000', '-t', '2', '-c:v', 'libx264', '-preset', 'ultrafast', '-c:a', 'aac', source]);
 const handlers = new Map(), events = [];
 const app = { isPackaged: false, getPath: () => userData, requestSingleInstanceLock: () => true, on() {}, whenReady: () => new Promise(() => {}), getVersion: () => 'test' };
-const electron = { app, ipcMain: { handle: (name, fn) => handlers.set(name, fn) }, dialog: {}, shell: {} };
+const electron = { safeStorage: {isEncryptionAvailable:()=>true, getSelectedStorageBackend:()=> 'gnome_libsecret', encryptString:s=>Buffer.from('test:'+s), decryptString:b=>b.toString().slice(5)}, app, ipcMain: { handle: (name, fn) => handlers.set(name, fn) }, dialog: {}, shell: {} };
 const context = vm.createContext({
   require: name => name === 'electron' ? electron : name === 'electron-updater' ? { autoUpdater: {} } : nativeRequire(name),
   __dirname: root, __filename: path.join(root, 'main.js'), console,
@@ -103,6 +103,32 @@ async function main() {
   const difference=actual.reduce((sum,n,i)=>sum+Math.abs(n-expected[i]),0)/actual.length;assert.ok(difference<8,`Proof pixel difference: ${difference}`);
   await invoke('output-proof-cleanup',brandedProof.id);checks.push('Proof pixels agree with subtitle, logo and title in actual full export');
   ff(['-i', branded.files[0], '-frames:v', '1', path.join(out, 'branded.png')]);
+  const packageOptions = {enabled:true,title:'Yayın başlığı',description:'Türkçe açıklama',coverTime:.2,srt:true};
+  const packageSub = {source:'edited',style:'klasik',srt:'1\n00:00:00,000 --> 00:00:00,500\nİlk\n\n2\n00:00:01,000 --> 00:00:01,500\nİkinci\n'};
+  const packaged = await invoke('download',{...base,title:'Paket testi',subtitle:packageSub,sequence:[{start:1,end:1.5},{start:0,end:.5}],publishPackage:packageOptions,publishLayouts:{original:{bottom:40,side:20}}});
+  assert.ok(packaged.ok,packaged.error);
+  const sidecar = fs.readFileSync(packaged.files.find(f=>f.endsWith('.srt')),'utf8');
+  assert.ok(sidecar.indexOf('İkinci')<sidecar.indexOf('İlk')); assert.match(sidecar,/00:00:00,500 --> 00:00:01,000/);
+  checks.push('Publication SRT follows reordered output rather than source time');
+  const cover = spawnSync(ffmpeg,['-i',packaged.files.find(f=>f.endsWith('.jpg')),'-vf','scale=64:36','-frames:v','1','-pix_fmt','rgb24','-f','rawvideo','pipe:1'],{windowsHide:true}).stdout, videoFrame = sampleFrame(packaged.files[0],.2);
+  assert.equal(cover.length,videoFrame.length); assert.ok(cover.length>0); assert.ok(cover.reduce((sum,n,i)=>sum+Math.abs(n-videoFrame[i]),0)/cover.length<12);
+  assert.match(fs.readFileSync(packaged.files.find(f=>f.endsWith('.txt')),'utf8'),/Türkçe açıklama/);
+  checks.push('Publication cover matches the rendered output and metadata is UTF-8');
+  const lowLayout = await invoke('download',{...base,title:'Yerleşim karşılaştırma',subtitle:packageSub,sequence:[{start:1,end:1.5},{start:0,end:.5}],publishLayouts:{original:{bottom:5,side:20}}});
+  assert.ok(lowLayout.ok,lowLayout.error); const lowFrame=sampleFrame(lowLayout.files[0],.2);
+  assert.ok(videoFrame.reduce((sum,n,i)=>sum+Math.abs(n-lowFrame[i]),0)/videoFrame.length>.2);
+  checks.push('Format-specific subtitle placement changes the actual rendered frame');
+
+  const invalidPack=await invoke('download',{...base,publishPackage:{...packageOptions,coverTime:10}}); assert.equal(invalidPack.ok,false); assert.match(invalidPack.error,/Kapak/);
+  const missingSub=await invoke('download',{...base,publishPackage:packageOptions}); assert.equal(missingSub.ok,false); assert.match(missingSub.error,/SRT/);
+  checks.push('Invalid cover time and missing approved subtitles stop publication early');
+  const Package=require('../publish-package'); const beforeDirs=fs.readdirSync(out).filter(n=>n.startsWith('Yayin-paketi-'));
+  await assert.rejects(Package.create({options:packageOptions,files:[packaged.files[0]],subtitle:packageSub,ffmpeg,run:async()=>({code:1}),cancelled:()=>false}),/Kapak/);
+  assert.deepEqual(fs.readdirSync(out).filter(n=>n.startsWith('Yayin-paketi-')),beforeDirs); assert.ok(fs.existsSync(packaged.files[0]));
+  checks.push('Failed publication removes only its own sidecars and preserves video');
+  await assert.rejects(Package.create({options:packageOptions,files:[packaged.files[0]],subtitle:packageSub,ffmpeg,run:async()=>{throw Error('must not run');},cancelled:()=>true}),/iptal/);
+  assert.deepEqual(fs.readdirSync(out).filter(n=>n.startsWith('Yayin-paketi-')),beforeDirs);
+  checks.push('Publication cancellation cleans sidecars without deleting exported video');
   const assDir = path.join(out, 'ass'); fs.mkdirSync(assDir, { recursive: true });
   context.titleAss(assDir, 'A{\\pos(0,0)}B', { w: 640, h: 360 }, 10);
   const ass = fs.readFileSync(path.join(assDir, 'title.ass'), 'utf8');
@@ -172,6 +198,8 @@ async function main() {
   };
   const chainResult=await context.generateText('test',.2,()=>{},()=>false);
   assert.ok(chainResult.data.ok);assert.equal(chainResult.model,'gemini-3.6-flash');checks.push('Production Gemini wrapper routes through saved chain and omits obsolete sampling parameters');
+  const publicConfig = await invoke('get-settings'); assert.ok(publicConfig.geminiKey.startsWith('stored:')); assert.ok(!JSON.stringify(publicConfig).includes('fake-test-key')); assert.ok(!JSON.stringify(config).includes('fake-test-key')); assert.ok(!fs.readFileSync(path.join(userData,'settings.json'),'utf8').includes('fake-test-key'));
+  checks.push('Settings IPC and disk storage do not expose plaintext credentials');
   const invalidConfig=await invoke('provider-settings-save',{geminiModelChain:'gemini-3.8-flash-tts'});assert.ok(invalidConfig.error);checks.push('Settings backend rejects audio models in the text chain');
   for(const [format,mime] of [['wav','audio/wav'],['s16le','audio/L16;codec=pcm;rate=24000']]){
     const fixture=path.join(out,`tts-${format}.audio`);

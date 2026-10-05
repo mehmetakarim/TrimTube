@@ -105,3 +105,13 @@
 .review-cut-pick { display: flex; align-items: center; gap: 6px; cursor: pointer; margin-left: auto; }
 .review-cut-pick input { accent-color: var(--accent); }
 .review-cue.cut-selected { background: var(--bg); box-shadow: inset 3px 0 var(--accent); border-radius: 6px; }
+
+.publish-profiles { border:1px solid var(--border); border-radius:8px; padding:12px; margin:12px 0; }
+.publish-profiles summary { cursor:pointer; font-weight:600; font-size:12px; }
+.publish-profiles p, #publishProfileStatus { display:block; font-size:11px; color:var(--muted); line-height:1.6; margin:10px 0; }
+.publish-profiles label { display:grid; gap:6px; font-size:11px; margin:10px 0; }
+.publish-profiles input, .publish-profiles select { min-width:0; width:100%; box-sizing:border-box; background:var(--bg); color:var(--text); border:1px solid var(--border); border-radius:6px; padding:8px; }
+.profile-actions { display:flex; gap:8px; }
+
+.publish-profiles textarea { width:100%; box-sizing:border-box; resize:vertical; background:var(--bg); color:var(--text); border:1px solid var(--border); padding:8px; border-radius:6px; }
+.publish-profiles input[type=checkbox] { width:auto; }

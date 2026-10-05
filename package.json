@@ -10,6 +10,8 @@
   },
   "scripts": {
     "start": "electron .",
+    "test": "node scripts/test.cjs",
+    "test:integration": "node scripts/test.cjs --integration",
     "fetch:win": "node scripts/fetch-ytdlp.js win32",
     "fetch:mac": "node scripts/fetch-ytdlp.js darwin",
     "fetch:linux": "node scripts/fetch-ytdlp.js linux",

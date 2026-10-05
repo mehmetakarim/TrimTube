@@ -9,11 +9,15 @@ permissions:
   contents: write
 
 jobs:
+  regression:
+    uses: ./.github/workflows/regression.yml
+
   # 3 platform işi paralel çalışıp hepsi --publish always ile aynı yeni etikete
   # release oluşturmaya çalışınca yarış durumu oluşabiliyor (bkz. v1.2.1: Windows
   # işi "başarılı" bitti ama exe'yi hiç yükleyemedi). Release'i tek bir işte,
   # matris başlamadan önce oluşturup bu riski ortadan kaldırıyoruz.
   create-release:
+    needs: regression
     runs-on: ubuntu-latest
     steps:
       - env:
@@ -73,6 +77,7 @@ jobs:
 
       - name: Kurgu, altyazı ve sağlayıcı regresyonları
         run: |
+          node scripts/check-secure-settings.cjs
           node scripts/check-transcripts.cjs
           node scripts/check-timeline.cjs
           node scripts/check-review.cjs

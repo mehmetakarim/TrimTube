@@ -1,5 +1,77 @@
 # TrimTube geliştirme planı
 
+## 5 Ekim 2026 — regresyon CI
+
+- Tek giriş: npm test / npm run test:integration. Eski raporu kaldırır,
+  yeni raporun kontrol sayısı/hata alanlarını doğrular, süreçlere süre sınırı koyar.
+- Branch push/PR/manual/reusable Regression workflow: üç işletim sisteminde
+  veri/sağlayıcı; Windows üzerinde Python takip + FFmpeg/IPC + Electron UI.
+- Yalnız raporlar ve sentetik ekran görüntüleri 7 gün artifact olarak tutulur;
+  kullanıcı ayarları veya medya profilleri yüklenmez.
+- Release create/build, reusable regresyon işinin başarısına bağlandı.
+- Paketlenmiş uygulamada gerçek export testi ve macOS/Linux UI entegrasyonu
+  bu adımla tamamlanmış değildir. Yerel tam giriş komutu ve GitHub çalışması
+  ayrı ayrı doğrulanacaktır.
+
+## 5 Ekim 2026 — işletim sistemi destekli anahtar saklama
+
+- `secure-settings.js`: Gemini/ElevenLabs/Pexels anahtarlarını Electron
+  safeStorage ile şifreler. Eski plaintext kayıt ilk ayar okumasında
+  şifrelenip geri çözülerek doğrulanır ve atomik dosya değişimiyle taşınır.
+- Şifreleme/yazma başarısızsa eski dosya korunur ve arayüz durum bildirir.
+  Yeni plaintext kayıt yok; Linux basic_text/unknown reddedilir. Çözülemeyen
+  ciphertext genel ayar kaydında korunur. Bozuk ayar dosyası ezilmez.
+- Renderer yalnız kullanılabilirlik belirten stored:* durum jetonlarını alır;
+  kayıtlı plaintext/ciphertext dönmez. Test isteği anahtarı main süreçten alır.
+- Alan kayıttan sonra temizlenir; boş bırakmak silmez, ayrı Kaldır düğmesi
+  vardır. Göster yalnız yeni girilen değeri gösterir. Profil/diğer ayarlar
+  aynı atomik depoyu kullanır. Genel kayıt hatası görünür kalır.
+- Doğrulama: 10 deterministik depo testi; Windows gerçek DPAPI round-trip
+  yalnız tek kullanımlık deneme metniyle geçti. Arayüz ve gerçek medya/IPC
+  regresyonları tekrar çalıştırıldı. Kullanıcı anahtarlarına dış istek yok.
+- macOS/Linux gerçek kasa saha testi yapılmadı. İmzasız macOS sürümlerinde
+  Keychain tekrar izin isteyebilir; Windows aynı kullanıcıdaki diğer
+  uygulamalara karşı izolasyon garantisi yok. Üretim ayarlarının geçişi
+  güncellenmiş uygulama açıldığında gerçekleşir; bu çalışma henüz yayında değil.
+
+## 5 Ekim 2026 — yayın paketi ve oranlara özel altyazı yerleşimi
+
+- Çıktı panelinde paket seçimi, yayın başlığı/açıklaması, çıktı zamanında kapak
+  saniyesi ve isteğe bağlı onaylı SRT. Her video için işlenmiş çıktıdan JPEG
+  kapak ve aynı dosya köküyle SRT; benzersiz Yayin-paketi klasöründe yayın
+  metni ve paket.json. Video dosyaları ana çıktı klasöründe kalır.
+- SRT sırası/zamanı kurguya göre dönüştürülür. GIF/ses, eksik onaylı altyazı
+  ve çıktı dışı kapak zamanı erken reddedilir. Paket hatası/iptali kendi
+  yarım yan dosyalarını temizler; tamamlanmış videoları korur ve hata bildirir.
+- Orijinal/9:16/1:1 için ayrı altyazı alt/yan boşlukları gerçek çıktı ve
+  prova zincirinde uygulanır; marka profiline dahil edilir. Hızlı kontrol
+  masası ortak yerleşimi gösterir; arayüz bu farkı açıkça belirtir.
+- Paket ayarları proje/taslakta saklanır; kaynak değişince yayın metni ve
+  kapak zamanı sıfırlanır. Otomatik sosyal medya paylaşımı yapılmaz.
+- Doğrulama: 120 Electron ve 42 gerçek medya/IPC kontrolü geçti. Yeniden
+  sıralı SRT, kapak/video piksel karşılaştırması, gerçek yerleşim değişikliği,
+  başarısızlık/iptal temizliği ve proje geri yükleme test edildi.
+- Henüz release alınmadı. Format başına logo/başlık konumu ve kapak için
+  görsel kare seçici bu kapsamda yoktur; altyazı yerleşimi ve sayısal kapak
+  zamanı sunulur. Güvenli anahtar saklama/ortak iş bütçesi sırada kalır.
+
+## 5 Ekim 2026 — yayın ve marka profilleri ilk adımı
+
+- Çıktı panelinde açılır profil alanı: adlandırılmış görünüm kaydet/uygula/sil.
+  En fazla 20 cihaz-yerel profil; aynı adla sessiz üzerine yazma engellenir.
+- Kalite/oranlar, logo yolu/konumu/boyutu/etkinliği, altyazı stili/kenar
+  boşlukları ve başlık süresi saklanır. Kaynak, metin, kurgu ve API anahtarları
+  profile dahil edilmez. Başlık metni ve altyazı etkinliği mevcut projede kalır.
+- Atomik genel ayar kaydı kullanılır. Kayıt hatasında önceki liste korunur;
+  açılışta okuma başarısızsa kaydetme devre dışıdır. Uygulama undo/redo destekler.
+- 117 Electron kontrolü geçti: onaylı metin/kurgu korunumu, görsel ayar
+  uygulama, geri alma, yinelenen ad, yeniden açılış ve silme. Küçük pencere
+  görüntüsü incelendi. Yeni dışa aktarma motoru eklenmedi.
+- Bu yerel geliştirme henüz yayımlanmadı. Logo dosyası cihazda aynı yolda
+  bulunmalıdır; eksik logo mevcut dışa aktarma doğrulamasında hata verir.
+- Kalan yayın paketi: format başına ayrı yerleşim, kapak, SRT yan dosyası,
+  başlık/açıklama ve tutarlı çıktı adlandırma. Güvenli anahtar saklama da açık.
+
 ## 2 Ekim 2026 — ortak transkript / v1.20.0
 
 - AI transkript yardımcısı ve Video Kes altyazı hazırlığı ortak, atomik yazılan

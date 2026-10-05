@@ -1275,6 +1275,8 @@ function buildOpts() {
   if (reviewError) return { error: reviewError };
   const sequenceError = window.sequenceBuildOpts?.(opts);
   if (sequenceError) return { error: sequenceError };
+  const publishingError = window.publishingBuildOpts?.(opts);
+  if (publishingError) return { error: publishingError };
   return { opts };
 }
 
@@ -1449,6 +1451,7 @@ $('downloadBtn').addEventListener('click', () => {
 
 function buildProject() {
   return {
+    publishing: window.publishingProject?.(),
     sequence: window.sequenceProject?.(),
     review: window.reviewProject?.(),
     title: $('title').textContent || null,
@@ -1533,7 +1536,7 @@ function applyProjectSettings(p, includeTrim) {
   }
   window.editorApplyProject?.(p, includeTrim);
   window.reviewApplyProject?.(p.review, includeTrim);
-  if (includeTrim) window.sequenceApplyProject?.(p.sequence);
+  if (includeTrim) { window.sequenceApplyProject?.(p.sequence); window.publishingApply?.(p.publishing); }
   return notes;
 }
 
@@ -1709,9 +1712,9 @@ async function initSettings() {
   });
   $('settingsVersion').textContent = settings.appVersion ? `TrimTube v${settings.appVersion}` : '';
   // API anahtarları (Faz 14 + 16-B)
-  $('setGeminiKey').value = settings.geminiKey || '';
-  $('setElevenKey').value = settings.elevenKey || '';
-  $('setPexelsKey').value = settings.pexelsKey || '';
+  $('setGeminiKey').value = '';
+  $('setElevenKey').value = '';
+  $('setPexelsKey').value = '';
   // Moodlar tercihleri (Faz 15)
   mdInitFromSettings();
   window.connectionsInit?.();

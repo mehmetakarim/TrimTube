@@ -1,5 +1,6 @@
+const PublishPackage = require('./publish-package');
 const TranscriptStore = require('./transcript-store');
-const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, safeStorage } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const { spawn, execFile } = require('child_process');
 const { StringDecoder } = require('string_decoder');
@@ -54,32 +55,12 @@ const SETTINGS_DEFAULTS = {
   ytdlpLastCheck: 0,      // v1.17.0: son otomatik yt-dlp güncelleme kontrolü (ms epoch)
   ytdlpVersion: ''        // v1.17.0: bilinen yt-dlp sürümü (Ayarlar'da gösterim)
 };
-let settingsCache = null;
 function settingsPath() { return path.join(app.getPath('userData'), 'settings.json'); }
-function loadSettings() {
-  if (settingsCache) return settingsCache;
-  try {
-    settingsCache = { ...SETTINGS_DEFAULTS, ...JSON.parse(fs.readFileSync(settingsPath(), 'utf8')) };
-  } catch {
-    settingsCache = { ...SETTINGS_DEFAULTS };
-  }
-  return settingsCache;
-}
-function saveSettings(patch) {
-  const next = { ...loadSettings(), ...patch };
-  try {
-    fs.writeFileSync(settingsPath() + '.pending', JSON.stringify(next, null, 2), 'utf8');
-    fs.renameSync(settingsPath() + '.pending', settingsPath());
-  } catch (err) {
-    try { win?.webContents.send('main-error', 'Ayarlar kaydedilemedi: ' + err.message); } catch {}
-    throw err;
-  }
-  settingsCache = next;
-  return settingsCache;
-}
-
-ipcMain.handle('get-settings', () => ({ ...loadSettings(), appVersion: app.getVersion() }));
-ipcMain.handle('set-settings', (e, patch) => saveSettings(patch));
+const settingsStore = require('./secure-settings').createStore({ file: settingsPath, safeStorage, defaults: SETTINGS_DEFAULTS });
+function loadSettings() { return settingsStore.load(); }
+function saveSettings(patch) { try { return settingsStore.save(patch); } catch (err) { try { win?.webContents.send('main-error', 'Ayarlar kaydedilemedi. Güvenli depo erişimini ve disk yazma iznini kontrol edin.'); } catch {} throw err; } }
+ipcMain.handle('get-settings', () => ({ ...settingsStore.publicSettings(), appVersion: app.getVersion() }));
+ipcMain.handle('set-settings', (e, patch) => { saveSettings(patch); return settingsStore.publicSettings(); });
 
 let win = null;
 let currentProc = null;
@@ -1408,7 +1389,19 @@ async function performExport(e, opts, owner) {
   exportOwner=owner;
   let sequenceDir = null;
   try {
-    return await exportMedia(e, JSON.parse(JSON.stringify(opts)), () => (sequenceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'trimtube-sequence-'))));
+    const job = JSON.parse(JSON.stringify(opts));
+    const pack = owner === 'download' && job.publishPackage?.enabled;
+    if (pack && job.formats?.includes('gif')) throw Error('Yayın paketi için GIF yerine video formatlarını seçin.');
+    if (pack) PublishPackage.validate(job.publishPackage, job.sequence ? TimelineData.duration(TimelineData.validate(job.sequence,job.duration)) : job.trim ? toSec(job.trim.end)-toSec(job.trim.start) : job.duration, job.quality === 'audio', job.subtitle);
+    const result = await exportMedia(e, job, () => (sequenceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'trimtube-sequence-'))));
+    if (result.ok && pack) {
+      win.webContents.send('log', 'Kapak ve yayın dosyaları hazırlanıyor…');
+      try {
+        const extras = await PublishPackage.create({ options:job.publishPackage, files:result.files, subtitle:job.subtitle, ffmpeg:FFMPEG, run:runProc, cancelled:()=>cancelRequested });
+        result.files.push(...extras);
+      } catch (err) { return { ok:false, error:err.message + ' Çıktı klasöründeki videoları kullanabilirsiniz.', files:result.files }; }
+    }
+    return result;
   } catch (err) { return { ok: false, error: err.message }; }
   finally { exportOwner=null; if (sequenceDir) { try { fs.rmSync(sequenceDir, { recursive: true, force: true }); } catch {} } }
 }
@@ -1561,8 +1554,8 @@ async function exportMedia(e, opts, allocateSequenceDir) {
   }
   const subBottom = Math.max(5, Math.min(45, Number(subtitle?.bottom) || 19));
   const subSide = Math.max(3, Math.min(30, Number(subtitle?.side) || 8));
-  const subFilterFor = (marginV) => subStyleBase
-    ? `subtitles=subs.srt:force_style='${subStyleBase},MarginV=${Math.round(subBottom * 2.88)},MarginL=${Math.round(subSide * 3.84)},MarginR=${Math.round(subSide * 3.84)}'`
+  const subFilterFor = (bottom = subBottom, side = subSide) => subStyleBase
+    ? `subtitles=subs.srt:force_style='${subStyleBase},MarginV=${Math.round(bottom * 2.88)},MarginL=${Math.round(side * 3.84)},MarginR=${Math.round(side * 3.84)}'`
     : '';
 
   // Ortak çıktı adı parçaları
@@ -1720,9 +1713,12 @@ async function exportMedia(e, opts, allocateSequenceDir) {
       }
       // Animasyonlu stil: format başına ASS üretilir (PlayRes = çıktı boyutu,
       // MarginV formata göre ölçekli); statik stiller SRT + force_style yolunda
+      const layout = opts.publishLayouts?.[fmt];
+      const bottom = Number.isFinite(layout?.bottom) ? Math.max(5,Math.min(45,layout.bottom)) : subBottom;
+      const side = Number.isFinite(layout?.side) ? Math.max(3,Math.min(30,layout.side)) : subSide;
       const sf = subAnimWords
-        ? 'subtitles=' + writeKaraokeAss(tmpDir, subAnimWords, subtitle.style, outDims, subBottom * 2.88, `anim_${fmt}.ass`, subSide)
-        : subFilterFor(def.marginV);
+        ? 'subtitles=' + writeKaraokeAss(tmpDir, subAnimWords, subtitle.style, outDims, bottom * 2.88, `anim_${fmt}.ass`, side)
+        : subFilterFor(bottom, side);
       if (sf) baseParts.push(sf);
       if (titleText) {
         writeTitleAss(tmpDir, titleText, outDims, Number(opts.titleSeconds) || 3);
@@ -2419,7 +2415,7 @@ const providerClient = createProviderClient({ fetchImpl: (...args) => fetch(...a
   if (apiAttempts.length > 20) apiAttempts.shift();
   try { win.webContents.send('provider-attempt', record); } catch {}
 } });
-ipcMain.handle('provider-test', (e, { provider, key }) => providerClient.testConnection(provider, key));
+ipcMain.handle('provider-test', (e, { provider }) => { const field = {gemini:'geminiKey',eleven:'elevenKey',pexels:'pexelsKey'}[provider]; return providerClient.testConnection(provider, field ? loadSettings()[field] : ''); });
 ipcMain.handle('provider-history', () => apiAttempts);
 ipcMain.handle('provider-settings-save', (e, patch) => {
   try {
@@ -2431,14 +2427,10 @@ ipcMain.handle('provider-settings-save', (e, patch) => {
       if (chain.some(name => !eligible(name, kind))) return { error: 'Metin ve seslendirme modellerini ayrı zincirlere yazın.' };
       clean[key] = chain.join('\n');
     }
-    const next = { ...loadSettings(), ...clean };
-    const temporary = settingsPath() + '.pending';
-    try { fs.writeFileSync(temporary, JSON.stringify(next, null, 2), 'utf8'); fs.renameSync(temporary, settingsPath()); }
-    finally { try { fs.rmSync(temporary, { force: true }); } catch {} }
-    settingsCache = next;
+    saveSettings(clean);
     if (['geminiKey', 'geminiModelChain', 'geminiTtsChain'].some(k => Object.hasOwn(clean, k))) apiAttempts.length = 0;
-    return { ok: true };
-  } catch { return { error: 'Ayarlar kaydedilemedi. Model kimliklerini ve ayar klasörü yazma iznini kontrol edin.' }; }
+    return { ok: true, settings: settingsStore.publicSettings() };
+  } catch { return { error: 'Anahtar kaydedilemedi. Güvenli depo erişimini ve ayar klasörü yazma iznini kontrol edin.' }; }
 });
 
 let aiProc = null;

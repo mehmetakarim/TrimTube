@@ -253,3 +253,50 @@ Altyazılı çıktı için metni ayrıca onaylayın. Metin yeniden oluşturulmaz
 AI ekranlarında hazırlanmış tam transkript, aynı kaynak/model için Video Kes
 alt yazı hazırlığında yeniden kullanılabilir. Kesit zamanları otomatik kaydırılır;
 Whisper kelime zamanları korunur. Kullanıcı düzeltmeleri projeye özeldir.
+
+### Yayın ve marka profilleri (geliştirme sürümü)
+
+Video Kes çıktı panelindeki **Yayın ve marka profilleri** alanından mevcut
+görünümü adlandırıp kaydedin. Profil logo, altyazı görünümü, başlık süresi,
+kalite ve çıktı oranlarını uygular; kaynak, kurgu ve altyazı metni korunur.
+Profiller bu cihazda saklanır; logo dosyası aynı yolda bulunmalıdır.
+
+### Yayın paketi (geliştirme sürümü)
+
+Çıktı panelinde **Yayın paketi ve oranlara göre yerleşim** alanını açın.
+Paket seçeneğiyle yayın başlığı/açıklaması ve çıktı videosundaki kapak saniyesini
+belirleyin. SRT istiyorsanız altyazıyı etkinleştirip metni onaylayın.
+Her video için kapak ve isteğe bağlı SRT, çıktı klasöründeki ayrı
+`Yayin-paketi-*` klasörüne yazılır. Videolar ana çıktı klasöründe kalır.
+Paket GIF/ses için kullanılamaz; otomatik sosyal medya paylaşımı yapmaz.
+
+9:16, 1:1 ve orijinal için farklı altyazı boşlukları tanımlayabilirsiniz.
+Bunları **5 sn gerçek çıktı provası** ile kontrol edin; hızlı kontrol masası
+ortak yerleşimi gösterir. Bu yerleşimler marka profiline de kaydedilir.
+
+### API anahtarlarını saklama (geliştirme sürümü)
+
+Gemini, ElevenLabs ve Pexels anahtarları Electron `safeStorage` ile işletim
+sistemi desteği kullanılarak şifrelenir. Eski anahtarlar uygulama açılışındaki
+ayar okumasında taşınır; geçiş başarısızsa eski dosya korunur ve durum bildirilir.
+Güvenli depo olmadan yeni anahtar kaydedilmez; Linux `basic_text` kabul edilmez.
+
+Kayıtlı anahtar ekrana geri gönderilmez. Boş alan mevcut kaydı silmez;
+**Kaldır** düğmesini kullanın. **Girdiğini göster** yalnız yeni yazdığınız değeri
+gösterir. Kasa kilitliyse açıp uygulamayı yeniden başlatın. Başka bilgisayar veya
+kullanıcı hesabına kopyalanan şifreli ayarlar için anahtarları yeniden girmeniz
+gerekebilir. macOS imzasız sürümleri Keychain erişimini tekrar sorabilir.
+
+Depo regresyonları: `node scripts/check-secure-settings.cjs`.
+
+### Sürekli regresyon kontrolleri
+
+- `npm test`: güvenli ayarlar, ortak transkript, kurgu, altyazı ve sağlayıcı testleri.
+- `npm run test:integration`: bunlara Python takip, gerçek FFmpeg/IPC ve Electron
+  arayüz kontrollerini ekler. Python + OpenCV/numpy gerekir; harici API çağrılmaz.
+
+GitHub Regression iş akışı her branch push ve pull request için veri testlerini
+Windows/Linux/macOS'ta, medya/arayüz entegrasyonunu Windows'ta çalıştırır.
+JSON raporları ve test ekran görüntüleri 7 gün saklanır. Release aynı kontrolleri
+geçmeden kurulum paketlerini hazırlamaz. Arayüz testindeki sandbox/GPU bayrakları
+yalnız test süreçlerine aittir; üretim uygulamasını değiştirmez.
