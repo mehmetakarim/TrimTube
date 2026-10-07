@@ -1,5 +1,19 @@
 # TrimTube geliştirme planı
 
+## 7 Ekim 2026 — CI doğrulaması tamamlandı
+
+GitHub Regression çalışması `37320054858`, commit `11f07f7`: dört iş başarılı.
+Windows/macOS/Linux veri ve sağlayıcı testleri; temiz Windows üzerinde 123
+Electron arayüz, 43 gerçek medya/IPC ve 8 Python takip kontrolü geçti.
+`regression-reports` artifact rapor ve ekran görüntülerini içeriyor (7 gün).
+Sonuç: https://github.com/mehmetakarim/TrimTube/actions/runs/37320054858
+
+Yayın/marka profilleri, yayın paketi, güvenli anahtar saklama ve CI ana dalda
+hazır. Henüz yeni sürüm yayımlanmadı; yayındaki sürüm v1.20.0.
+Kalan teknik kapsam: paketlenmiş uygulamada gerçek dışa aktarma testi,
+macOS/Linux arayüz ve gerçek güvenli kasa saha doğrulaması; ortak ağır iş
+zamanlayıcısı ve disk/önbellek bütçesi.
+
 ## 5 Ekim 2026 — regresyon CI
 
 - Tek giriş: npm test / npm run test:integration. Eski raporu kaldırır,
@@ -11,7 +25,7 @@
 - Release create/build, reusable regresyon işinin başarısına bağlandı.
 - Paketlenmiş uygulamada gerçek export testi ve macOS/Linux UI entegrasyonu
   bu adımla tamamlanmış değildir. Yerel tam giriş komutu ve GitHub çalışması
-  ayrı ayrı doğrulanacaktır.
+  ayrı ayrı doğrulandı (7 Ekim kaydı).
 
 ## 5 Ekim 2026 — işletim sistemi destekli anahtar saklama
 

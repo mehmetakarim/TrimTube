@@ -1,5 +1,13 @@
 # TrimTube Geliştirme Günlüğü
 
+## 7 Ekim 2026 — geliştirme dalı / CI durumu
+
+Ana dal `11f07f7`: yayın profilleri/paketi, güvenli anahtarlar ve CI hazır;
+yeni release henüz yok, yayındaki v1.20.0. Regression `37320054858` dört işte
+başarılı (Windows/macOS/Linux veri; Windows 123 UI + 43 medya + 8 takip).
+Ayrıntılı kalan işler GELISTIRME-PLANI.md başında. Kullanıcının baslat.bat
+dosyası izlenmiyor; değiştirilmedi.
+
 ## v1.20.0 — 2 Ekim 2026, yayımlandı
 
 Metinden kurgu ve ortak ham transkript deposu tamamlandı. Release: https://github.com/mehmetakarim/TrimTube/releases/tag/v1.20.0
