@@ -1,5 +1,39 @@
 # TrimTube Geliştirme Günlüğü
 
+## 8 Ekim 2026 — v1.21.0 hazırlığı (Anlatımlı Video)
+
+Sürüm 1.21.0: Anlatımlı Video + v1.20.0 sonrası yayımlanmamış yayın/marka profilleri, yayın paketi ve güvenli anahtar saklama. Notlar: RELEASE-v1.21.0.md.
+- Yerel doğrulama: npm run test:integration (43 medya/IPC, 134 arayüz, 19 anlatımlı video, takip) geçti; Windows paketlenmiş uygulama (electron-builder --dir) içinden HyperFrames render testi geçti (TrimTube.exe + ELECTRON_RUN_AS_NODE).
+- **TUZAK (yerel):** proje kökünde test çalıştırmalarından kalan bozuk adlı boş klasörler (Chromium yazım denetimi artıkları: MicrosoftSpelling
+eutral) electron-builder dosya taramasını ENOENT ile düşürüyordu; içlerinde dosya olmadığı doğrulanıp silindi. Depoda/CI'da yoklar.
+- Paket: node_modules ~276 MB (ffmpeg-static 80, ffprobe 78, hyperframes+bağımlılıklar ~110).
+
+## 7 Ekim 2026 — Anlatımlı Video: hareket motoru v2 (saha geri bildirimi)
+
+İlk saha çıktısı (serbest üretim, K1/K2 Reels) reddedildi: "AI yaptığı bağırıyor, hareket yok". Teşhis: serbest modda Gemini küçük/statik HTML yazdı; şablonlarda da hareket ilk ~1 sn'de bitiyordu; görsel ile konuşma arasında kelime bağı yoktu.
+- **A — kelime zamanları:** \`voice_align.py\` (faster-whisper, model bir kez yüklenir, tüm sahneler tek çağrı; small varsa small, yoksa base). Ölçüm \`audio/<hash>.words.json\` olarak önbelleklenir; \`VoiceScript.alignTimings\` ekranda onaylı senaryo kelimelerini tutar, Whisper yalnız zamanı verir (LCS eşleme + hece ağırlıklı ara doldurma). Python yoksa \`estimateTimings\` + uyarı. Altyazı katmanı artık gerçek kelime zamanlarından (\`cuesFromTimings\`).
+- **B — hareket:** başlık hemen kademeli girer, kelime söylendiği an vurgu rengine sıçrar; sayılar söylendiği an sayaçla yükselir (her kare \`tl.set textContent\`, birim küçük ayrı span); liste maddeleri anıldıkça girer ve aktif madde parlar; alıntı kelimeleri okundukça aydınlanır. Sürekli katman: kamera itişi + vurgu sarsıntısı, kenarda soluk renk lekeleri, sese tepki veren hale, toz, periyodik ışık süpürmesi, kuyruklu ışık, hayalet kelime; flaşlı whip giriş / bulanık savrulma çıkış. Kalıplar HyperFrames kataloğundan (caption-highlight, count-up, headline-slam, push-in, light-sweep-pass, grain-overlay; Apache-2.0) uyarlandı.
+- **İsteğe bağlı kinetik altyazı** (\`captions\`): açıkken kurgu masasına ayrı altyazı katmanı aktarılmaz (çift altyazı olmasın).
+- **TUZAK:** animasyonlu film greni her karede gürültü → 55 sn Reels 126 MB (18 Mbps). Gren sabitlendi + \`--crf 19\` → 33 MB.
+- Aynı senaryo, önbellekteki aynı seslerle (API çağrısı yok) yeniden render edildi: \`Downloads/Creality K1 vs K2 - Reels (hareket v2).mp4\`.
+- **C — gerçek görseller (yapıldı):** \`VoiceScript.extractImages\` sayfadan og/twitter görseli + makale/ana bölüm img (data-src, srcset en büyüğü; logo/ikon/küçük/svg/gif/data URL elenir). Görsel listesi istemle gider, Gemini sahne başına \`image\` indeksi seçer (aralık dışı/uygunsuz seçim atılır). Sahne kartında görsel seçici: sayfa galerisi, \`vv-choose-media\` dosya seçici, karta sürükle-bırak (\`vv-media-info\`; küçük resim ffmpeg ile data URL). Genel sürükle-bırak bu ekranda devre dışı — önceden bırakılan video sessizce Video Kes'e yükleniyordu.
+  - Üretimde sayfa görseli indirilir (yalnız image/*, ≤30 MB), yerel dosya kopyalanır; 200 px altı reddedilir (uyarı, görselsiz devam). Sunum 24x24 RGBA özetinden: gerçek şeffaflık >%8 → kartsız kesim (gölge + hale); kenar tekdüze → kenar rengindeki "stüdyo" kartı (contain); aksi halde fotoğraf kartı (cover + Ken Burns). **TUZAK:** piksel biçimi adına (rgba/pal8) güvenme — kullanıcının rgba PNG'si aslında beyaz zeminli, pal8 karşılaştırma görseli opak.
+  - Kutu görselin oranını izler (yatay görsel kırpılmaz); dikeyde metin görselin altından, yatayda sağından başlar (zoom .78/.74). Görselli sahnede stok medya ve hayalet kelime kullanılmaz; audiogram kendi düzenini korur.
+- Sırada: D geçiş/ses efektleri + müzik, E serbest üretimin yeniden kurulması, isteğe bağlı arka plan kaldırma (HyperFrames \`remove-background\`).
+
+## 7 Ekim 2026 — Anlatımlı Video (HyperFrames) — kod tamam, saha testi bekliyor
+
+Yeni ekran: metin/URL → Gemini duygu etiketli senaryo (onaylı) → sahne başına TTS → HyperFrames → kurgu masası.
+- **Dosyalar:** `renderer/voice-script.js` (UMD: etiket dili, sağlayıcı çevirisi, istem, doğrulama, HTML temizleme, okunur sayfa metni), `voice-compose.js` (sahne kompozisyonu: 7 şablon + ses dalgası/audiogram + serbest tasarım), `voice-video.js` (IPC: `vv-source`, `vv-script`, `vv-produce`, `vv-cancel`, ilerleme `vv-progress`), `renderer/voice-video.js/.css`.
+- **Gemini 3.x TTS biçimi değişti:** köşeli etiketler yerine anlık sesler `<laugh>`, `<sigh>`, `<short pause>`; sürekli ton part başına `speech_metadata.style`. Satır içi "Say cheerfully:" 3.x'te sesli okunabilir; yalnız 2.x modellerine verilir (`body(model)` ile model başına istek).
+- **ElevenLabs:** Hikâye Kurgusu'ndaki `eleven_multilingual_v2` ses etiketlerini desteklemez; bu ekran `eleven_v4` → `eleven_v3` kullanır (Türkçe destekli). Duraklama etiketi yok, "…" kullanılır.
+- **HyperFrames çalıştırma:** `process.execPath` + `ELECTRON_RUN_AS_NODE=1` (Electron 37 = Node 22.21, HyperFrames ≥22 ister). Ortam sıfırdan kurulur (API anahtarları alt sürece geçmez; `HYPERFRAMES_NO_TELEMETRY=1`, `DO_NOT_TRACK=1`). ffmpeg-static'te ffprobe yok → `@ffprobe-installer/ffprobe` (yalnız kurulu platformun ikilisi) + `HYPERFRAMES_FFPROBE_PATH`. İlk render tarayıcıyı `~/.cache/hyperframes` altına indirir (~270 MB, bir kerelik; `browser ensure` adımı). Derleyici Inter yazı tipini Google Fonts'tan bir kez çekip önbelleğe alır.
+- **TUZAK:** kompozisyon süresi değişkenle (`--variables`) değiştirilemez; `data-duration` derlemede okunur. Bu yüzden her sahne kendi HTML dosyası, kendi süresiyle. CSS animasyonları klibin başına göre zamanlanır (doğrulandı). Ses dalgası `tl.set` satırlarıyla çizilir (sarılabilir/deterministik).
+- **Önbellek:** ses = hash(sağlayıcı, ses, TTS zinciri, metin); görüntü = hash(sahne HTML'i). Sahneler kayıpsız (`-c:v copy`) art arda eklenir, anlatım tek WAV olarak bindirilir. Son sahnede sabit 1 sn sessizlik: kurgu masası yerel süreyi aşağı yuvarlar; konuşma kırpılmaz ve son sahne diğerlerinden bağımsız kalır (yuvarlamayı son sahneye eklemek her düzenlemede onu da yeniden render ettiriyordu).
+- **Kurgu masası (Yol A):** `sequenceApplyProject` ile sahneler parça; `reviewImportCues` (review.js) ile altyazı onay bekleyen katman. Altyazı zamanları sahne içinde karakter oranıyla tahmindir; Whisper ile yeniden oluşturulabilir.
+- **Testler:** `check-voice-video.cjs` 14 birim (npm test) + `--render` uçtan uca gerçek HyperFrames hattı (sahte TTS; ikinci üretimde yalnız düzenlenen sahne yeniden seslendirilir/render edilir) — `test:integration`'da Electron Node'u ile. Arayüz: 133 kontrol (9 yeni + ekran geçişi). Paketlenmiş kurulum ve gerçek API ile henüz denenmedi.
+- **Boyut:** hyperframes + bağımlılıkları ~130 MB (açılmış) kuruluma eklenir.
+
 ## 7 Ekim 2026 — geliştirme dalı / CI durumu
 
 Ana dal `11f07f7`: yayın profilleri/paketi, güvenli anahtarlar ve CI hazır;

@@ -1125,6 +1125,7 @@ const dropTargetEl = () => onCompressView() ? $('cmpDrop') : onSmartTrimView() ?
 window.addEventListener('dragenter', (e) => {
   if (!Array.from(e.dataTransfer.types || []).includes('Files')) return;
   e.preventDefault();
+  if (currentView === 'voice') return; // sahne kartları kendi bırakma alanıdır
   dragDepth++;
   const dt = dropTargetEl();
   if (dt) dt.classList.add('drag');
@@ -1153,6 +1154,7 @@ window.addEventListener('drop', (e) => {
   $('stDrop').classList.remove('drag');
   $('mdDrop').classList.remove('drag');
   $('brDrop').classList.remove('drag');
+  if (currentView === 'voice') { if (!e.defaultHandled) window.vvDropOutside?.(); return; }
   const file = e.dataTransfer.files && e.dataTransfer.files[0];
   if (!file) return;
   // .trimtube projesi her ekrandan bırakılabilir (Faz 12)
@@ -1824,7 +1826,7 @@ $('ytdlpUpdateBtn').addEventListener('click', async () => {
 // Her menü öğesi bir ekran gösterir; ana ekran kalabalıklaşmadan yeni özellikler
 // (Faz 12+: GIF, Moodlar…) kendi ekranlarıyla eklenir. Ayarlar ve Sıkıştır
 // eskiden modaldı, artık birer ekran.
-const VIEWS = { cutter: 'viewCutter', compress: 'viewCompress', smarttrim: 'viewSmartTrim', ai: 'viewAI', mood: 'viewMood', broll: 'viewBroll', settings: 'viewSettings' };
+const VIEWS = { cutter: 'viewCutter', compress: 'viewCompress', smarttrim: 'viewSmartTrim', ai: 'viewAI', mood: 'viewMood', broll: 'viewBroll', voice: 'viewVoice', settings: 'viewSettings' };
 let currentView = 'cutter';
 
 function switchView(name) {
@@ -1837,6 +1839,7 @@ function switchView(name) {
   if (name === 'settings') { refreshCacheInfo(); refreshYtdlpInfo(); }
   if (name === 'ai') aiRefreshView(); // anahtar/kaynak durumu her girişte tazelenir
   if (name === 'mood') mdRefreshView();
+  if (name === 'voice') window.vvRefreshView?.();
   window.workspaceRefresh?.();
 }
 

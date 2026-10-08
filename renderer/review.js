@@ -282,6 +282,14 @@
     refresh();
   };
   window.reviewRefreshCues = renderCues;
+  // Anlatımlı videodan gelen altyazı katmanı: kullanıcı düzeltip onaylayana dek taslaktır.
+  window.reviewImportCues = cues => {
+    const parsed = ReviewData.parse(ReviewData.serialize(cues), currentRange().duration);
+    window.sessionCheckpoint?.();
+    doc = { key: textKey(), cues: parsed, words: [], approved: false };
+    renderCues(); refresh(); window.sessionCommit?.();
+    return parsed.length;
+  };
   modal.addEventListener('keydown', e => {
     if (e.key === 'Escape') { e.preventDefault(); closeTrackModal(); }
     if (e.key === 'Tab') {

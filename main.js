@@ -52,6 +52,7 @@ const SETTINGS_DEFAULTS = {
   moodVoiceGemini: 'Kore', // Faz 15: son seçilen Google (Gemini) sesi
   moodSubtitle: false,    // Faz 15: kurguya altyazı gömme tercihi
   pexelsKey: '',          // Faz 16-B: Pexels API anahtarı (B-Roll stok videoları)
+  voiceVideo: null,       // Anlatımlı video: son biçim/ses/tasarım tercihleri
   ytdlpLastCheck: 0,      // v1.17.0: son otomatik yt-dlp güncelleme kontrolü (ms epoch)
   ytdlpVersion: ''        // v1.17.0: bilinen yt-dlp sürümü (Ayarlar'da gösterim)
 };
@@ -3700,3 +3701,6 @@ ipcMain.handle('subtitle-review', async (e, opts) => {
   } catch (err) { return { error: err.message }; }
   finally { subtitleReviewBusy = false; try { fs.rmSync(tmp, { recursive: true, force: true }); } catch {} }
 });
+
+// Anlatımlı video: metin/URL → duygu etiketli senaryo → TTS → HyperFrames (voice-video.js)
+require('./voice-video').register({ ipcMain, app, getWin: () => win, loadSettings, providerClient, ffmpeg: FFMPEG, procEnv, uniquePath, sanitizeName, resolvePython, dialog });

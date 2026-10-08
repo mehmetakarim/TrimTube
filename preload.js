@@ -102,5 +102,14 @@ contextBridge.exposeInMainWorld('api', {
   brollRender: (opts) => ipcRenderer.invoke('broll-render', opts),
   brollCancel: () => ipcRenderer.invoke('broll-cancel'),
   onBrollProgress: (cb) => ipcRenderer.on('broll-progress', (e, p) => cb(p)),
-  openPexelsKeyPage: () => ipcRenderer.invoke('open-pexels-key-page')
+  openPexelsKeyPage: () => ipcRenderer.invoke('open-pexels-key-page'),
+
+  // Anlatımlı video: kaynak okuma → senaryo → seslendirme + HyperFrames render
+  vvSource: (opts) => ipcRenderer.invoke('vv-source', opts),
+  vvScript: (opts) => ipcRenderer.invoke('vv-script', opts),
+  vvProduce: (job) => ipcRenderer.invoke('vv-produce', job),
+  vvCancel: () => ipcRenderer.invoke('vv-cancel'),
+  vvChooseMedia: () => ipcRenderer.invoke('vv-choose-media'),
+  vvMediaInfo: (path) => ipcRenderer.invoke('vv-media-info', path),
+  onVvProgress: (cb) => ipcRenderer.on('vv-progress', (e, p) => cb(p))
 });

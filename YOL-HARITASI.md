@@ -120,6 +120,16 @@ Saha geri bildirimi: 3 dk'lık klip ~350MB çıkabiliyor (donanım kodlayıcı b
 - [x] Buton izlenen anı da gönderir → uygulamada kesim başlangıcı olarak işaretlenir
 - [ ] Mağaza dağıtımı — ayrıca konuşulacak (geliştirici modunda yükleme belgelendi: `extension/README.md`)
 
+### 🎙️ Ayrı Kulvar — Anlatımlı Video (HyperFrames) · geliştirme dalında (yayınlanmadı)
+- [x] Yeni ekran **Anlatımlı Video**: metin veya bağlantı → biçim (Reels/Shorts 9:16 · Podcast 16:9) → TTS (Gemini / ElevenLabs) → tasarım (şablon kütüphanesi / serbest üretim) → isteğe bağlı Pexels fotoğraf/video
+- [x] Duygu etiketli senaryo (Gemini): kaynak sayfa önce okunur, yalnız gerçek içerikten yazılır; **seslendirmeden önce kullanıcı onayı** (metin, etiketler, sahne görselleri düzenlenir; taslak cihazda saklanır)
+- [x] Ortak etiket dili, sağlayıcıya göre sözlük: Gemini 3.x → `speech_metadata.style` + `<laugh>` biçimi (eski 2.x → doğal dil tonu); ElevenLabs → `eleven_v4` (yoksa `eleven_v3`) ses etiketleri. Desteklenmeyen/tanınmayan etiketler onay ekranında uyarılır
+- [x] HyperFrames video motoru (Electron'un kendi Node'u ile, kurulum gerektirmez): 7 sahne şablonu (başlık, vurgu, istatistik halkası, büyük sayılar, alıntı kartı, liste, kapanış), ses dalgası ve audiogram (podcast), serbest tasarım (temizlenmiş HTML+CSS, render edilemezse şablona döner)
+- [x] Sahne başına ses + render, içerik özetiyle önbellek → düzenlemeden sonra **yalnız değişen sahneler** yeniden seslendirilir/render edilir; görüntü kayıpsız birleştirilir
+- [x] Kurgu masasına aktarım (Yol A): sahneler kurgu parçası, altyazı ayrı ve onay bekleyen katman
+- [ ] Gerçek API ile saha testi (Gemini 3.8 TTS `speech_metadata`, ElevenLabs v4 Türkçe) ve paketlenmiş kurulumda deneme (ilk render tarayıcı bileşenini indirir)
+- [ ] **EMA Lightning** (yerel, ücretsiz Türkçe TTS) genel seslendirme seçeneği olarak — ayrı iş kalemi (duygu kontrolü yok; PyTorch dağıtımı kararı gerekiyor)
+
 ### Bilinçli olarak kapsam dışı
 - [ ] ~~Diğer platform kaynakları (X, Instagram vb.)~~ — teknik olarak kolay ama ayrı bir ürün yönü; şimdilik YouTube odağı korunuyor
 - [ ] ~~Sosyal medyaya doğrudan paylaşım/yükleme~~ — OAuth/API/platform kuralları; bu projenin kapsamı dışında

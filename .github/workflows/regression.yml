@@ -31,7 +31,7 @@ jobs:
   integration:
     name: Windows media and editor integration
     runs-on: windows-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -55,3 +55,4 @@ jobs:
             build/media-qa/results.json
             build/studio-qa/results.json
             build/studio-qa/*.png
+            build/voice-video-qa/results.json

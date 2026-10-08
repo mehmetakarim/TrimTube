@@ -1,0 +1,217 @@
+// Anlatımlı video: etiket dili, sağlayıcı çevirisi, senaryo doğrulama ve sahne
+// kompozisyonu. --render ile gerçek HyperFrames hattı sahte TTS ile uçtan uca
+// çalıştırılır (Electron'un Node'u ile: node scripts/test.cjs --integration).
+const assert = require('assert/strict');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const V = require('../renderer/voice-script');
+const C = require('../voice-compose');
+const checks = [];
+const check = (name, fn) => { fn(); checks.push(name); };
+
+const SAMPLE = '[excited] Selam, hoş geldiniz! [laughs] Bugün harika bir konu var.\n\n[sighs] Biliyorum, yorucu. [pauses] Ama bakın.\n[whispering] Bir sır vereyim mi? [normal] Yazmama yardım et özelliği. [foo] son.';
+
+check('Tag vocabulary follows provider capabilities', () => {
+  const g = V.vocabulary('gemini'), e = V.vocabulary('eleven');
+  assert.ok(g.tones.includes('empathetic') && !g.tones.includes('sarcastic'));
+  assert.ok(e.tones.includes('sarcastic') && !e.tones.includes('empathetic') && !e.tones.includes('fast'));
+  assert.deepEqual(g.events, e.events);
+});
+check('Tone tags switch mid-paragraph; unknown and unsupported tags are reported', () => {
+  const g = V.parseNarration(SAMPLE, 'gemini');
+  assert.deepEqual(g.segments.map(s => s.tone), ['excited', 'whispering', 'normal']);
+  assert.deepEqual(g.unknown, ['foo']);
+  const e = V.parseNarration('[empathetic] Seni anlıyorum. [fast] Hızlı.', 'eleven');
+  assert.deepEqual(e.unsupported.sort(), ['empathetic', 'fast']);
+  assert.equal(V.plainText('[empathetic] Seni anlıyorum.'), 'Seni anlıyorum.');
+});
+check('Gemini 3.x parts carry style metadata and angle-bracket vocalizations', () => {
+  const parts = V.geminiParts(V.parseNarration(SAMPLE, 'gemini').segments);
+  assert.equal(parts[0].speech_metadata.style, V.TONES.excited.gemini);
+  assert.ok(parts[0].text.includes('<laugh>') && parts[0].text.includes('<sigh>') && parts[0].text.includes('<short pause>'));
+  assert.equal(parts[1].speech_metadata.style, 'whispers');
+  assert.ok(!parts[2].speech_metadata, 'normal tone has no style');
+  assert.ok(parts.every(p => !/\[[a-z]/.test(p.text)), 'no square tags reach Gemini 3.x');
+});
+check('ElevenLabs text uses its own audio tags; pauses become ellipses', () => {
+  const text = V.elevenText(V.parseNarration(SAMPLE, 'eleven').segments);
+  assert.ok(text.startsWith('[excited] Selam'));
+  assert.ok(text.includes('[laughs]') && text.includes('[sighs]') && text.includes('[whispers] Bir sır') && text.includes('…'));
+  assert.ok(!text.includes('[foo]') && !text.includes('[normal]') && !text.includes('<'));
+});
+check('Legacy Gemini 2.x receives untagged text with a natural-language style', () => {
+  assert.ok(V.isLegacyGeminiTts('gemini-2.5-flash-preview-tts') && !V.isLegacyGeminiTts('gemini-3.8-flash-tts'));
+  const text = V.legacyGeminiText(V.parseNarration(SAMPLE, 'gemini').segments);
+  assert.ok(/^Say \w/.test(text) && !/[[<]/.test(text));
+});
+check('Duration estimate is derived from spoken text only', () => {
+  assert.equal(V.estimateSeconds('[excited] ' + 'a'.repeat(150)), 150 / V.CHARS_PER_SECOND);
+});
+check('Free design HTML cannot run scripts, handlers or load external resources', () => {
+  const s = V.sanitizeHtml('<style>@import "x.css";.s-a{background:url(https://x/y.png)}</style><div class="s-a" onclick="alert(1)" style="color:red">Hi<img src="https://e/x"><script>fetch("//e")</script><iframe src="https://e"></iframe><a href="javascript:alert(1)">x</a></div>');
+  for (const bad of ['<script', 'fetch', 'onclick', '<img', 'https://', '@import', 'iframe', 'javascript:', 'href']) assert.ok(!s.includes(bad), bad);
+  assert.ok(s.includes('style="color:red"') && s.includes('Hi'));
+});
+check('Readable page text prefers article content and decodes entities', () => {
+  const r = V.extractReadable('<html><head><title>Başlık &amp; Test</title><script>var x=1</script></head><body><nav>menü</nav><article><h1>Merhaba</h1><p>Bir &quot;iki&quot;&nbsp;üç &#304;stanbul.</p><ul><li>madde</li></ul></article><footer>alt</footer></body></html>');
+  assert.equal(r.title, 'Başlık & Test');
+  assert.ok(r.text.includes('Bir "iki" üç İstanbul.') && r.text.includes('• madde'));
+  assert.ok(!r.text.includes('menü') && !r.text.includes('var x') && !r.text.includes('alt'));
+});
+check('Script normalization clamps fields and keeps free HTML only in free design', () => {
+  const data = { title: 'T', scenes: [{ narration: '[excited] Merhaba dünya.', visual: { type: 'nope', heading: 'x'.repeat(300), items: ['a', { value: '1234567890123456', text: 'b' }] }, keywords: 'k', html: '<div onclick="x">a</div>' }, { narration: '[normal]   ', visual: {} }] };
+  const t = V.normalizeScript(data, { design: 'template' });
+  assert.equal(t.scenes.length, 1); assert.equal(t.scenes[0].visual.type, 'statement');
+  assert.equal(t.scenes[0].visual.heading.length, 90); assert.equal(t.scenes[0].visual.items[1].value.length, 12);
+  assert.ok(!t.scenes[0].html);
+  const f = V.normalizeScript(data, { design: 'free' });
+  assert.equal(f.scenes[0].html, '<div>a</div>');
+  assert.throws(() => V.normalizeScript({ scenes: [] }));
+  assert.ok(t.scenes[0].id !== V.normalizeScript(data).scenes[0].id, 'scene ids are unique');
+});
+check('Prompt carries provider vocabulary, format rules and no community branding', () => {
+  const g = V.buildScriptPrompt({ source: 'kaynak metin', format: 'reels', provider: 'gemini' });
+  assert.ok(g.includes('[empathetic]') && !g.includes('[sarcastic]') && g.includes('45-60') && !/stepperskip/i.test(g) && !g.includes('"html"'));
+  const e = V.buildScriptPrompt({ source: 'kaynak', format: 'podcast', length: 'long', provider: 'eleven', design: 'free', fromUrl: true });
+  assert.ok(e.includes('[sarcastic]') && !e.includes('[empathetic]') && e.includes('330-480') && e.includes('"html"') && e.includes('web sayfasından'));
+});
+check('Caption cues stay inside their scene and in order', () => {
+  const cues = V.estimateCues([{ narration: '[excited] Birinci cümle burada. İkinci cümle biraz daha uzun olabilir mi acaba?', start: 0, duration: 5, speech: 4.6 }, { narration: 'Son.', start: 5, duration: 2, speech: 1 }]);
+  assert.ok(cues.length >= 3);
+  for (let i = 0; i < cues.length; i++) { assert.ok(cues[i].end > cues[i].start); if (i) assert.ok(cues[i].start >= cues[i - 1].end - 1e-6); }
+  assert.ok(cues.filter(c => c.start < 5).every(c => c.end <= 5));
+  assert.ok(V.captionLines('a '.repeat(60)).every(l => l.length <= 42));
+});
+check('Scene composition escapes text, snaps duration to frames and registers a timeline', () => {
+  const html = C.buildSceneHtml({ scene: { visual: { type: 'title', heading: '<img src=x onerror=alert(1)> Başlık', subheading: 'a & b' } }, index: 1, total: 3, duration: 2.01, format: 'reels' });
+  assert.ok(!html.includes('<img src=x') && html.includes('&lt;img'));
+  assert.ok(html.includes('data-duration="2"') && html.includes('data-width="1080"') && html.includes('data-height="1920"'));
+  assert.ok(html.includes('window.__timelines["root"] = tl') && html.includes('<script src="gsap.min.js">'));
+  assert.ok(!/https?:\/\//.test(html), 'composition is offline');
+  assert.equal(C.snap(1.0), 1); assert.equal(C.frames(1 / 30 * 7.4), 7);
+});
+check('Every template, wave, audiogram, media and free design produce valid compositions', () => {
+  const env = Array.from({ length: 30 }, (_, k) => k % 2 ? .8 : .2);
+  for (const type of V.VISUAL_TYPES) {
+    const html = C.buildSceneHtml({ scene: { visual: V.normalizeVisual({ type, heading: 'H', value: '%45', label: 'L', quote: 'Q', author: 'A', items: [{ value: '1', text: 't' }] }) }, duration: 2, format: 'podcast' });
+    assert.ok(html.includes('data-width="1920"'), type);
+  }
+  const wave = C.buildSceneHtml({ scene: { visual: { type: 'title', heading: 'x' } }, duration: 2, format: 'podcast', waveMode: 'wave', envelope: env });
+  assert.ok(wave.includes('class="wave"') && wave.includes('tl.set(bars'));
+  const ag = C.buildSceneHtml({ scene: { visual: { type: 'quote', quote: 'söz' } }, duration: 2, format: 'podcast', waveMode: 'audiogram', envelope: env, title: 'Bölüm' });
+  assert.ok(ag.includes('ag-wave') && ag.includes('Bölüm') && ag.includes('söz'));
+  const media = C.buildSceneHtml({ scene: { visual: { type: 'title', heading: 'x' } }, duration: 3, media: { kind: 'video', file: 'media/v1.mp4' } });
+  assert.ok(media.includes('<video class="media"') && media.includes('muted') && media.includes('data-duration="3"'));
+  const free = C.buildSceneHtml({ scene: { html: '<div class="s-x">özgün</div>', visual: { type: 'title' } }, duration: 2 });
+  assert.ok(free.includes('<div class="free"><div class="s-x">özgün</div></div>'));
+});
+check('Audio envelope is normalized to 0..1 at 15 samples per second', () => {
+  const rate = 48000, buf = Buffer.alloc(rate * 2 * 2);
+  for (let i = 0; i < rate * 2; i++) buf.writeInt16LE(Math.round(Math.sin(i / 20) * (i < rate ? 3000 : 20000)), i * 2);
+  const env = C.envelopeFromPcm(buf, rate);
+  assert.equal(env.length, 30); assert.ok(env.every(v => v >= 0 && v <= 1)); assert.ok(env[25] > env[5] * 3);
+});
+
+check('Measured word times are aligned to the approved script text, gaps interpolated', () => {
+  const words = V.alignTimings('[excited] Creality K1 mi yoksa K2 mi? Farklara bakalım.', [{ word: 'Kreality', start: 0, end: .5 }, { word: 'K1', start: .6, end: .9 }, { word: 'mi', start: .9, end: 1 }, { word: 'yoksa', start: 1.1, end: 1.5 }, { word: 'K2', start: 1.6, end: 1.9 }, { word: 'mi?', start: 1.9, end: 2 }, { word: 'bakalım.', start: 3, end: 3.5 }], 3.6);
+  assert.deepEqual(words.map(w => w.text), ['Creality', 'K1', 'mi', 'yoksa', 'K2', 'mi?', 'Farklara', 'bakalım.']);
+  assert.equal(words[1].start, .6); assert.ok(words[6].start >= 2 && words[6].end <= 3);
+  for (let i = 1; i < words.length; i++) assert.ok(words[i].start >= words[i - 1].start);
+  const est = V.estimateTimings('Bir iki. Üç', 3); assert.equal(est.length, 3); assert.ok(est[2].end <= 3);
+  const cues = V.cuesFromTimings([{ start: 10, words }]); assert.ok(cues[0].start >= 10 && cues.every(c => c.end > c.start));
+});
+check('Numbers count up with units kept small and synced to the spoken word', () => {
+  assert.deepEqual(C.parseNumber('600 mm/s'), { prefix: '', value: 600, decimals: 0, suffix: ' mm/s' });
+  assert.equal(C.parseNumber('1.250.000 TL').value, 1250000); assert.equal(C.parseNumber('2,5x').decimals, 1);
+  const html = C.buildSceneHtml({ scene: { visual: { type: 'stat', value: '600 mm/s', label: 'Hız' } }, duration: 4, speech: 3.5, words: [{ text: 'Saniyede', start: .2, end: .7 }, { text: '600', start: 1.5, end: 1.9 }, { text: 'milimetre', start: 1.9, end: 2.4 }] });
+  assert.ok(html.includes('<span class="unit">mm/s</span>') && html.includes("tl.set('#statValue .n',{textContent:r[k]},1.38+k/30)"));
+  const title = C.buildSceneHtml({ scene: { visual: { type: 'title', heading: 'K1 vs K2' } }, duration: 6, speech: 5.5, words: [{ text: 'Creality', start: 2.6, end: 3.3 }, { text: 'K1', start: 3.34, end: 3.9 }] });
+  assert.ok(title.includes("tl.fromTo('#h0',{y:80") && title.includes("color:'#8b7bff',duration:.1,ease:'power2.out'},3.34)"), 'title enters at once and pops when spoken');
+});
+
+check('Page images: og image, article images, lazy and srcset sources; logos, icons and tiny images skipped', () => {
+  const html = '<html><head><meta property="og:image" content="https://cdn.x.com/k2-hero.jpg"></head><body><header><img src="/logo.png"></header><article><img src="/img/k1.png" alt="Creality K1" width="800"><img data-src="/img/k2.webp" alt="K2 Plus"><img src="/i/tiny.png" width="40"><img srcset="/a-400.jpg 400w, /a-1200.jpg 1200w" alt="CFS"><img src="/icons/cart-icon.png"><img src="data:image/png;base64,xx"><img src="/x.svg"></article></body></html>';
+  const images = V.extractImages(html, 'https://shop.example.com/urun/k1');
+  assert.deepEqual(images.map(i => i.url), ['https://cdn.x.com/k2-hero.jpg', 'https://shop.example.com/img/k1.png', 'https://shop.example.com/img/k2.webp', 'https://shop.example.com/a-1200.jpg']);
+  assert.equal(images[1].alt, 'Creality K1');
+  const prompt = V.buildScriptPrompt({ source: 'x', images });
+  assert.ok(prompt.includes('SAYFA GÖRSELLERİ') && prompt.includes('[1] Creality K1') && prompt.includes('"image"'));
+  const script = V.normalizeScript({ scenes: [{ narration: 'Bir', image: 1 }, { narration: 'İki', image: 9 }, { narration: 'Üç', media: { source: 'page', url: 'javascript:alert(1)' } }] }, { images });
+  assert.equal(script.scenes[0].media.url, 'https://shop.example.com/img/k1.png');
+  assert.ok(!script.scenes[1].media && !script.scenes[2].media, 'out-of-range or unsafe picks are dropped');
+  assert.equal(V.normalizeMedia({ source: 'local', path: 'C:/x/a.exe' }), null);
+  assert.equal(V.normalizeMedia({ source: 'local', kind: 'video', path: 'C:/x/a.mp4' }).kind, 'video');
+});
+check('Hero media: cutout, studio and photo treatments; box follows aspect and text starts below it', () => {
+  const base = { scene: { visual: { type: 'title', heading: 'K1 vs K2' } }, duration: 4, speech: 3 };
+  const wide = C.buildSceneHtml({ ...base, hero: { kind: 'image', file: 'media/a.png', w: 1920, h: 1080 } });
+  assert.ok(wide.includes('class="hero hero-photo"') && wide.includes('height:523px') && wide.includes('padding-top:703px'));
+  const studio = C.buildSceneHtml({ ...base, hero: { kind: 'image', file: 'media/b.png', w: 1000, h: 1000, edge: '#ffffff' } });
+  assert.ok(studio.includes('hero-studio') && studio.includes('background:#ffffff'));
+  const cut = C.buildSceneHtml({ ...base, hero: { kind: 'image', file: 'media/c.png', w: 800, h: 1000, cutout: true } });
+  assert.ok(cut.includes('hero-cutout') && cut.includes('hero-glow') && !cut.includes('class="ghost"'));
+  const vid = C.buildSceneHtml({ ...base, format: 'podcast', hero: { kind: 'video', file: 'media/v.mp4', w: 1920, h: 1080 } });
+  assert.ok(vid.includes('<video class="hero-media"') && vid.includes('muted') && vid.includes('padding-left:46%'));
+  const audiogram = C.buildSceneHtml({ ...base, format: 'podcast', waveMode: 'audiogram', hero: { kind: 'image', file: 'media/a.png', w: 10, h: 10 } });
+  assert.ok(!audiogram.includes('id="hero"'), 'audiogram keeps its own layout');
+});
+
+async function renderPipeline() {
+  const handlers = {};
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'trimtube-vv-'));
+  const sine = seconds => {
+    const rate = 24000, n = Math.round(rate * seconds), pcm = Buffer.alloc(n * 2);
+    for (let i = 0; i < n; i++) pcm.writeInt16LE(Math.round(Math.sin(i * 2 * Math.PI * 220 / rate) * 8000 * (0.5 + 0.5 * Math.sin(i / 3000))), i * 2);
+    const h = Buffer.alloc(44); h.write('RIFF', 0); h.writeUInt32LE(36 + pcm.length, 4); h.write('WAVEfmt ', 8); h.writeUInt32LE(16, 16); h.writeUInt16LE(1, 20); h.writeUInt16LE(1, 22); h.writeUInt32LE(rate, 24); h.writeUInt32LE(rate * 2, 28); h.writeUInt16LE(2, 32); h.writeUInt16LE(16, 34); h.write('data', 36); h.writeUInt32LE(pcm.length, 40);
+    return Buffer.concat([h, pcm]).toString('base64');
+  };
+  const bodies = [];
+  const providerClient = { async generate({ kind, body }) {
+    assert.equal(kind, 'tts');
+    const request = typeof body === 'function' ? body('gemini-3.8-flash-tts') : body; bodies.push(request);
+    const text = request.contents[0].parts.map(p => p.text).join(' ');
+    return { audio: { mimeType: 'audio/wav', data: sine(Math.max(0.8, text.length / 25)) }, model: 'gemini-3.8-flash-tts' };
+  } };
+  require('../voice-video').register({
+    ipcMain: { handle: (name, fn) => { handlers[name] = fn; } }, app: { getPath: () => root }, getWin: () => null,
+    loadSettings: () => ({ geminiKey: 'x', geminiTtsChain: '' }), providerClient, ffmpeg: require('ffmpeg-static'), procEnv: process.env,
+    uniquePath: p => { let c = p, i = 2; while (fs.existsSync(c)) c = p.replace(/\.mp4$/, `-${i++}.mp4`); return c; }, sanitizeName: n => n.replace(/[\\/:*?"<>|]/g, '')
+  });
+  const scenes = [
+    { id: 'a1', narration: '[excited] Birinci sahne. [laughs] Harika!', visual: { type: 'title', heading: 'Birinci' } },
+    { id: 'b2', narration: '[whispering] İkinci sahne fısıltıyla.', visual: { type: 'stat', value: '%45', label: 'oran' } },
+    { id: 'c3', narration: 'Üçüncü ve son sahne.', visual: { type: 'cta', heading: 'Son', button: 'Yaz' } }
+  ];
+  const job = { projectId: 'vv-test-001', title: 'Test videosu', format: 'reels', provider: 'gemini', voice: 'Kore', design: 'template', waveMode: 'none', mediaMode: 'off', scenes, outDir: root };
+  const first = await handlers['vv-produce']({}, job);
+  assert.ok(first.ok, first.error);
+  assert.equal(first.rendered, 3);
+  assert.ok(bodies[0].contents[0].parts[0].speech_metadata.style.includes('excited') && bodies[0].contents[0].parts[0].text.includes('<laugh>'));
+  const lastScene = first.scenes.at(-1);
+  assert.ok(Math.floor(first.duration) >= lastScene.start + lastScene.speech, 'whole-second desk duration never cuts speech');
+  first.scenes.forEach((s, i) => { if (i) assert.ok(Math.abs(s.start - first.scenes[i - 1].end) < 1e-3); });
+  const probe = require('child_process').spawnSync(require('ffmpeg-static'), ['-i', first.outFile], { encoding: 'utf8' }).stderr;
+  const m = probe.match(/Duration:\s*(\d+):(\d+):([\d.]+)/);
+  assert.ok(m && Math.abs(+m[2] * 60 + +m[3] - first.duration) < 0.08, 'container duration matches plan: ' + (m && m[0]));
+  assert.ok(/Video: h264.*1080x1920/.test(probe) && /Audio: aac/.test(probe));
+  // Yalnız değişen sahne yeniden üretilir
+  const second = await handlers['vv-produce']({}, { ...job, scenes: scenes.map((s, i) => i === 1 ? { ...s, narration: '[whispering] İkinci sahne değişti, biraz daha uzun.' } : s) });
+  assert.ok(second.ok, second.error);
+  assert.equal(second.rendered, 1, 'only the edited scene is re-rendered');
+  assert.equal(bodies.length, 4, 'only the edited scene is re-voiced');
+  assert.notEqual(second.outFile, first.outFile);
+  fs.rmSync(root, { recursive: true, force: true });
+  checks.push('Full pipeline: scene TTS, HyperFrames render, lossless join and per-scene cache');
+}
+
+(async () => {
+  if (process.argv.includes('--render')) await renderPipeline();
+  const out = JSON.stringify({ checks }, null, 2);
+  if (process.argv.includes('--report')) { fs.mkdirSync('build/voice-video-qa', { recursive: true }); fs.writeFileSync('build/voice-video-qa/results.json', out); }
+  console.log(out);
+})().catch(err => {
+  console.error(err);
+  if (process.argv.includes('--report')) { fs.mkdirSync('build/voice-video-qa', { recursive: true }); fs.writeFileSync('build/voice-video-qa/results.json', JSON.stringify({ checks, failure: String(err.stack || err) })); }
+  process.exitCode = 1;
+});

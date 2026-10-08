@@ -47,6 +47,14 @@ for (const [, channel] of fs.readFileSync(path.join(root, 'preload.js'), 'utf8')
     if (channel === 'cache-info') return { videos: 0, bytes: 0 };
     if (channel === 'ytdlp-info') return { version: 'test' };
     if (channel === 'mood-voices') return { voices: [] };
+    if (channel === 'vv-choose-media') return { ok: true, media: { source: 'local', kind: 'image', path: 'C:/qa/urun.png', thumb: 'data:image/jpeg;base64,/9j/' } };
+    if (channel === 'vv-source') return { ok: true, title: 'Sayfa', text: 'Okunan sayfa metni '.repeat(30), url: data.url };
+    if (channel === 'vv-script') { await new Promise(resolve => setTimeout(resolve, 80)); return { ok: true, model: 'gemini-3.8-flash', script: { title: 'Test anlatımı', scenes: [
+      { id: 'qa-s1', narration: '[excited] Selam! [laughs] Bugün harika bir konu var.', visual: { type: 'title', heading: 'Harika konu', subheading: '', value: '', label: '', source: '', quote: '', author: '', button: '', items: [] }, keywords: 'city' },
+      { id: 'qa-s2', narration: '[empathetic] Biliyorum, zor. [normal] Ama çözüm basit.', visual: { type: 'stat', heading: '', subheading: '', value: '%45', label: 'oran', source: '', quote: '', author: '', button: '', items: [] }, keywords: 'office' }] } }; }
+    if (channel === 'vv-produce') { await new Promise(resolve => setTimeout(resolve, 120)); return { ok: true, outFile: source, duration: 9.5, rendered: data.scenes.length, credits: 0, warnings: [],
+      scenes: [{ id: 'qa-s1', start: 0, end: 4, speech: 3.6 }, { id: 'qa-s2', start: 4, end: 9.5, speech: 4.3 }],
+      cues: [{ start: .05, end: 2, text: 'Selam!' }, { start: 2, end: 3.6, text: 'Bugün harika bir konu var.' }, { start: 4.05, end: 8, text: 'Biliyorum, zor. Ama çözüm basit.' }] }; }
     if (channel === 'subtitle-review') { await new Promise(resolve => setTimeout(resolve, 100)); return { srt: '1\n00:00:00,000 --> 00:00:02,000\nDeneme altyazısı\n\n2\n00:00:03,000 --> 00:00:05,000\nİkinci satır\n',words:[{word:'Deneme',start:.2,end:.8},{word:'altyazısı',start:1.1,end:1.8},{word:'İkinci',start:3.2,end:3.8},{word:'satır',start:4.1,end:4.8}] }; }
     if (channel === 'output-proof') {await new Promise(resolve=>setTimeout(resolve,150));return {id:'qa-proof',url:pathToFileURL(proofSource).href,duration:5};}
     if (channel === 'download') return data.title === 'qa-retry' && retryCount++ === 0 ? { ok: false, error: 'Geçici test hatası' } : { ok: true };
@@ -122,7 +130,7 @@ app.whenReady().then(async () => {
   await screenshot('compact-menu');
   await check('Expanded menu does not overflow timeline', `document.querySelector('.timeline-shell').scrollWidth <= document.querySelector('.timeline-shell').clientWidth`);
   await check('Compact timeline fits vertically', `document.querySelector('.stage').scrollHeight <= document.querySelector('.stage').clientHeight + 1`);
-  for (const view of ['ai', 'mood', 'smarttrim', 'broll', 'compress', 'settings', 'cutter']) {
+  for (const view of ['ai', 'mood', 'smarttrim', 'broll', 'voice', 'compress', 'settings', 'cutter']) {
     await run(`switchView('${view}')`);
     await check(`Navigate ${view}`, `!$(VIEWS['${view}']).classList.contains('hidden')`);
   }
@@ -361,6 +369,29 @@ app.whenReady().then(async () => {
   await check('Profiles remain available after renderer restart', `$('publishProfileSelect').options.length===2 && $('publishProfileSelect').options[1].text==='Röportaj'`);
   await run(`$('publishProfileSelect').selectedIndex=1; $('publishProfileSelect').dispatchEvent(new Event('change')); $('publishProfileDelete').click()`); await delay(100);
   await check('Profile removal persists', `$('publishProfileSelect').options.length===1 && $('publishProfileStatus').textContent.includes('silindi')`);
+  // Anlatımlı video: kaynak → onaylı senaryo → üretim → kurgu masası (parçalar + altyazı taslağı)
+  await run(`localStorage.removeItem('trimtube.voiceVideo.draft')`); await win.loadFile(path.join(root,'renderer/index.html')); await delay(500);
+  await run(`settings.geminiKey='stored'; switchView('voice'); $('vvText').value=''; $('vvText').dispatchEvent(new Event('input'))`);
+  await check('Narrated video waits for enough source text', `$('vvScriptBtn').disabled && $('vvReview').classList.contains('hidden')`);
+  await run(`$('vvText').value='Bu bir deneme kaynağıdır. '.repeat(4); $('vvText').dispatchEvent(new Event('input')); $('vvScriptBtn').click()`); await delay(400);
+  await check('Script appears for review before any voice generation', `$('vvScenes').children.length===2 && !$('vvReview').classList.contains('hidden') && !$('vvProduceBtn').disabled`);
+  await check('Gemini tag palette offers its own tones', `[...document.querySelectorAll('#vvTagHelp .vv-chip')].some(c=>c.textContent==='[empathetic]') && ![...document.querySelectorAll('#vvTagHelp .vv-chip')].some(c=>c.textContent==='[sarcastic]')`);
+  await run(`var ta=document.querySelector('#vvScenes .vv-narration'); ta.value='[excited] Selam [foo] dünya'; ta.dispatchEvent(new Event('input'))`);
+  await check('Unknown tags are flagged before voicing', `document.querySelector('#vvScenes .vv-warn').textContent.includes('[foo]')`);
+  await run(`document.querySelector('[data-vv-tts="eleven"]').click()`); await delay(100);
+  await check('Switching to ElevenLabs swaps the tag dictionary and flags unsupported tones', `[...document.querySelectorAll('#vvTagHelp .vv-chip')].some(c=>c.textContent==='[sarcastic]') && document.querySelectorAll('#vvScenes .vv-warn')[1].textContent.includes('[empathetic]')`);
+  await run(`document.querySelector('[data-vv-tts="gemini"]').click(); var ta=document.querySelector('#vvScenes .vv-narration'); ta.value='[excited] Selam! [laughs] Bugün harika bir konu var.'; ta.dispatchEvent(new Event('input')); [...document.querySelectorAll('#vvScenes .vv-scene')[0].querySelectorAll('button')].find(b=>b.textContent==='Dosya seç…').click()`); await delay(200); await run(`$('vvProduceBtn').click()`); await delay(500);
+  await check('Chosen scene media is attached and travels with the production request', `${calls.filter(c=>c.channel==='vv-produce').at(-1)?.data.scenes[0].media?.path==='C:/qa/urun.png'} && document.querySelector('#vvScenes .vv-media-label').textContent.includes('urun.png')`);
+  await check('Production sends the approved scenes and shows a playable result', `!$('vvResult').classList.contains('hidden') && !!$('vvPreview').getAttribute('src') && !$('vvToDeskBtn').classList.contains('hidden')`);
+  await run(`document.querySelector('#vvScenes .vv-visual').open=true; $('vvReview').scrollIntoView({block:'start'})`); await screenshot('voice-video-review');
+  await run(`$('vvResult').scrollIntoView({block:'center'})`); await screenshot('voice-video-result');
+  await run(`var ta=document.querySelector('#vvScenes .vv-narration'); ta.value=ta.value+' Ek cümle.'; ta.dispatchEvent(new Event('input'))`);
+  await check('Edits after production offer an incremental update and hide stale hand-off', `$('vvProduceBtn').textContent.includes('Değişiklikleri') && $('vvToDeskBtn').classList.contains('hidden')`);
+  await run(`$('vvProduceBtn').click()`); await delay(500); await run(`$('vvToDeskBtn').click()`); await delay(900);
+  await check('Hand-off loads scenes as desk clips and subtitles as an unapproved layer', `currentView==='cutter' && sequenceProject().clips.length===2 && sequenceProject().enabled && reviewProject().doc?.cues.length===3 && !reviewProject().doc.approved && $('subEnable').checked`);
+
+  await win.loadFile(path.join(root,'renderer/index.html')); await delay(500); await run(`switchView('voice')`); await delay(200);
+  await check('Narrated video script draft survives a renderer restart', `$('vvScenes').children.length===2 && $('vvTitle').value==='Test anlatımı' && document.querySelector('#vvScenes .vv-narration').value.includes('Ek cümle')`);
   if (errors.length) throw Error(errors.join('\n'));
   fs.writeFileSync(path.join(out, 'results.json'), JSON.stringify({ checks, errors, waveformRequests: calls.filter(c => c.channel === 'waveform').length }, null, 2));
   app.exit(0);

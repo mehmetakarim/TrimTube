@@ -1,5 +1,11 @@
 # TrimTube geliştirme planı
 
+## 8 Ekim 2026 — v1.21.0: Anlatımlı Video
+
+- Metin/URL → Gemini duygu etiketli senaryo (onaylı) → sahne başına Gemini/ElevenLabs TTS → Whisper kelime zamanları → HyperFrames sahneleri → kurgu masası.
+- Konuşmayla senkron hareket, sayfa görselleri + kullanıcı medyası, sahne önbelleği. Ayrıntı: RELEASE-v1.21.0.md, brain.md.
+- Sırada: geçiş/ses efektleri ve müzik, serbest üretimin yeniden kurulması, arka plan kaldırma, EMA Lightning.
+
 ## 7 Ekim 2026 — CI doğrulaması tamamlandı
 
 GitHub Regression çalışması `37320054858`, commit `11f07f7`: dört iş başarılı.

@@ -98,6 +98,12 @@ Bu akış yalnızca **Windows**'ta güvenilir çalışır. **macOS**'ta uygulama
   kullanılabilir; hizmet kullanımı sağlayıcı hesabınıza bağlıdır.
 - **Destek Görüntüleri** (B-Roll): Gemini + Pexels önerilerini gözden geçirin;
   seçtiğiniz stok videolar özgün ses korunarak kaynak görüntünün üzerine eklenir.
+- **Anlatımlı Video:** metin veya bağlantıdan duygu etiketli bir senaryo yazılır;
+  seslendirmeden önce metni, etiketleri ve sahne görsellerini düzeltip onaylarsınız.
+  Gemini TTS veya ElevenLabs ile seslendirilir, HyperFrames ile Reels/Shorts (9:16)
+  veya Podcast (16:9, isteğe bağlı ses dalgası/audiogram) videosu üretilir; Pexels
+  stok görselleri isteğe bağlıdır. Video, sahne parçaları ve altyazı katmanıyla kurgu
+  masasına taşınabilir. İlk render'da video motorunun tarayıcı bileşeni bir kez indirilir.
 - **Ayarlar:** çalışma ortamı ve hizmet bağlantıları ayrı bölümlerdedir.
 
 GIF çıktısına kişi takibi, altyazı ve marka uygulanmaz. MP3 çıktısı yalnızca ses
