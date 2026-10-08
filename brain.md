@@ -1,5 +1,11 @@
 # TrimTube Geliştirme Günlüğü
 
+## v1.21.0 — 8 Ekim 2026, yayımlandı
+
+Release: https://github.com/mehmetakarim/TrimTube/releases/tag/v1.21.0
+Etiket commit: `74f26ba`; Actions `37781344393`: 4 regresyon işi (Windows entegrasyonu: 43 medya, 134 arayüz, 19 anlatımlı video dahil) + Windows/macOS arm64/Linux derleme başarılı. 10 dosya yüklendi; üç güncelleme bildirimi 1.21.0. Public, stable, latest.
+Kurulum boyutları: Windows 279 MB (v1.20.0: 232), macOS dmg 284 MB (248), Linux deb 297 MB (256) — video motoru + ffprobe.
+
 ## 8 Ekim 2026 — v1.21.0 hazırlığı (Anlatımlı Video)
 
 Sürüm 1.21.0: Anlatımlı Video + v1.20.0 sonrası yayımlanmamış yayın/marka profilleri, yayın paketi ve güvenli anahtar saklama. Notlar: RELEASE-v1.21.0.md.
