@@ -1,6 +1,10 @@
 # TrimTube Geliştirme Günlüğü
 
-## 9 Ekim 2026 — Güvenli alan, dikey yerleşim, boş kare yok (yayımlanmadı)
+## v1.23.0 — 9 Ekim 2026, yayımlandı
+
+Release: https://github.com/mehmetakarim/TrimTube/releases/tag/v1.23.0 — etiket commit `4cdf339`, Actions `37940166106` (4 regresyon + 3 derleme başarılı, 10 dosya, latest). İçerik: görsel stiller + AI Sahne Yönetmeni + güvenli alan (aşağıdaki iki bölüm).
+
+## 9 Ekim 2026 — Güvenli alan, dikey yerleşim, boş kare yok
 
 Kullanıcı saha testi (M1 incelemesi, kendi "Analog Maker Kolaj" teması): karşılaştırma sahnesinde ~6 sn yalnız zemin; görselli sahnelerde tasarım yukarıya yaslı, altı boş; Reels/Shorts/TikTok güvenli alanı istendi.
 - **Önce yapı, sonra vurgu:** kartlar, kutular, liste/özellik/karşılaştırma öğeleri ilk saniyede soluk (opaklık .34) kurulur; konuşmada anıldığı an tam görünür + kısa nabız. İstatistik kutusu ve etiketi ≤1,1 sn'de, sayım konuşulan rakamda başlar (kutu önce 0 gösterir). Karşılaştırma kartları .15/.45 sn'de; taraf adı anılınca kart nabız atar. Anılma zaten erkense öğe doğrudan girer.
@@ -9,7 +13,7 @@ Kullanıcı saha testi (M1 incelemesi, kendi "Analog Maker Kolaj" teması): kar�
 - Doğrulama: kullanıcının taslağı Local Storage LevelDB günlüğünden çözülüp (UTF-16 değer, 32 KB blok başlıkları atlanarak) önbellekteki seslerle API'siz yeniden render edildi; tüm sahneler güvenli alanda, boş kare yok. **TUZAK:** LevelDB `.log` kayıtları 32 KB bloklara bölünür; düz bayt aramasıyla alınan JSON blok başlığında bozulur.
 - Testler: 24 anlatımlı video (güvenli alan, erken yapı/geç vurgu zamanlaması), 146 arayüz.
 
-## 9 Ekim 2026 — Görsel stiller + AI Sahne Yönetmeni (yayımlanmadı)
+## 9 Ekim 2026 — Görsel stiller + AI Sahne Yönetmeni
 
 Kullanıcı kararı: serbest üretim kaldırıldı (Gemini HTML yazmıyor). Yerine kullanıcı bir **görsel stil (tema)** seçer, Gemini senaryoyu yazarken her sahne için yönetmenlik kararı verir.
 - **Tema** (`renderer/voice-themes.js`, UMD): renkler (zemin, yazı, ikincil, kart, 1-6 vurgu), yazı tipleri (allowlist; derleyici aileyi Google Fonts'tan adla çeker, HTML'de http yok), başlık kalınlığı/harf, zemin (glow/paper/grid/soft), kart, görsel çerçevesi (card/tape/polaroid/hud/soft), köşe, motifler (≤6), enerji, varsayılan geçiş ve vurgu, etiket, logo. Hazır: Neon Gece, Editoryal, Teknoloji, Sıcak/Organik. `normalizeTheme` okunmayan yazı rengini düzeltir (≥4,5; ikincil ≥3), kimliği/yazı tipini/logo adını kelepçeler.

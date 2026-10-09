@@ -130,8 +130,8 @@ Saha geri bildirimi: 3 dk'lık klip ~350MB çıkabiliyor (donanım kodlayıcı b
 - [ ] Gerçek API ile saha testi (Gemini 3.8 TTS `speech_metadata`, ElevenLabs v4 Türkçe) ve paketlenmiş kurulumda deneme (ilk render tarayıcı bileşenini indirir)
 - [x] Ses efektleri (geçişte whoosh, konuşmayla senkron vurguda pop) ve kullanıcı müziği altlığı (anlatım altında ~14 dB otomatik kısma) — geliştirme dalında
 - [x] 16:9 kırpmasız görsel kartı, 3 sütunlu kaydırmasız ekran, müzik bölümü seçimi ve ritim senkronu (geçişler/vurgular vuruşa oturur) — geliştirme dalında
-- [x] Görsel stiller + **AI Sahne Yönetmeni**: serbest üretim kaldırıldı; 4 hazır tema + kullanıcı temaları (tasarım tarifinden Gemini ile ya da elle; renk, yazı tipi, motif, logo), sahne başına düzen/vurgu kelimesi/görsel yerleşimi/geçiş kararı, yeni sahne tipleri (adımlar, teknik özellikler, karşılaştırma), isteğe bağlı tasarım notu — geliştirme dalında
-- [x] Reels/Shorts/TikTok **güvenli alan** (varsayılan açık, önizleme kılavuzu), görsel + içeriğin birlikte dikey ortalanması, taşma koruması, boş kare kalmaması (yapı ilk saniyede, vurgu konuşmayla) — geliştirme dalında
+- [x] Görsel stiller + **AI Sahne Yönetmeni**: serbest üretim kaldırıldı; 4 hazır tema + kullanıcı temaları (tasarım tarifinden Gemini ile ya da elle; renk, yazı tipi, motif, logo), sahne başına düzen/vurgu kelimesi/görsel yerleşimi/geçiş kararı, yeni sahne tipleri (adımlar, teknik özellikler, karşılaştırma), isteğe bağlı tasarım notu — v1.23.0
+- [x] Reels/Shorts/TikTok **güvenli alan** (varsayılan açık, önizleme kılavuzu), görsel + içeriğin birlikte dikey ortalanması, taşma koruması, boş kare kalmaması (yapı ilk saniyede, vurgu konuşmayla) — v1.23.0
 - [ ] **EMA Lightning** (yerel, ücretsiz Türkçe TTS) genel seslendirme seçeneği olarak — ayrı iş kalemi (duygu kontrolü yok; PyTorch dağıtımı kararı gerekiyor)
 
 ### Bilinçli olarak kapsam dışı
