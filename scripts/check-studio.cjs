@@ -29,6 +29,7 @@ const proofSource=path.join(out,'proof-source.mp4');
 const proofFixture=spawnSync(ffmpeg,['-y','-i',source,'-t','5','-c','copy',proofSource],{windowsHide:true});
 if(proofFixture.status) throw Error(proofFixture.stderr.toString());
 const calls = [];
+let customThemes = [];
 let retryCount = 0;
 let lastDraft = null;
 for (const [, channel] of fs.readFileSync(path.join(root, 'preload.js'), 'utf8').matchAll(/invoke\('([^']+)'/g)) {
@@ -49,6 +50,10 @@ for (const [, channel] of fs.readFileSync(path.join(root, 'preload.js'), 'utf8')
     if (channel === 'mood-voices') return { voices: [] };
     if (channel === 'vv-choose-music') return { ok: true, music: { path: 'C:/qa/fon.mp3', name: 'fon.mp3', duration: 30 } };
     if (channel === 'vv-choose-media') return { ok: true, media: { source: 'local', kind: 'image', path: 'C:/qa/urun.png', thumb: 'data:image/jpeg;base64,/9j/' } };
+    if (channel === 'vv-themes') return { builtIn: require(path.join(root, 'renderer/voice-themes.js')).BUILT_IN, custom: customThemes };
+    if (channel === 'vv-theme-save') { const t = { ...data, id: data.id || 'custom-qa1' }; customThemes = customThemes.filter(x => x.id !== t.id).concat(t); return { ok: true, theme: t }; }
+    if (channel === 'vv-theme-delete') { customThemes = customThemes.filter(x => x.id !== data); return { ok: true }; }
+    if (channel === 'vv-theme-from-prompt') { await new Promise(resolve => setTimeout(resolve, 60)); return { ok: true, theme: { name: 'Analog Kolaj', description: 'Sarı vurgulu kâğıt kolaj', colors: { bg: '#f4efe4', bg2: '#e9e1cf', ink: '#1d1d1b', muted: '#4a4741', card: '#ffffff', accents: ['#f9b233', '#1d1d1b'] }, fonts: { display: 'Archivo Black', body: 'Inter', label: 'Permanent Marker' }, type: { weight: 900, case: 'upper', tracking: -2 }, background: 'paper', card: 'paper', frame: 'tape', radius: 6, motifs: ['tape', 'arrows', 'torn', 'halftone'], energy: 'punchy', transition: 'slide', emphasis: ['box', 'circle'], label: 'KARŞILAŞTIRMA' } }; }
     if (channel === 'vv-source') return { ok: true, title: 'Sayfa', text: 'Okunan sayfa metni '.repeat(30), url: data.url };
     if (channel === 'vv-script') { await new Promise(resolve => setTimeout(resolve, 80)); return { ok: true, model: 'gemini-3.8-flash', script: { title: 'Test anlatımı', scenes: [
       { id: 'qa-s1', narration: '[excited] Selam! [laughs] Bugün harika bir konu var.', visual: { type: 'title', heading: 'Harika konu', subheading: '', value: '', label: '', source: '', quote: '', author: '', button: '', items: [] }, keywords: 'city' },
@@ -374,8 +379,24 @@ app.whenReady().then(async () => {
   await run(`localStorage.removeItem('trimtube.voiceVideo.draft')`); await win.loadFile(path.join(root,'renderer/index.html')); await delay(500);
   await run(`settings.geminiKey='stored'; switchView('voice'); $('vvText').value=''; $('vvText').dispatchEvent(new Event('input'))`);
   await check('Narrated video waits for enough source text', `$('vvScriptBtn').disabled && $('vvReview').classList.contains('hidden')`);
+  await check('Visual style picker replaces free design and starts on the default theme', `!document.getElementById('vvDesignSeg') && $('vvThemeName').textContent==='Neon Gece' && !!$('vvThemeThumb').querySelector('.vv-tp')`);
+  await run(`$('vvThemeOpen').click()`); await delay(250);
+  await check('Theme library opens as a modal with previews for every built-in theme and a create card', `!$('vvThemeModal').classList.contains('hidden') && document.querySelectorAll('#vvThemeGrid .vv-theme-card:not(.vv-theme-add) .vv-tp').length===4 && !!document.querySelector('#vvThemeGrid .vv-theme-add') && document.querySelector('#vvThemeGrid .vv-theme-card.active b').textContent==='Neon Gece'`);
+  await screenshot('voice-theme-library');
+  await run(`[...document.querySelectorAll('#vvThemeGrid .vv-theme-card')].find(c=>c.querySelector('b')?.textContent==='Editoryal').click()`); await delay(100);
+  await check('Choosing a theme updates the picker and is remembered', `$('vvThemeName').textContent==='Editoryal' && settings.voiceVideo.themeId==='editorial'`);
+  await run(`document.querySelector('#vvThemeGrid .vv-theme-add').click()`); await delay(100);
+  await run(`var ta=document.querySelector('#vvThemeForm .vv-theme-ai textarea'); ta.value='Renk sistemi sabit: #F9B233 sarı, kömür siyahı, kırık beyaz kâğıt; analog kolaj, maskeleme bandı, el çizimi oklar.'; ta.dispatchEvent(new Event('input')); [...document.querySelectorAll('#vvThemeForm button')].find(b=>b.textContent==='Gemini ile oluştur').click()`); await delay(300);
+  await check('A design prompt becomes an editable theme with a live preview', `${(()=>{const c=calls.filter(c=>c.channel==='vv-theme-from-prompt').at(-1);return !!c&&c.data.prompt.includes('#F9B233');})()} && document.querySelector('#vvThemeForm input[type=text]').value==='Analog Kolaj' && !!document.querySelector('#vvThemePreview .vv-tp-torn') && !$('vvThemeEditor').classList.contains('hidden')`);
+  await screenshot('voice-theme-editor');
+  await run(`$('vvThemeSaveBtn').click()`); await delay(200);
+  await check('Saved custom theme joins the library and becomes the selected style', `$('vvThemeName').textContent==='Analog Kolaj' && settings.voiceVideo.themeId==='custom-qa1' && [...document.querySelectorAll('#vvThemeGrid .vv-theme-card b')].some(b=>b.textContent==='Analog Kolaj')`);
+  await run(`$('vvThemeClose').click(); $('vvDesignNote').value='Sakin ve ferah olsun, rakamları vurgula'; $('vvDesignNote').dispatchEvent(new Event('input')); $('vvDesignNote').dispatchEvent(new Event('change'))`);
   await run(`$('vvText').value='Bu bir deneme kaynağıdır. '.repeat(4); $('vvText').dispatchEvent(new Event('input')); $('vvScriptBtn').click()`); await delay(400);
   await check('Script appears for review before any voice generation', `$('vvScenes').children.length===2 && !$('vvReview').classList.contains('hidden') && !$('vvProduceBtn').disabled`);
+  await check('Script request carries the chosen theme and the design note', `${(()=>{const d=calls.filter(c=>c.channel==='vv-script').at(-1)?.data;return d?.themeId==='custom-qa1'&&d.designNote.includes('rakamları')&&!('design' in d);})()} && $('vvThemeModal').classList.contains('hidden')`);
+  await run(`var card=document.querySelectorAll('#vvScenes .vv-scene')[1]; card.querySelector('.vv-visual').open=true; var sel=[...card.querySelectorAll('.vv-direction select')]; sel[0].value='giant'; sel[0].dispatchEvent(new Event('change')); sel[2].value='cut'; sel[2].dispatchEvent(new Event('change'))`);
+  await check('Scene director controls offer variants for the scene type', `(()=>{const card=document.querySelectorAll('#vvScenes .vv-scene')[1];const opts=[...card.querySelector('.vv-direction select').options].map(o=>o.value);return opts.includes('ring')&&opts.includes('giant')&&opts.includes('bar')&&!!card.querySelector('.vv-direction legend');})()`);
   await check('Gemini tag palette offers its own tones', `[...document.querySelectorAll('#vvTagHelp .vv-chip')].some(c=>c.textContent==='[empathetic]') && ![...document.querySelectorAll('#vvTagHelp .vv-chip')].some(c=>c.textContent==='[sarcastic]')`);
   await run(`var ta=document.querySelector('#vvScenes .vv-narration'); ta.value='[excited] Selam [foo] dünya'; ta.dispatchEvent(new Event('input'))`);
   await check('Unknown tags are flagged before voicing', `document.querySelector('#vvScenes .vv-warn').textContent.includes('[foo]')`);
@@ -383,6 +404,8 @@ app.whenReady().then(async () => {
   await check('Switching to ElevenLabs swaps the tag dictionary and flags unsupported tones', `[...document.querySelectorAll('#vvTagHelp .vv-chip')].some(c=>c.textContent==='[sarcastic]') && document.querySelectorAll('#vvScenes .vv-warn')[1].textContent.includes('[empathetic]')`);
   await run(`document.querySelector('[data-vv-tts="gemini"]').click(); var ta=document.querySelector('#vvScenes .vv-narration'); ta.value='[excited] Selam! [laughs] Bugün harika bir konu var.'; ta.dispatchEvent(new Event('input')); [...document.querySelectorAll('#vvScenes .vv-scene')[0].querySelectorAll('button')].find(b=>b.textContent==='Dosya seç…').click()`); await delay(200); await run(`$('vvMusicPick').click()`); await delay(200); await run(`$('vvProduceBtn').click()`); await delay(500);
   await check('Music bed and sound effect choices travel with the production request', `${(()=>{const d=calls.filter(c=>c.channel==='vv-produce').at(-1)?.data;return d?.music?.path==='C:/qa/fon.mp3'&&d.music.level===.3&&d.sfx===true;})()} && $('vvMusicName').textContent==='fon.mp3' && !$('vvMusicOpts').classList.contains('hidden')`);
+  await check('Theme and director overrides travel with the production request', `${(()=>{const d=calls.filter(c=>c.channel==='vv-produce').at(-1)?.data;return d?.themeId==='custom-qa1'&&d.scenes[1].direction.variant==='giant'&&d.scenes[1].direction.transition==='cut'&&!('design' in d)&&d.safeArea===true;})()}`);
+  await check('Reels safe area is on by default with a preview guide toggle', `$('vvSafeArea').checked && !$('vvSafeRow').classList.contains('hidden') && !$('vvGuideRow').classList.contains('hidden') && (()=>{$('vvShowGuide').checked=true;$('vvShowGuide').dispatchEvent(new Event('change'));const on=!$('vvSafeGuide').classList.contains('hidden');$('vvShowGuide').checked=false;$('vvShowGuide').dispatchEvent(new Event('change'));return on&&$('vvSafeGuide').classList.contains('hidden');})()`);
   await check('Chosen scene media is attached and travels with the production request', `${calls.filter(c=>c.channel==='vv-produce').at(-1)?.data.scenes[0].media?.path==='C:/qa/urun.png'} && document.querySelector('#vvScenes .vv-media-label').textContent.includes('urun.png')`);
   await check('Production sends the approved scenes and shows a playable result', `!$('vvResult').classList.contains('hidden') && !!$('vvPreview').getAttribute('src') && !$('vvToDeskBtn').classList.contains('hidden')`);
   await run(`document.querySelector('#vvScenes .vv-visual').open=true; $('vvReview').scrollIntoView({block:'start'})`); await screenshot('voice-video-review');

@@ -31,7 +31,13 @@
     reels: { width: 1080, height: 1920, label: 'Reels/Shorts' },
     podcast: { width: 1920, height: 1080, label: 'Podcast' }
   };
-  const VISUAL_TYPES = ['title', 'statement', 'stat', 'bignumber', 'quote', 'list', 'cta'];
+  const VISUAL_TYPES = ['title', 'statement', 'stat', 'bignumber', 'quote', 'list', 'steps', 'specs', 'comparison', 'cta'];
+  // AI sahne yönetmeninin seçebileceği düzen varyantları (motor bunları çizer)
+  const VARIANTS = {
+    title: ['kinetic', 'stacked', 'label'], statement: ['center', 'left'], stat: ['ring', 'giant', 'bar'], bignumber: ['auto'],
+    quote: ['card', 'big'], list: ['cards', 'checklist', 'numbers'], steps: ['timeline', 'cards'], specs: ['rows'], comparison: ['vs', 'table'], cta: ['burst', 'clean']
+  };
+  const DIRECTION = { hero: ['auto', 'top', 'side', 'background', 'inset', 'none'], transition: ['whip', 'zoom', 'slide', 'flash', 'cut'], emphasis: ['marker', 'underline', 'circle', 'color', 'box'] };
   const PODCAST_LENGTHS = { short: [70, 120], medium: [170, 240], long: [330, 480] };
   const CHARS_PER_SECOND = 15; // Türkçe akıcı anlatım için ölçülü bir ortalama
 
@@ -181,17 +187,17 @@
   }
 
   // ---- Gemini senaryo istemi ----
-  function buildScriptPrompt({ source, title = '', format = 'reels', length = 'medium', provider = 'gemini', design = 'template', fromUrl = false, images = [] }) {
+  function buildScriptPrompt({ source, title = '', format = 'reels', length = 'medium', provider = 'gemini', fromUrl = false, images = [], theme = null, designNote = '' }) {
     const pics = (Array.isArray(images) ? images : []).slice(0, 24);
     const picList = pics.map((p, i) => `[${i}] ${p.alt || '(açıklama yok)'} — ${String(p.url).split('/').pop().split('?')[0].slice(0, 60)}`).join('\n');
     const vocab = vocabulary(provider);
     const reels = format === 'reels';
     const [minS, maxS] = reels ? [45, 60] : PODCAST_LENGTHS[length] || PODCAST_LENGTHS.medium;
     const tones = vocab.tones.map(t => `[${t}]`).join(', '), events = vocab.events.map(e => `[${e}]`).join(', ');
-    const free = design === 'free';
-    const size = FORMATS[reels ? 'reels' : 'podcast'];
     const words = s => Math.round(s * 2.1);
-    return `Sen deneyimli bir Türkçe metin yazarı ve ses yönetmenisin. Aşağıdaki KAYNAK metni${fromUrl ? ' (kullanıcının verdiği web sayfasından okunmuş gerçek içerik)' : ''}, yapay zekâ seslendirmesi için doğal, duygulu ve insansı bir Türkçe anlatım senaryosuna dönüştür ve sahnelere böl.
+    const accents = theme?.colors?.accents?.length || 3;
+    const variants = Object.entries(VARIANTS).map(([t, v]) => `${t}: ${v.join(' | ')}`).join('; ');
+    return `Sen deneyimli bir Türkçe metin yazarı, ses yönetmeni ve video sahne yönetmenisin. Aşağıdaki KAYNAK metni${fromUrl ? ' (kullanıcının verdiği web sayfasından okunmuş gerçek içerik)' : ''}, yapay zekâ seslendirmesi için doğal, duygulu ve insansı bir Türkçe anlatım senaryosuna dönüştür, sahnelere böl ve her sahnenin görsel yönetmenliğini yap.
 
 KRİTİK: Yalnızca KAYNAK'taki gerçek bilgileri kullan. Kaynakta olmayan özellik, sayı, isim veya alıntı UYDURMA. Emin olmadığın şeyi yazma.
 
@@ -206,21 +212,32 @@ SESLENDİRME ETİKETLERİ (yalnız bunlar; köşeli ayraç içinde ve İngilizce
 Bilgilendirici anlatıma dönerken [normal] kullan. Etiketleri ölçülü kullan: paragraf başına en fazla bir ton ve bir-iki anlık ses. Liste dışı etiket YAZMA.
 Kurallar: Metin tamamen Türkçe. "İşte metniniz" gibi giriş yok. Cümleler kısa, nefes aralıklarına uygun, akıcı konuşma dilinde. Kısaltmalardan kaçın.
 
-GÖRSELLER: Her sahne için ekranda görünecek kısa görsel içerik seç. Görsel metinler anlatımı tekrar etmesin, özetlesin (en fazla 6-8 kelime).
-"visual.type" şunlardan biri:
-- "title": büyük kinetik başlık (heading, isteğe bağlı subheading)
+SAHNE TİPİ (visual.type) — içeriğe en uygun olanı SEN seç; ekrandaki metinler anlatımı tekrar etmesin, özetlesin (en fazla 6-8 kelime):
+- "title": büyük kinetik başlık (heading, isteğe bağlı subheading, label = kısa kategori etiketi)
 - "statement": vurucu tek cümle (heading) + kısa açıklama (subheading)
-- "stat": tek istatistik; value ("%45" veya "45"), label, isteğe bağlı source (kaynakta geçen kurum)
+- "stat": tek istatistik; value ("%45", "600 mm/s"), label, isteğe bağlı source (kaynakta geçen kurum)
 - "bignumber": 2-3 büyük sayı; items: [{"value":"20","text":"saat video"}]
-- "quote": alıntı kartı; quote, author, source (platform/kurum). YALNIZ kaynakta gerçekten geçen alıntılar.
+- "quote": alıntı; quote, author, source. YALNIZ kaynakta gerçekten geçen alıntılar.
 - "list": başlık + 2-5 kısa madde; heading, items: [{"text":"..."}]
+- "steps": sıralı adımlar/süreç; heading, items: [{"text":"..."}] (2-5)
+- "specs": teknik özellik tablosu; heading, items: [{"text":"özellik adı","value":"değer"}] (2-5)
+- "comparison": iki şeyin karşılaştırması; left: {"title":"A","items":["kısa","madde"]}, right: {"title":"B","items":[...]} (her tarafta 2-4 madde). Ürün/seçenek karşılaştırmalarında MUTLAKA kullan.
 - "cta": kapanış/eylem çağrısı; heading, subheading, button
+Videoda tip çeşitliliği olsun; art arda aynı tipi ikiden fazla kullanma.
+
+SAHNE YÖNETMENLİĞİ ("direction") — her sahne için:
+- "variant": tipin düzeni. Seçenekler: ${variants}
+- "emphasis": {"word": ekrandaki başlıkta vurgulanacak TEK kelime (başlıkta birebir geçmeli), "style": "${DIRECTION.emphasis.join('|')}"}
+- "hero": sahne görselinin konumu "${DIRECTION.hero.join('|')}" (auto = biçime göre; background = tam ekran zemin, yazı üstünde; inset = küçük köşe görseli; none = görsel kullanma)
+- "transition": sahneye giriş "${DIRECTION.transition.join('|')}" (ritmi değiştirmek için çeşitlendir; açılışta whip/zoom, sakin anlarda slide, vurucu bilgide flash)
+- "tone": 0-${accents - 1} arası renk tonu numarası (sahneler arasında değiştir)
+${theme ? `Seçili görsel tema: "${theme.name}" — ${theme.description || ''} Temanın vurgu tarzları: ${(theme.emphasis || []).join(', ')}; hareket enerjisi: ${theme.energy}. Yönetmenlik kararlarını bu temanın karakterine uygun ver.` : ''}
+${designNote ? `KULLANICININ TASARIM NOTU (yönetmenliği buna göre yap): ${String(designNote).slice(0, 600)}` : ''}
 "keywords": sahneye uygun stok görsel aramak için 2-4 kelimelik İNGİLİZCE arama ifadesi (somut nesne veya ortam; marka adı yok).${pics.length ? `
-"image": Aşağıdaki SAYFA GÖRSELLERİ listesinden sahnede anlatılan ürüne/konuya en uygun görselin numarası. Görsel açıklaması ve dosya adı sahneyle gerçekten eşleşmiyorsa null yaz. Ürün sahnelerinde mutlaka uygun ürün görselini seç; mümkünse her görseli bir kez kullan; istatistik ve kapanış sahnelerinde de ilgili ürün görseli olabilir.` : ''}${free ? `
-"html": Bu sahne için ÖZGÜN bir görsel tasarım. ${size.width}x${size.height} piksellik tam ekran bir alanın içine girecek HTML+CSS parçası: tek bir <style> bloğu ve gövde öğeleri. Animasyonlar YALNIZ CSS @keyframes ile (sahne başında başlar, girişler ilk 1,5 saniyede tamamlanır). JavaScript, <script>, olay öznitelikleri, dış bağlantı, harici font ve resim URL'si YASAK. Tüm sınıf adlarını "s-" ile başlat. Koyu zemin, canlı vurgu renkleri, büyük okunaklı tipografi (başlıklar en az 64px). Metinleri visual alanlarıyla tutarlı tut.` : ''}
+"image": Aşağıdaki SAYFA GÖRSELLERİ listesinden sahnede anlatılan ürüne/konuya en uygun görselin numarası. Görsel açıklaması ve dosya adı sahneyle gerçekten eşleşmiyorsa null yaz. Ürün sahnelerinde mutlaka uygun ürün görselini seç; mümkünse her görseli bir kez kullan.` : ''}
 
 ÇIKTI: Yalnız şu JSON nesnesi:
-{"title":"videonun kısa başlığı","scenes":[{"narration":"[excited] ...","visual":{"type":"title","heading":"...","subheading":"..."},"keywords":"..."${pics.length ? ',"image":0' : ''}${free ? ',"html":"..."' : ''}}]}
+{"title":"videonun kısa başlığı","scenes":[{"narration":"[excited] ...","visual":{"type":"title","heading":"...","subheading":"..."},"direction":{"variant":"kinetic","emphasis":{"word":"...","style":"marker"},"hero":"auto","transition":"whip","tone":0},"keywords":"..."${pics.length ? ',"image":0' : ''}}]}
 
 ${pics.length ? `SAYFA GÖRSELLERİ:
 ${picList}
@@ -236,49 +253,49 @@ ${String(source || '').slice(0, 40000)}
   function normalizeVisual(v) {
     v = v && typeof v === 'object' ? v : {};
     const type = VISUAL_TYPES.includes(v.type) ? v.type : 'statement';
+    const side = x => ({ title: clampText(x && x.title, 40), items: (Array.isArray(x && x.items) ? x.items : []).slice(0, 4).map(i => clampText(typeof i === 'string' ? i : i && (i.text ?? i.value), 50)).filter(Boolean) });
     const items = (Array.isArray(v.items) ? v.items : []).slice(0, type === 'bignumber' ? 3 : 5)
-      .map(i => typeof i === 'string' ? { value: '', text: clampText(i, 60) } : { value: clampText(i && i.value, 12), text: clampText(i && (i.text ?? i.label), 60) })
+      .map(i => typeof i === 'string' ? { value: '', text: clampText(i, 60) } : { value: clampText(i && i.value, type === 'specs' ? 24 : 12), text: clampText(i && (i.text ?? i.label), 60) })
       .filter(i => i.text || i.value);
     return {
       type, heading: clampText(v.heading, 90), subheading: clampText(v.subheading, 140), value: clampText(v.value, 12),
       label: clampText(v.label, 90), source: clampText(v.source, 60), quote: clampText(v.quote, 260), author: clampText(v.author, 60),
-      button: clampText(v.button, 40), items
+      button: clampText(v.button, 40), items,
+      ...(type === 'comparison' ? { left: side(v.left), right: side(v.right) } : {})
     };
   }
   let sceneCounter = 0;
   const sceneId = () => `s${Date.now().toString(36)}${(++sceneCounter).toString(36)}`;
-  function normalizeScene(s, design) {
+  function normalizeDirection(d, type) {
+    d = d && typeof d === 'object' ? d : {};
+    const out = {};
+    if ((VARIANTS[type] || []).includes(d.variant)) out.variant = d.variant;
+    const e = d.emphasis && typeof d.emphasis === 'object' ? d.emphasis : {};
+    const word = clampText(e.word, 40), style = DIRECTION.emphasis.includes(e.style) ? e.style : '';
+    if (word || style) out.emphasis = { word, style };
+    if (DIRECTION.hero.includes(d.hero)) out.hero = d.hero;
+    if (DIRECTION.transition.includes(d.transition)) out.transition = d.transition;
+    if (Number.isInteger(+d.tone) && +d.tone >= 0 && +d.tone < 6 && d.tone !== '' && d.tone !== null) out.tone = +d.tone;
+    return out;
+  }
+  function normalizeScene(s) {
     const scene = { id: typeof s?.id === 'string' && /^[\w-]{1,40}$/.test(s.id) ? s.id : sceneId(),
       narration: String(s?.narration ?? '').replace(/\r/g, '').trim().slice(0, 2400), visual: normalizeVisual(s?.visual), keywords: clampText(s?.keywords, 80) };
-    if (design === 'free' && typeof s?.html === 'string' && s.html.trim()) scene.html = sanitizeHtml(s.html);
+    scene.direction = normalizeDirection(s?.direction, scene.visual.type);
     const media = normalizeMedia(s?.media);
     if (media) scene.media = media;
     return scene;
   }
-  function normalizeScript(data, { design = 'template', images = [] } = {}) {
+  function normalizeScript(data, { images = [] } = {}) {
     if (!data || !Array.isArray(data.scenes) || !data.scenes.length) throw Error('Model sahne listesi döndürmedi. Yeniden deneyin.');
     const scenes = data.scenes.slice(0, 40).map(s => {
-      const scene = normalizeScene({ ...s, media: undefined }, design);
+      const scene = normalizeScene({ ...s, media: undefined });
       const pick = Number.isInteger(s?.image) ? images[s.image] : null;
       if (pick) scene.media = normalizeMedia({ source: 'page', url: pick.url, alt: pick.alt });
       return scene;
     }).filter(s => plainText(s.narration));
     if (!scenes.length) throw Error('Senaryoda seslendirilecek metin bulunamadı.');
     return { title: clampText(data.title, 120) || 'Anlatımlı video', scenes };
-  }
-
-  // Serbest tasarım yalnız HTML+CSS'tir: betik, olay özniteliği ve dış kaynak
-  // render sırasında ağ erişimi veya kod çalıştırması için kullanılamaz.
-  const PAIRED = 'script|iframe|object|embed|form|frameset|applet|noscript|template|audio|video|picture|textarea|select|button|title';
-  const SINGLE = 'script|iframe|object|embed|link|meta|base|form|frame|frameset|applet|html|head|body|img|input|source|track|audio|video|picture|textarea|select|button|title|noscript|template';
-  function sanitizeHtml(html) {
-    let s = String(html || '').slice(0, 30000);
-    s = s.replace(new RegExp(`<\\s*(${PAIRED})\\b[\\s\\S]*?<\\s*\\/\\s*\\1\\s*>`, 'gi'), '');
-    s = s.replace(new RegExp(`<\\s*\\/?\\s*(${SINGLE})\\b[^>]*>`, 'gi'), '');
-    s = s.replace(/\son[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '');
-    s = s.replace(/\s(src|href|srcset|xlink:href|action|formaction|poster|background|ping|data)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '');
-    s = s.replace(/@import[^;]*;?/gi, '').replace(/url\s*\(([^)]*)\)/gi, 'none').replace(/expression\s*\(/gi, '(').replace(/javascript:/gi, '');
-    return s.trim();
   }
 
   // Altyazı satırları: sahne metni cümlelere/kısa satırlara bölünür, süre
@@ -387,6 +404,6 @@ ${String(source || '').slice(0, 40000)}
     normWord, spokenTokens, estimateTimings, alignTimings, cuesFromTimings,
     TONES, EVENTS, PROVIDERS, FORMATS, VISUAL_TYPES, PODCAST_LENGTHS, CHARS_PER_SECOND,
     vocabulary, parseNarration, plainText, estimateSeconds, geminiParts, legacyGeminiText, elevenText, isLegacyGeminiTts,
-    extractReadable, extractImages, normalizeMedia, decodeEntities, buildScriptPrompt, normalizeScript, normalizeScene, normalizeVisual, sanitizeHtml, captionLines, estimateCues
+    VARIANTS, DIRECTION, normalizeDirection, extractReadable, extractImages, normalizeMedia, decodeEntities, buildScriptPrompt, normalizeScript, normalizeScene, normalizeVisual, captionLines, estimateCues
   };
 });

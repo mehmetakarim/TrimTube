@@ -101,7 +101,12 @@ Bu akış yalnızca **Windows**'ta güvenilir çalışır. **macOS**'ta uygulama
 - **Anlatımlı Video:** metin veya bağlantıdan duygu etiketli bir senaryo yazılır;
   seslendirmeden önce metni, etiketleri ve sahne görsellerini düzeltip onaylarsınız.
   Gemini TTS veya ElevenLabs ile seslendirilir, HyperFrames ile Reels/Shorts (9:16)
-  veya Podcast (16:9, isteğe bağlı ses dalgası/audiogram) videosu üretilir; Pexels
+  veya Podcast (16:9, isteğe bağlı ses dalgası/audiogram) videosu üretilir. Görünümü
+  tema kütüphanesinden seçersiniz (hazır temalar ya da bir tasarım tarifinden/elle
+  oluşturduğunuz, logolu kendi temanız); AI sahne yönetmeni her sahnenin düzenini,
+  vurgusunu ve geçişini bu stile göre seçer, sahne kartından değiştirebilirsiniz.
+  Dikey videolarda yazılar Reels, Shorts ve TikTok arayüzünün kapladığı bölgelerin
+  dışında (güvenli alan) tutulur. Pexels
   stok görselleri isteğe bağlıdır. Video, sahne parçaları ve altyazı katmanıyla kurgu
   masasına taşınabilir. İlk render'da video motorunun tarayıcı bileşeni bir kez indirilir.
 - **Ayarlar:** çalışma ortamı ve hizmet bağlantıları ayrı bölümlerdedir.

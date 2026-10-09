@@ -1,5 +1,11 @@
 # TrimTube geliştirme planı
 
+## 9 Ekim 2026 — Görsel stiller + AI Sahne Yönetmeni (yayımlanmadı)
+
+- Serbest üretim kaldırıldı; tema kütüphanesi (modal, hazır 4 tema + prompttan/elle özel tema, logo) ve sahne başına yönetmen kararları; yeni tipler: adımlar, teknik özellikler, karşılaştırma; tasarım notu.
+- Güvenli alan (Reels/Shorts/TikTok), dikey ortalanmış görsel+içerik, taşma koruması, boş kare yok.
+- Sırada: gerçek API ile prompttan tema denemesi, arka plan kaldırma, EMA Lightning, v1.23.0.
+
 ## 9 Ekim 2026 — v1.22.0: Ses, müzik ve ritim
 
 - Ses efektleri, kullanıcı müziği (bölüm seçimi, ~14 dB kısma), ritim senkronu (beat-detect.js), 16:9 kırpmasız görsel kartı, 3 sütunlu kaydırmasız ekran.

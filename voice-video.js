@@ -9,6 +9,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { spawn } = require('child_process');
 const VoiceScript = require('./renderer/voice-script');
+const Themes = require('./renderer/voice-themes');
 const { buildScene, envelopeFromPcm, snap } = require('./voice-compose');
 const MUSIC_EXT = /\.(mp3|wav|m4a|aac|ogg|oga|flac|opus)$/i;
 const { detectBeats, tileBeats } = require('./beat-detect');
@@ -373,6 +374,84 @@ function register({ ipcMain, app, getWin, loadSettings, providerClient, ffmpeg, 
     return { ok: true, music: { path: p, name: path.basename(p), duration: +dur[1] * 3600 + +dur[2] * 60 + +dur[3], bpm: beat && beat.confidence >= .25 ? beat.bpm : null } };
   });
 
+  // ---- Görsel temalar: hazır temalar + kullanıcı temaları (userData/voice-themes) ----
+  const themeRoot = () => path.join(app.getPath('userData'), 'voice-themes');
+  const themeFile = () => path.join(themeRoot(), 'themes.json');
+  const logoDir = () => path.join(themeRoot(), 'logos');
+  function readThemes() {
+    try { const list = JSON.parse(fs.readFileSync(themeFile(), 'utf8')); return Array.isArray(list) ? list.slice(0, 40).map(t => Themes.normalizeTheme(t)) : []; }
+    catch { return []; }
+  }
+  function writeThemes(list) {
+    fs.mkdirSync(themeRoot(), { recursive: true });
+    const tmpFile = themeFile() + '.part';
+    fs.writeFileSync(tmpFile, JSON.stringify(list, null, 2), 'utf8'); fs.renameSync(tmpFile, themeFile());
+  }
+  function resolveTheme(id) {
+    const custom = readThemes().find(t => t.id === id);
+    return custom || Themes.BUILT_IN.find(t => t.id === id) || Themes.BUILT_IN[0];
+  }
+  async function logoThumb(file) { return fs.existsSync(file) ? thumbnail(file, false) : ''; }
+  ipcMain.handle('vv-themes', async () => {
+    const custom = readThemes();
+    for (const t of custom) if (t.logo) t.logo.thumb = await logoThumb(path.join(logoDir(), t.logo.file));
+    return { builtIn: Themes.BUILT_IN, custom };
+  });
+  ipcMain.handle('vv-theme-save', (event, theme) => {
+    try {
+      const t = Themes.normalizeTheme(theme);
+      if (Themes.BUILT_IN.some(b => b.id === t.id)) t.id = 'custom-' + crypto.randomBytes(4).toString('hex');
+      if (t.logo && !fs.existsSync(path.join(logoDir(), t.logo.file))) t.logo = null;
+      const list = readThemes().filter(x => x.id !== t.id);
+      if (list.length >= 40) return { error: 'En fazla 40 özel tema kaydedilebilir.' };
+      list.push(t); writeThemes(list);
+      return { ok: true, theme: t };
+    } catch { return { error: 'Tema kaydedilemedi.' }; }
+  });
+  ipcMain.handle('vv-theme-delete', (event, id) => {
+    try { writeThemes(readThemes().filter(t => t.id !== id)); return { ok: true }; } catch { return { error: 'Tema silinemedi.' }; }
+  });
+  ipcMain.handle('vv-theme-logo', async () => {
+    if (!dialog) return { cancelled: true };
+    const res = await dialog.showOpenDialog(getWin(), { properties: ['openFile'], filters: [{ name: 'Logo', extensions: ['png', 'webp', 'jpg', 'jpeg'] }] });
+    if (res.canceled || !res.filePaths?.[0]) return { cancelled: true };
+    const src = res.filePaths[0], info = await probeVisual(src);
+    if (!info.w) return { error: 'Logo okunamadı.' };
+    fs.mkdirSync(logoDir(), { recursive: true });
+    const st = fs.statSync(src), name = `logo-${hash([src, st.size, st.mtimeMs])}${path.extname(src).toLowerCase()}`;
+    fs.copyFileSync(src, path.join(logoDir(), name));
+    return { ok: true, file: name, thumb: await logoThumb(path.join(logoDir(), name)) };
+  });
+  ipcMain.handle('vv-choose-image', async () => {
+    if (!dialog) return { cancelled: true };
+    const res = await dialog.showOpenDialog(getWin(), { properties: ['openFile'], filters: [{ name: 'Görsel', extensions: ['png', 'webp', 'jpg', 'jpeg'] }] });
+    if (res.canceled || !res.filePaths?.[0]) return { cancelled: true };
+    return { ok: true, path: res.filePaths[0], name: path.basename(res.filePaths[0]), thumb: await thumbnail(res.filePaths[0], false) };
+  });
+  // Tasarım tarifinden (ve isteğe bağlı örnek görselden) tema: Gemini yalnız şemaya uyan JSON döndürür
+  ipcMain.handle('vv-theme-from-prompt', async (event, opts) => {
+    scriptCancelled = false;
+    const description = String(opts?.prompt || '').trim();
+    if (description.length < 20) return { error: 'Tasarım tarifi çok kısa.' };
+    const settings = loadSettings();
+    const parts = [{ text: Themes.buildThemePrompt(description, { hasReference: !!opts.reference }) }];
+    if (opts.reference && typeof opts.reference === 'string' && fs.existsSync(opts.reference)) {
+      const jpg = await new Promise(resolve => {
+        const proc = spawn(ffmpeg, ['-i', opts.reference, '-frames:v', '1', '-vf', 'scale=768:-2', '-f', 'image2pipe', '-vcodec', 'mjpeg', 'pipe:1'], { windowsHide: true });
+        const chunks = []; proc.stdout.on('data', d => chunks.push(d)); proc.on('error', () => resolve(null)); proc.on('close', code => resolve(code === 0 ? Buffer.concat(chunks) : null));
+      });
+      if (jpg) parts.push({ inlineData: { mimeType: 'image/jpeg', data: jpg.toString('base64') } });
+    }
+    const result = await providerClient.generate({
+      key: (settings.geminiKey || '').trim(), chain: settings.geminiModelChain,
+      setAbort: ctrl => { scriptAbort = ctrl; }, isCancelled: () => scriptCancelled,
+      body: model => ({ contents: [{ parts }], generationConfig: { responseMimeType: 'application/json', ...(model.startsWith('gemini-2.') ? { temperature: 0.4 } : {}) } })
+    });
+    if (result.cancelled || scriptCancelled) return { cancelled: true };
+    if (result.error) return { error: result.error };
+    return { ok: true, theme: Themes.normalizeTheme({ ...result.data, id: undefined }) };
+  });
+
   // ---- render ----
   async function renderScene(e, renderDir, html, out, workers) {
     const name = path.basename(out, '.mp4') + '.html';
@@ -428,11 +507,11 @@ function register({ ipcMain, app, getWin, loadSettings, providerClient, ffmpeg, 
     const settings = loadSettings();
     const source = String(opts?.source || '').trim();
     if (source.length < 40) return { error: 'Kaynak metin çok kısa. En az birkaç cümle girin.' };
-    const design = opts.design === 'free' ? 'free' : 'template';
+    const theme = resolveTheme(String(opts.themeId || ''));
     const images = (Array.isArray(opts.images) ? opts.images : []).filter(p => p && typeof p.url === 'string' && /^https?:\/\//i.test(p.url)).slice(0, 24).map(p => ({ url: p.url, alt: String(p.alt || '').slice(0, 120) }));
     const prompt = VoiceScript.buildScriptPrompt({ images,
       source, title: String(opts.title || ''), format: opts.format === 'podcast' ? 'podcast' : 'reels',
-      length: opts.length, provider: opts.provider === 'eleven' ? 'eleven' : 'gemini', design, fromUrl: !!opts.fromUrl
+      length: opts.length, provider: opts.provider === 'eleven' ? 'eleven' : 'gemini', fromUrl: !!opts.fromUrl, theme, designNote: String(opts.designNote || '').slice(0, 600)
     });
     const result = await providerClient.generate({
       key: (settings.geminiKey || '').trim(), chain: settings.geminiModelChain,
@@ -441,7 +520,7 @@ function register({ ipcMain, app, getWin, loadSettings, providerClient, ffmpeg, 
     });
     if (result.cancelled || scriptCancelled) return { cancelled: true };
     if (result.error) return { error: result.error };
-    try { return { ok: true, script: VoiceScript.normalizeScript(result.data, { design, images }), model: result.model }; }
+    try { return { ok: true, script: VoiceScript.normalizeScript(result.data, { images }), model: result.model }; }
     catch (err) { return { error: err.message }; }
   });
 
@@ -458,7 +537,7 @@ function register({ ipcMain, app, getWin, loadSettings, providerClient, ffmpeg, 
     const waveMode = format === 'podcast' && ['wave', 'audiogram'].includes(job.waveMode) ? job.waveMode : 'none';
     const mediaMode = ['image', 'video'].includes(job.mediaMode) && waveMode !== 'audiogram' ? job.mediaMode : 'off';
     let scenes;
-    try { scenes = (Array.isArray(job.scenes) ? job.scenes : []).slice(0, 40).map(s => VoiceScript.normalizeScene(s, job.design === 'free' ? 'free' : 'template')).filter(s => VoiceScript.plainText(s.narration)); }
+    try { scenes = (Array.isArray(job.scenes) ? job.scenes : []).slice(0, 40).map(s => VoiceScript.normalizeScene(s)).filter(s => VoiceScript.plainText(s.narration)); }
     catch { return { error: 'Sahne listesi geçersiz.' }; }
     if (!scenes.length) return { error: 'Seslendirilecek sahne yok.' };
     const title = String(job.title || 'Anlatımlı video').slice(0, 120);
@@ -525,7 +604,7 @@ function register({ ipcMain, app, getWin, loadSettings, providerClient, ffmpeg, 
       // 3a) Sahne görselleri (sayfadan veya kullanıcıdan) — sahnenin kahramanı
       const heroes = new Array(scenes.length).fill(null);
       for (let i = 0; i < scenes.length; i++) {
-        if (!scenes[i].media || scenes[i].html) continue;
+        if (!scenes[i].media || scenes[i].direction?.hero === 'none') continue;
         check();
         send({ phase: 'media', pct: i / scenes.length * 100, message: `Sahne görselleri hazırlanıyor: ${i + 1}/${scenes.length}` });
         try { heroes[i] = await prepareHero(scenes[i].media, mediaDir); }
@@ -537,11 +616,20 @@ function register({ ipcMain, app, getWin, loadSettings, providerClient, ffmpeg, 
         const used = new Set();
         for (let i = 0; i < scenes.length; i++) {
           check();
-          if (scenes[i].html || heroes[i]) continue; // serbest tasarım ve görselli sahne kendi zeminini kullanır
+          if (heroes[i]) continue; // görselli sahne kendi zeminini kullanır
           send({ phase: 'media', pct: i / scenes.length * 100, message: `Stok ${mediaMode === 'video' ? 'video' : 'fotoğraf'} aranıyor: sahne ${i + 1}/${scenes.length}` });
           try { media[i] = await pexelsMedia(scenes[i], mediaMode, landscape, mediaDir, used, credits); }
           catch (err) { if (err.cancelled) throw err; if (/anahtar/.test(err.message)) throw err; warnings.push(`Sahne ${i + 1}: ${err.message}`); }
         }
+      }
+
+      // 3c) Görsel tema ve logo
+      const theme = resolveTheme(String(job.themeId || ''));
+      let logoFile = null;
+      if (theme.logo) {
+        const src = path.join(logoDir(), theme.logo.file);
+        if (fs.existsSync(src)) { fs.copyFileSync(src, path.join(mediaDir, theme.logo.file)); logoFile = 'media/' + theme.logo.file; }
+        else warnings.push('Temanın logo dosyası bulunamadı; logosuz üretildi.');
       }
 
       // 4) Render — sahne başına kompozisyon; içerik özeti aynıysa önceki görüntü kullanılır
@@ -549,23 +637,16 @@ function register({ ipcMain, app, getWin, loadSettings, providerClient, ffmpeg, 
       fs.copyFileSync(e.gsap, path.join(renderDir, 'gsap.min.js'));
       const plan = timed.map((s, i) => {
         const envelope = waveMode === 'none' ? null : envelopeFromPcm(Buffer.concat([audio[i].pcm, Buffer.alloc(Math.max(0, Math.round((s.duration - s.speech) * SAMPLE_RATE)) * 2)]), SAMPLE_RATE);
-        const input = { scene: { visual: s.visual, html: s.html }, index: i, total: timed.length, duration: s.duration, speech: s.speech, words: s.words, format, media: media[i] && { kind: media[i].kind, file: 'media/' + media[i].file }, hero: heroes[i], waveMode, envelope, title, captions: !!job.captions, beats: s.beats, beatPeriod: beat ? beat.period : 0 };
-        const { html, sfx } = buildScene(input);
-        return { i, html, sfx, input, out: path.join(segDir, `seg-${hash(html)}.mp4`) };
+        const input = { scene: { visual: s.visual, direction: s.direction }, theme, logo: logoFile, index: i, total: timed.length, duration: s.duration, speech: s.speech, words: s.words, format, media: media[i] && { kind: media[i].kind, file: 'media/' + media[i].file }, hero: heroes[i], waveMode, envelope, title, captions: !!job.captions, safeArea: job.safeArea !== false, beats: s.beats, beatPeriod: beat ? beat.period : 0 };
+        const { html, sfx, transition } = buildScene(input);
+        return { i, html, sfx, transition, input, out: path.join(segDir, `seg-${hash(html)}.mp4`) };
       });
       const todo = plan.filter(p => !fs.existsSync(p.out));
       let done = plan.length - todo.length;
       send({ phase: 'render', pct: done / plan.length * 100, message: todo.length ? `Sahneler render ediliyor (${todo.length} sahne)…` : 'Sahneler önbellekten alındı.' });
       const parallel = Math.max(1, Math.min(3, Math.floor(require('os').cpus().length / 4)));
       await pool(todo, parallel, async p => {
-        try { await renderScene(e, renderDir, p.html, p.out, 2); }
-        catch (err) {
-          if (err.cancelled || !p.input.scene.html) throw err;
-          // Serbest tasarım render edilemezse sahne şablonla üretilir
-          warnings.push(`Sahne ${p.i + 1}: serbest tasarım render edilemedi, şablon kullanıldı.`);
-          const html = buildScene({ ...p.input, scene: { visual: p.input.scene.visual } }).html;
-          await renderScene(e, renderDir, html, p.out, 2);
-        }
+        await renderScene(e, renderDir, p.html, p.out, 2);
         done++;
         send({ phase: 'render', pct: done / plan.length * 100, message: `Render: ${done}/${plan.length} sahne` });
       });
@@ -584,7 +665,7 @@ function register({ ipcMain, app, getWin, loadSettings, providerClient, ffmpeg, 
       if (job.sfx !== false) {
         const events = [];
         timed.forEach((s, i) => {
-          if (i > 0) events.push({ t: s.start - .1, kind: 'whoosh', gain: .42 });
+          if (i > 0 && plan[i].transition !== 'cut') events.push({ t: s.start - .1, kind: 'whoosh', gain: plan[i].transition === 'slide' ? .28 : .42 });
           for (const e of plan[i].sfx || []) events.push({ t: s.start + e.t, kind: e.kind, gain: .12 }); // vurgu: whoosh'tan belirgin şekilde kısık
         });
         for (const e of events) {

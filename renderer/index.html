@@ -608,17 +608,21 @@
                 </div>
                 <button id="vvVoiceReload" class="btn-ghost small hidden">Yenile</button>
               </div>
-              <span class="label">Görsel tasarım</span>
-              <div class="segmented" id="vvDesignSeg">
-                <button class="seg active" data-vv-design="template">Şablon kütüphanesi</button>
-                <button class="seg" data-vv-design="free">Serbest üretim</button>
-              </div>
+              <span class="label">Görsel stil</span>
+              <button id="vvThemeOpen" type="button" class="vv-theme-pick" aria-haspopup="dialog" title="Tema kütüphanesini aç">
+                <span id="vvThemeThumb" class="vv-theme-thumb" aria-hidden="true"></span>
+                <span class="vv-theme-pick-text"><b id="vvThemeName">Neon Gece</b><small id="vvThemeDesc"></small></span>
+                <span class="vv-theme-pick-go">Kütüphane ›</span>
+              </button>
+              <textarea id="vvDesignNote" class="vv-textarea vv-design-note" rows="2" maxlength="600" aria-label="Tasarım notu" placeholder="Tasarım notu (isteğe bağlı): ör. sakin ve ferah olsun, ürün görselleri büyük görünsün, rakamları vurgula"></textarea>
+              <div class="setting-note">AI Sahne Yönetmeni her sahne için düzeni, vurgulanacak kelimeyi, görsel yerleşimini ve geçişi bu stile göre seçer; sahne kartlarından değiştirebilirsin.</div>
               <span class="label">Stok medya (Pexels)</span>
               <div class="segmented" id="vvMediaSeg">
                 <button class="seg active" data-vv-media="off">Kapalı</button>
                 <button class="seg" data-vv-media="image">Fotoğraf</button>
                 <button class="seg" data-vv-media="video">Video</button>
               </div>
+              <label id="vvSafeRow" class="cmp-check"><input type="checkbox" id="vvSafeArea" checked> Güvenli alan <span class="cmp-check-sub">(Reels, Shorts ve TikTok arayüzünün altında yazı/öğe kalmaz)</span></label>
               <label class="cmp-check"><input type="checkbox" id="vvCaptions"> Kinetik altyazıyı videoya işle <span class="cmp-check-sub">(kelime kelime; kapalıyken altyazı kurgu masasında ayrı katman olur)</span></label>
               <label class="cmp-check"><input type="checkbox" id="vvSfx" checked> Ses efektleri <span class="cmp-check-sub">(sahne geçişinde whoosh, vurgu anlarında pop)</span></label>
               <span class="label">Müzik altlığı</span>
@@ -660,8 +664,10 @@
             <div class="vv-col-body">
               <div id="vvStage" class="vv-stage" data-format="reels">
                 <video id="vvPreview" class="vv-preview" controls preload="metadata"></video>
+                <div id="vvSafeGuide" class="vv-safe-guide hidden" aria-hidden="true"><i class="t"></i><i class="b"></i><i class="r"></i><span>Güvenli alan</span></div>
                 <div class="vv-stage-empty"><span aria-hidden="true">▷</span><p>Video üretildiğinde burada oynatılır.</p></div>
               </div>
+              <label id="vvGuideRow" class="cmp-check vv-guide-row"><input type="checkbox" id="vvShowGuide"> Önizlemede platform arayüzü bölgelerini göster</label>
               <div id="vvProgress" class="progress-block hidden">
                 <div class="progress-head">
                   <span id="vvPhaseLabel" class="pulse">Hazırlanıyor…</span>
@@ -842,6 +848,31 @@
           <span class="pl-foot-hint">Seçilenler geçerli kalite/format ve marka ayarlarıyla tam video olarak kuyruğa eklenir.</span>
           <button id="plAddBtn" class="btn-primary small">Kuyruğa ekle</button>
         </div>
+      </div>
+    </div>
+
+    <!-- Anlatımlı video: görsel tema kütüphanesi ve tema düzenleyici -->
+    <div id="vvThemeModal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="vvThemeTitle">
+      <div class="modal vv-theme-modal">
+        <div class="modal-head">
+          <button id="vvThemeBack" class="btn-ghost small hidden" type="button">‹ Kütüphane</button>
+          <span class="modal-title" id="vvThemeTitle">Tema kütüphanesi</span>
+          <button id="vvThemeClose" class="icon-btn" type="button" aria-label="Kapat">✕</button>
+        </div>
+        <div class="vv-theme-body">
+          <div id="vvThemeGrid" class="vv-theme-grid"></div>
+          <div id="vvThemeEditor" class="vv-theme-editor hidden">
+            <div id="vvThemeForm" class="vv-theme-form"></div>
+            <div class="vv-theme-side">
+              <div id="vvThemePreview" class="vv-theme-preview"></div>
+              <div class="vv-theme-side-actions">
+                <button id="vvThemeCancel" class="btn-ghost small" type="button">Vazgeç</button>
+                <button id="vvThemeSaveBtn" class="btn-primary small" type="button">Kaydet ve seç</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="vv-theme-foot"><span id="vvThemeStatus" class="vv-theme-status" role="status"></span></div>
       </div>
     </div>
 
@@ -1162,6 +1193,8 @@
   <script src="publish-profiles.js"></script>
   <script src="publish-package.js"></script>
   <script src="voice-script.js"></script>
+  <script src="voice-themes.js"></script>
+  <script src="voice-theme-library.js"></script>
   <script src="voice-video.js"></script>
 </body>
 </html>

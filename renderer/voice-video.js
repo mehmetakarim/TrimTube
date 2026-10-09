@@ -3,7 +3,11 @@
    sahnelerin sesi/görüntüsü yeniden üretilir (ana süreç içerik özetiyle önbellekler). */
 (() => {
   const V = window.VoiceScript;
-  const TYPE_LABELS = { title: 'Başlık', statement: 'Vurgu cümlesi', stat: 'İstatistik', bignumber: 'Büyük sayılar', quote: 'Alıntı kartı', list: 'Liste', cta: 'Kapanış / çağrı' };
+  const TYPE_LABELS = { title: 'Başlık', statement: 'Vurgu cümlesi', stat: 'İstatistik', bignumber: 'Büyük sayılar', quote: 'Alıntı kartı', list: 'Liste', steps: 'Adımlar', specs: 'Teknik özellikler', comparison: 'Karşılaştırma', cta: 'Kapanış / çağrı' };
+  const VARIANT_LABELS = { kinetic: 'Kinetik', stacked: 'Üst üste', label: 'Etiketli', center: 'Ortalı', left: 'Sola yaslı', ring: 'Halka', giant: 'Dev rakam', bar: 'Çubuk', auto: 'Otomatik', card: 'Kart', big: 'Büyük tırnak', cards: 'Kartlar', checklist: 'Onay listesi', numbers: 'Numaralı', timeline: 'Zaman çizgisi', rows: 'Satırlar', vs: 'VS', table: 'Tablo', burst: 'Patlama', clean: 'Sade' };
+  const HERO_LABELS = { auto: 'Otomatik', top: 'Üstte', side: 'Yanda', background: 'Arka plan', inset: 'Küçük kart', none: 'Görsel yok' };
+  const TRANSITION_LABELS = { whip: 'Savrulma', zoom: 'Yakınlaşma', slide: 'Kayma', flash: 'Flaş', cut: 'Kesme' };
+  const EMPHASIS_LABELS = { marker: 'İşaretleyici', underline: 'Alt çizgi', circle: 'Daire', color: 'Renk', box: 'Kutu' };
   const FIELDS = {
     title: [['heading', 'Başlık', 'wide'], ['subheading', 'Alt başlık', 'wide']],
     statement: [['heading', 'Cümle', 'wide'], ['subheading', 'Açıklama', 'wide']],
@@ -11,44 +15,50 @@
     bignumber: [['items', 'Sayılar (her satır: değer | açıklama)', 'wide', 'pairs']],
     quote: [['quote', 'Alıntı', 'wide', 'area'], ['author', 'Kim söyledi'], ['source', 'Platform/kurum']],
     list: [['heading', 'Başlık', 'wide'], ['items', 'Maddeler (her satıra bir madde)', 'wide', 'lines']],
+    steps: [['heading', 'Başlık', 'wide'], ['items', 'Adımlar (her satıra bir adım)', 'wide', 'lines']],
+    specs: [['heading', 'Başlık', 'wide'], ['items', 'Özellikler (her satır: özellik | değer)', 'wide', 'specs']],
+    comparison: [['heading', 'Başlık (isteğe bağlı)', 'wide'], ['left', 'Sol taraf', 'wide', 'side'], ['right', 'Sağ taraf', 'wide', 'side']],
     cta: [['heading', 'Başlık', 'wide'], ['subheading', 'Alt satır'], ['button', 'Düğme metni']]
   };
   const state = {
-    source: 'text', format: 'reels', length: 'medium', wave: 'none', tts: 'gemini', design: 'template', media: 'off', captions: false, sfx: true, music: null,
+    source: 'text', format: 'reels', length: 'medium', wave: 'none', tts: 'gemini', themeId: 'neon', theme: null, designNote: '', media: 'off', captions: false, safeArea: true, sfx: true, music: null,
     script: null, sourceText: '', sourceTitle: '', fromUrl: false, projectId: null, pageImages: [],
     running: null, result: null, producedKey: null, voicesLoaded: false, lastNarration: null
   };
   const DRAFT_KEY = 'trimtube.voiceVideo.draft';
 
   // ---- tercihler ----
-  function prefs() { return { source: state.source, format: state.format, length: state.length, wave: state.wave, tts: state.tts, design: state.design, media: state.media, captions: state.captions, sfx: state.sfx, music: state.music }; }
+  function prefs() { return { source: state.source, format: state.format, length: state.length, wave: state.wave, tts: state.tts, themeId: state.themeId, designNote: state.designNote, media: state.media, captions: state.captions, safeArea: state.safeArea, sfx: state.sfx, music: state.music }; }
   function savePrefs() { if (settings) { settings.voiceVideo = prefs(); window.api.setSettings({ voiceVideo: prefs() }); } }
   function applyPrefs() {
     const p = settings?.voiceVideo; if (!p || typeof p !== 'object') return;
-    for (const [key, allowed] of Object.entries({ source: ['text', 'url'], format: ['reels', 'podcast'], length: ['short', 'medium', 'long'], wave: ['none', 'wave', 'audiogram'], tts: ['gemini', 'eleven'], design: ['template', 'free'], media: ['off', 'image', 'video'] }))
+    for (const [key, allowed] of Object.entries({ source: ['text', 'url'], format: ['reels', 'podcast'], length: ['short', 'medium', 'long'], wave: ['none', 'wave', 'audiogram'], tts: ['gemini', 'eleven'], media: ['off', 'image', 'video'] }))
       if (allowed.includes(p[key])) state[key] = p[key];
+    state.designNote = String(p.designNote || '').slice(0, 600);
+    if (typeof p.themeId === 'string' && /^[a-z0-9-]{2,40}$/.test(p.themeId)) state.themeId = p.themeId;
     state.captions = p.captions === true;
+    state.safeArea = p.safeArea !== false;
     state.sfx = p.sfx !== false;
     state.music = p.music && typeof p.music.path === 'string' ? { path: p.music.path, name: String(p.music.name || ''), level: Math.max(.1, Math.min(.6, +p.music.level || .3)), start: Math.max(0, +p.music.start || 0), duration: +p.music.duration || 0, bpm: +p.music.bpm || null, beatSync: p.music.beatSync !== false } : null;
   }
   function saveDraft() {
     try {
       if (!state.script) { localStorage.removeItem(DRAFT_KEY); return; }
-      localStorage.setItem(DRAFT_KEY, JSON.stringify({ script: state.script, projectId: state.projectId, sourceText: state.sourceText.slice(0, 40000), sourceTitle: state.sourceTitle, fromUrl: state.fromUrl, pageImages: state.pageImages, design: state.design, format: state.format, tts: state.tts }));
+      localStorage.setItem(DRAFT_KEY, JSON.stringify({ script: state.script, projectId: state.projectId, sourceText: state.sourceText.slice(0, 40000), sourceTitle: state.sourceTitle, fromUrl: state.fromUrl, pageImages: state.pageImages, format: state.format, tts: state.tts }));
     } catch {}
   }
   function loadDraft() {
     try {
       const d = JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null');
       if (!d?.script?.scenes?.length || !/^[a-z0-9-]{6,48}$/.test(d.projectId || '')) return;
-      state.script = { title: String(d.script.title || ''), scenes: d.script.scenes.map(s => V.normalizeScene(s, d.design === 'free' ? 'free' : 'template')) };
+      state.script = { title: String(d.script.title || ''), scenes: d.script.scenes.map(s => V.normalizeScene(s)) };
       state.projectId = d.projectId; state.sourceText = d.sourceText || ''; state.sourceTitle = d.sourceTitle || ''; state.fromUrl = !!d.fromUrl;
       state.pageImages = (Array.isArray(d.pageImages) ? d.pageImages : []).filter(p => p && /^https?:\/\//i.test(p.url)).slice(0, 24);
     } catch {}
   }
 
   // ---- seçim düğmeleri ----
-  const segments = [['vvSourceSeg', 'vvSource', 'source'], ['vvFormatSeg', 'vvFormat', 'format'], ['vvLengthSeg', 'vvLength', 'length'], ['vvWaveSeg', 'vvWave', 'wave'], ['vvTtsSeg', 'vvTts', 'tts'], ['vvDesignSeg', 'vvDesign', 'design'], ['vvMediaSeg', 'vvMedia', 'media']];
+  const segments = [['vvSourceSeg', 'vvSource', 'source'], ['vvFormatSeg', 'vvFormat', 'format'], ['vvLengthSeg', 'vvLength', 'length'], ['vvWaveSeg', 'vvWave', 'wave'], ['vvTtsSeg', 'vvTts', 'tts'], ['vvMediaSeg', 'vvMedia', 'media']];
   function syncSegments() {
     for (const [id, data, key] of segments) $(id).querySelectorAll('.seg').forEach(b => b.classList.toggle('active', b.dataset[data] === state[key]));
     $('vvText').classList.toggle('hidden', state.source !== 'text');
@@ -56,6 +66,10 @@
     $('vvUrlNote').classList.toggle('hidden', state.source !== 'url');
     $('vvPodcastOpts').classList.toggle('hidden', state.format !== 'podcast');
     $('vvCaptions').checked = state.captions;
+    $('vvSafeArea').checked = state.safeArea;
+    $('vvSafeRow').classList.toggle('hidden', state.format !== 'reels');
+    $('vvGuideRow').classList.toggle('hidden', state.format !== 'reels');
+    $('vvSafeGuide').classList.toggle('hidden', state.format !== 'reels' || !$('vvShowGuide').checked);
     $('vvSfx').checked = state.sfx;
     $('vvMusicName').textContent = state.music ? state.music.name : 'Müzik yok';
     $('vvMusicName').title = state.music ? state.music.path : '';
@@ -74,7 +88,6 @@
     const notes = [];
     if (state.tts === 'eleven') notes.push('ElevenLabs duygu etiketli modeli (Eleven v4/v3) kullanılır; hesabında karakter kredisi gerekir.');
     else notes.push('Gemini TTS mevcut Gemini anahtarınla çalışır; ton ve anlık sesler yeni TTS biçimine çevrilir.');
-    if (state.design === 'free') notes.push('Serbest üretimde her sahnenin tasarımını Gemini yazar; render edilemeyen sahne otomatik olarak şablona döner.');
     if (state.media !== 'off' && !audiogram) notes.push('Stok medya Pexels anahtarınla aranır; kaynak listesi videonun yanına yazılır.');
     if (audiogram) notes.push('Audiogram görünümünde stok medya kullanılmaz.');
     $('vvOptionNote').textContent = notes.join(' ');
@@ -86,11 +99,31 @@
       state[key] = value;
       if (key === 'wave' && value === 'audiogram') state.media = 'off';
       if (key === 'tts') { loadVoices(); if (state.script) renderScenes(); }
-      if (key === 'design' && state.script && value === 'template') state.script.scenes.forEach(s => delete s.html);
       syncSegments(); savePrefs(); refresh();
     });
   }
 
+  // ---- görsel stil (tema kütüphanesi) ----
+  function showTheme() {
+    const t = state.theme; if (!t) return;
+    $('vvThemeName').textContent = t.name; $('vvThemeDesc').textContent = t.description || '';
+    $('vvThemeThumb').replaceChildren(window.vvThemeLibrary.preview(t));
+    $('vvThemeOpen').title = `${t.name} — tema kütüphanesini aç`;
+  }
+  async function loadTheme() {
+    state.theme = await window.vvThemeLibrary.resolve(state.themeId);
+    if (state.theme.id !== state.themeId) { state.themeId = state.theme.id; savePrefs(); }
+    showTheme(); refresh();
+  }
+  $('vvThemeOpen').addEventListener('click', () => {
+    if (state.running) return;
+    window.vvThemeLibrary.open(state.themeId, t => { state.themeId = t.id; state.theme = t; showTheme(); savePrefs(); refresh(); });
+  });
+  $('vvDesignNote').addEventListener('input', () => { state.designNote = $('vvDesignNote').value.slice(0, 600); });
+  $('vvDesignNote').addEventListener('change', savePrefs);
+
+  $('vvSafeArea').addEventListener('change', () => { state.safeArea = $('vvSafeArea').checked; savePrefs(); refresh(); });
+  $('vvShowGuide').addEventListener('change', syncSegments);
   $('vvCaptions').addEventListener('change', () => { state.captions = $('vvCaptions').checked; savePrefs(); refresh(); });
   $('vvSfx').addEventListener('change', () => { state.sfx = $('vvSfx').checked; savePrefs(); refresh(); });
   $('vvMusicPick').addEventListener('click', async () => {
@@ -181,7 +214,7 @@
     if (state.media !== 'off' && !(state.format === 'podcast' && state.wave === 'audiogram') && !(settings?.pexelsKey || '').trim()) missing.push('Pexels (stok medya)');
     return missing;
   }
-  const productionKey = () => JSON.stringify([state.script, state.format, state.wave, state.tts, $('vvVoice').value, state.design, state.media, state.captions, state.sfx, state.music]);
+  const productionKey = () => JSON.stringify([state.script, state.format, state.wave, state.tts, $('vvVoice').value, state.theme, state.media, state.captions, state.format === 'reels' && state.safeArea, state.sfx, state.music]);
   function refresh() {
     const missing = keysMissing();
     $('vvKeyWarn').classList.toggle('hidden', !missing.length);
@@ -247,12 +280,21 @@
   function field(scene, [key, label, wide, kind], onChange) {
     const wrap = document.createElement('label'); wrap.className = 'vv-field' + (wide ? ' wide' : ''); wrap.textContent = label;
     let input;
-    if (kind === 'pairs' || kind === 'lines' || kind === 'area') {
-      input = document.createElement('textarea'); input.rows = kind === 'area' ? 3 : 3;
-      input.value = kind === 'pairs' ? scene.visual.items.map(i => `${i.value} | ${i.text}`).join('\n') : kind === 'lines' ? scene.visual.items.map(i => i.text || i.value).join('\n') : scene.visual[key] || '';
+    if (kind === 'side') {
+      const sideVal = scene.visual[key] || (scene.visual[key] = { title: '', items: [] });
+      const t = document.createElement('input'); t.type = 'text'; t.placeholder = 'Taraf adı (ör. K1)'; t.value = sideVal.title; t.maxLength = 40;
+      const list = document.createElement('textarea'); list.rows = 3; list.placeholder = 'Her satıra bir madde (en fazla 4)'; list.value = sideVal.items.join('\n');
+      t.addEventListener('input', () => { sideVal.title = t.value.slice(0, 40); onChange(); });
+      list.addEventListener('input', () => { sideVal.items = list.value.split('\n').map(l => l.trim()).filter(Boolean).slice(0, 4).map(x => x.slice(0, 50)); onChange(); });
+      wrap.append(t, list); return wrap;
+    }
+    if (kind === 'pairs' || kind === 'lines' || kind === 'area' || kind === 'specs') {
+      input = document.createElement('textarea'); input.rows = 3;
+      input.value = kind === 'pairs' ? scene.visual.items.map(i => `${i.value} | ${i.text}`).join('\n') : kind === 'specs' ? scene.visual.items.map(i => `${i.text} | ${i.value}`).join('\n') : kind === 'lines' ? scene.visual.items.map(i => i.text || i.value).join('\n') : scene.visual[key] || '';
     } else { input = document.createElement('input'); input.type = 'text'; input.value = scene.visual[key] || ''; }
     input.addEventListener('input', () => {
       if (kind === 'pairs') scene.visual.items = input.value.split('\n').map(l => l.split('|')).filter(p => p.join('').trim()).slice(0, 3).map(([v, ...t]) => ({ value: v.trim().slice(0, 12), text: t.join('|').trim().slice(0, 60) }));
+      else if (kind === 'specs') scene.visual.items = input.value.split('\n').map(l => l.split('|')).filter(p => p.join('').trim()).slice(0, 5).map(([t, ...v]) => ({ text: t.trim().slice(0, 60), value: v.join('|').trim().slice(0, 24) }));
       else if (kind === 'lines') scene.visual.items = input.value.split('\n').map(l => l.trim()).filter(Boolean).slice(0, 5).map(t => ({ value: '', text: t.slice(0, 60) }));
       else scene.visual[key] = input.value.slice(0, key === 'quote' ? 260 : 140);
       onChange();
@@ -260,8 +302,7 @@
     wrap.append(input); return wrap;
   }
   function visualSummary(scene) {
-    if (scene.html) return 'Serbest tasarım (Gemini)';
-    const v = scene.visual, text = v.heading || v.quote || v.value || v.items?.[0]?.text || '';
+    const v = scene.visual, text = v.heading || v.quote || v.value || (v.type === 'comparison' && v.left?.title ? `${v.left.title} vs ${v.right?.title || '…'}` : '') || v.items?.[0]?.text || '';
     const pic = scene.media ? (scene.media.kind === 'video' ? ' · 🎬 video' : ' · 🖼 görsel') : '';
     return `${TYPE_LABELS[v.type]}${text ? ' · ' + text.slice(0, 40) : ''}${pic}`;
   }
@@ -301,25 +342,23 @@
       const onVisual = () => { st.textContent = visualSummary(scene); changed(); };
       const build = () => {
         body.replaceChildren();
-        if (scene.html) {
-          const note = document.createElement('div'); note.className = 'vv-free-note';
-          note.textContent = 'Bu sahnenin tasarımını Gemini yazdı. Metin alanları yedek şablon için kullanılır.';
-          const use = document.createElement('button'); use.type = 'button'; use.className = 'btn-ghost small'; use.textContent = 'Şablona çevir';
-          use.addEventListener('click', () => { delete scene.html; build(); onVisual(); });
-          note.append(use); body.append(note);
-        }
         body.append(mediaPicker(scene, () => { build(); onVisual(); }));
-        const typeWrap = document.createElement('label'); typeWrap.className = 'vv-field'; typeWrap.textContent = 'Şablon';
+        const typeWrap = document.createElement('label'); typeWrap.className = 'vv-field'; typeWrap.textContent = 'Sahne tipi';
         const select = document.createElement('select');
         for (const t of V.VISUAL_TYPES) { const o = document.createElement('option'); o.value = t; o.textContent = TYPE_LABELS[t]; select.append(o); }
         select.value = scene.visual.type;
-        select.addEventListener('change', () => { scene.visual.type = select.value; build(); onVisual(); });
+        select.addEventListener('change', () => {
+          scene.visual.type = select.value;
+          if (select.value === 'comparison') { scene.visual.left = scene.visual.left || { title: '', items: [] }; scene.visual.right = scene.visual.right || { title: '', items: [] }; }
+          if (scene.direction?.variant && !V.VARIANTS[select.value].includes(scene.direction.variant)) delete scene.direction.variant;
+          build(); onVisual();
+        });
         typeWrap.append(select);
         const kw = document.createElement('label'); kw.className = 'vv-field'; kw.textContent = 'Stok medya araması (İngilizce)';
         const kwInput = document.createElement('input'); kwInput.type = 'text'; kwInput.value = scene.keywords || ''; kwInput.maxLength = 80;
         kwInput.addEventListener('input', () => { scene.keywords = kwInput.value; changed(); });
         kw.append(kwInput);
-        body.append(typeWrap, kw, ...FIELDS[scene.visual.type].map(f => field(scene, f, onVisual)));
+        body.append(typeWrap, kw, ...FIELDS[scene.visual.type].map(f => field(scene, f, onVisual)), directionBox(scene, onVisual));
         body.querySelectorAll('input, select, textarea').forEach(el => { el.disabled = !!state.running; });
       };
       build();
@@ -342,6 +381,30 @@
     renderTagHelp(); summary();
     $('vvSourceView').classList.toggle('hidden', !state.fromUrl || !state.sourceText);
     $('vvSourceText').textContent = state.fromUrl ? state.sourceText : '';
+  }
+  // AI Sahne Yönetmeni kararları: boş seçim = temanın/yönetmenin varsayılanı
+  function directionBox(scene, onChange) {
+    const d = scene.direction || (scene.direction = {});
+    const box = document.createElement('fieldset'); box.className = 'vv-direction wide';
+    const legend = document.createElement('legend'); legend.textContent = 'Sahne yönetmeni'; box.append(legend);
+    const sel = (label, options, value, set) => {
+      const wrap = document.createElement('label'); wrap.className = 'vv-field'; wrap.textContent = label;
+      const s = document.createElement('select');
+      const def = document.createElement('option'); def.value = ''; def.textContent = 'Tema varsayılanı'; s.append(def);
+      for (const [v, t] of options) { const o = document.createElement('option'); o.value = v; o.textContent = t; s.append(o); }
+      s.value = value || ''; s.addEventListener('change', () => { set(s.value); onChange(); });
+      wrap.append(s); return wrap;
+    };
+    const variants = V.VARIANTS[scene.visual.type] || [];
+    if (variants.length > 1) box.append(sel('Düzen', variants.map(v => [v, VARIANT_LABELS[v] || v]), d.variant, v => { if (v) d.variant = v; else delete d.variant; }));
+    box.append(sel('Görsel yerleşimi', V.DIRECTION.hero.map(v => [v, HERO_LABELS[v]]), d.hero, v => { if (v) d.hero = v; else delete d.hero; }));
+    box.append(sel('Geçiş', V.DIRECTION.transition.map(v => [v, TRANSITION_LABELS[v]]), d.transition, v => { if (v) d.transition = v; else delete d.transition; }));
+    const ew = document.createElement('label'); ew.className = 'vv-field'; ew.textContent = 'Vurgulanan kelime';
+    const wi = document.createElement('input'); wi.type = 'text'; wi.maxLength = 40; wi.placeholder = 'Başlıktan bir kelime'; wi.value = d.emphasis?.word || '';
+    wi.addEventListener('input', () => { const word = wi.value.trim(); d.emphasis = { word, style: d.emphasis?.style || '' }; if (!word && !d.emphasis.style) delete d.emphasis; onChange(); });
+    ew.append(wi); box.append(ew);
+    box.append(sel('Vurgu tarzı', V.DIRECTION.emphasis.map(v => [v, EMPHASIS_LABELS[v]]), d.emphasis?.style, v => { d.emphasis = { word: d.emphasis?.word || '', style: v }; if (!d.emphasis.word && !v) delete d.emphasis; }));
+    return box;
   }
   // Sahne görseli: sayfadan (Gemini'ın önerdiği veya galeriden) ya da kullanıcı dosyası
   function mediaPicker(scene, onChange) {
@@ -384,7 +447,7 @@
   $('vvTitle').addEventListener('input', () => { if (state.script) { state.script.title = $('vvTitle').value.slice(0, 120); changed(); } });
   $('vvAddScene').addEventListener('click', () => {
     if (!state.script || state.script.scenes.length >= 40) return;
-    state.script.scenes.push(V.normalizeScene({ narration: '[normal] ', visual: { type: 'statement' } }, 'template'));
+    state.script.scenes.push(V.normalizeScene({ narration: '[normal] ', visual: { type: 'statement' } }));
     renderScenes(); changed();
     const last = $('vvScenes').lastElementChild?.querySelector('.vv-narration'); last?.focus(); last && (last.selectionStart = last.value.length);
   });
@@ -404,7 +467,7 @@
         source = page.text; title = page.title; fromUrl = true; images = page.images || [];
       }
       setProgress('Senaryo yazılıyor (Gemini)…', fromUrl ? 45 : 25);
-      const r = await window.api.vvScript({ source, title, format: state.format, length: state.length, provider: state.tts, design: state.design, fromUrl, images });
+      const r = await window.api.vvScript({ source, title, format: state.format, length: state.length, provider: state.tts, themeId: state.themeId, designNote: state.designNote, fromUrl, images });
       if (r.cancelled) return;
       if (r.error) { showError(r.error); return; }
       state.script = r.script; state.sourceText = source; state.sourceTitle = title; state.fromUrl = fromUrl; state.pageImages = images;
@@ -427,7 +490,7 @@
     try {
       const r = await window.api.vvProduce({
         projectId: state.projectId, title: state.script.title, format: state.format, provider: state.tts, voice: $('vvVoice').value,
-        design: state.design, waveMode: state.format === 'podcast' ? state.wave : 'none', mediaMode: state.media, captions: state.captions, sfx: state.sfx, music: state.music,
+        themeId: state.themeId, waveMode: state.format === 'podcast' ? state.wave : 'none', mediaMode: state.media, captions: state.captions, safeArea: state.format !== 'reels' || state.safeArea, sfx: state.sfx, music: state.music,
         scenes: state.script.scenes, outDir: settings?.lastFolder || $('folder')?.textContent || null
       });
       if (r.cancelled) { showToast('Video üretimi iptal edildi'); return; }
@@ -468,6 +531,8 @@
   (async function init() {
     for (let i = 0; i < 100 && !settings; i++) await new Promise(r => setTimeout(r, 50));
     applyPrefs(); loadDraft(); syncSegments();
+    $('vvDesignNote').value = state.designNote;
+    loadTheme();
     if (state.script) renderScenes();
     loadVoices(); refresh();
   })();

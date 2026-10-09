@@ -1,5 +1,23 @@
 # TrimTube Geliştirme Günlüğü
 
+## 9 Ekim 2026 — Güvenli alan, dikey yerleşim, boş kare yok (yayımlanmadı)
+
+Kullanıcı saha testi (M1 incelemesi, kendi "Analog Maker Kolaj" teması): karşılaştırma sahnesinde ~6 sn yalnız zemin; görselli sahnelerde tasarım yukarıya yaslı, altı boş; Reels/Shorts/TikTok güvenli alanı istendi.
+- **Önce yapı, sonra vurgu:** kartlar, kutular, liste/özellik/karşılaştırma öğeleri ilk saniyede soluk (opaklık .34) kurulur; konuşmada anıldığı an tam görünür + kısa nabız. İstatistik kutusu ve etiketi ≤1,1 sn'de, sayım konuşulan rakamda başlar (kutu önce 0 gösterir). Karşılaştırma kartları .15/.45 sn'de; taraf adı anılınca kart nabız atar. Anılma zaten erkense öğe doğrudan girer.
+- **Güvenli alan (9:16, varsayılan açık):** `SAFE_AREA` üst 230, alt 480, sol 70, sağ 170 px (üç platformun birleşimi). Sahne kutusu, altyazı bandı (açıksa +230 px ayrılır), ilerleme çubuğu ve logo (≤110 px) bu kutuda; zemin/dekor taşabilir. 16:9 ve kapatıldığında tam kare. Önizlemede platform bölgeleri kılavuzu (seçmeli).
+- **Dikey yerleşim:** görsel artık mutlak konumda değil; `.fit` yığınında görsel + içerik birlikte dikey ortalanır (16:9 kart güvenli genişlikte 840 px). **Taşma koruması:** yığın sahne kutusuna sığmazsa (yükseklik/genişlik) çalışma anında orantılı `zoom` (yazı tipleri yüklenince yeniden ölçülür).
+- Doğrulama: kullanıcının taslağı Local Storage LevelDB günlüğünden çözülüp (UTF-16 değer, 32 KB blok başlıkları atlanarak) önbellekteki seslerle API'siz yeniden render edildi; tüm sahneler güvenli alanda, boş kare yok. **TUZAK:** LevelDB `.log` kayıtları 32 KB bloklara bölünür; düz bayt aramasıyla alınan JSON blok başlığında bozulur.
+- Testler: 24 anlatımlı video (güvenli alan, erken yapı/geç vurgu zamanlaması), 146 arayüz.
+
+## 9 Ekim 2026 — Görsel stiller + AI Sahne Yönetmeni (yayımlanmadı)
+
+Kullanıcı kararı: serbest üretim kaldırıldı (Gemini HTML yazmıyor). Yerine kullanıcı bir **görsel stil (tema)** seçer, Gemini senaryoyu yazarken her sahne için yönetmenlik kararı verir.
+- **Tema** (`renderer/voice-themes.js`, UMD): renkler (zemin, yazı, ikincil, kart, 1-6 vurgu), yazı tipleri (allowlist; derleyici aileyi Google Fonts'tan adla çeker, HTML'de http yok), başlık kalınlığı/harf, zemin (glow/paper/grid/soft), kart, görsel çerçevesi (card/tape/polaroid/hud/soft), köşe, motifler (≤6), enerji, varsayılan geçiş ve vurgu, etiket, logo. Hazır: Neon Gece, Editoryal, Teknoloji, Sıcak/Organik. `normalizeTheme` okunmayan yazı rengini düzeltir (≥4,5; ikincil ≥3), kimliği/yazı tipini/logo adını kelepçeler.
+- **Kütüphane** (`renderer/voice-theme-library.js`): modal; önizlemeli kartlar, seç/çoğalt/düzenle/sil, "Yeni tema": tasarım tarifinden (prompt + isteğe bağlı örnek görsel → `vv-theme-from-prompt`, Gemini yalnız şemaya uygun JSON) ya da elle düzenleyici + canlı önizleme. Özel temalar `userData/voice-themes/themes.json` (≤40), logolar `logos/`. Hazır tema kimliğiyle kayıt yeni kimlik alır.
+- **AI Sahne Yönetmeni:** sahne `direction` = {variant (tipe uygun düzen), emphasis {word, style}, hero (auto/top/side/background/inset/none), transition (whip/zoom/slide/flash/cut), tone (vurgu rengi sırası)}. Yeni sahne tipleri: steps, specs, comparison (left/right). Sahne kartında "Sahne yönetmeni" alanından elle değiştirilebilir; boş = tema varsayılanı. Kullanıcının isteğe bağlı **tasarım notu** istemle gider. `cut` geçişinde whoosh çalınmaz, `slide` daha kısık.
+- **TUZAK (okunurluk):** kullanıcının kapak tarifine benzer açık tema (krem zemin, sarı + kömür vurgu, yırtık kâğıt) render edilince kömür vurgulu sahnelerde yırtık kâğıt koyu yazının arkasına düştü, sarı rakam sarı kâğıtta kayboldu. Çözüm: yırtık kâğıt yazıyla ≥3:1 ayrışan vurgudan seçilir; yazı olarak kullanılan vurgu (`readableAccent`) zemin, kart ve kâğıt yüzeylerine karşı ≥3:1 olana dek yazı rengine karıştırılır (sarı → hardal). Kutu vurgusunda yazı rengi beyaz/siyahtan kontrastlı olan.
+- Testler: 21 anlatımlı video birim (tema kelepçeleme, yönetmen doğrulama, 4 tema × tüm tip/düzen kompozisyonu, logo) + uçtan uca tema deposu; 145 arayüz (kütüphane modalı, prompttan tema, kaydet-seç, tasarım notu ve yönetmen kararlarının isteklere taşınması).
+
 ## v1.22.0 — 9 Ekim 2026, yayımlandı
 
 Release: https://github.com/mehmetakarim/TrimTube/releases/tag/v1.22.0 — etiket commit `891a407`, Actions `37919700424` (4 regresyon + 3 derleme başarılı, 10 dosya, bildirimler 1.22.0, latest).
@@ -54,7 +72,7 @@ eutral) electron-builder dosya taramasını ENOENT ile düşürüyordu; içlerin
 ## 7 Ekim 2026 — Anlatımlı Video (HyperFrames) — kod tamam, saha testi bekliyor
 
 Yeni ekran: metin/URL → Gemini duygu etiketli senaryo (onaylı) → sahne başına TTS → HyperFrames → kurgu masası.
-- **Dosyalar:** `renderer/voice-script.js` (UMD: etiket dili, sağlayıcı çevirisi, istem, doğrulama, HTML temizleme, okunur sayfa metni), `voice-compose.js` (sahne kompozisyonu: 7 şablon + ses dalgası/audiogram + serbest tasarım), `voice-video.js` (IPC: `vv-source`, `vv-script`, `vv-produce`, `vv-cancel`, ilerleme `vv-progress`), `renderer/voice-video.js/.css`.
+- **Dosyalar:** `renderer/voice-script.js` (UMD: etiket dili, sağlayıcı çevirisi, istem, doğrulama, HTML temizleme, okunur sayfa metni), `voice-compose.js` (sahne kompozisyonu: 7 şablon + ses dalgası/audiogram + serbest tasarım — 9 Ekim'de serbest tasarım kaldırıldı, yerine temalar + sahne yönetmeni), `voice-video.js` (IPC: `vv-source`, `vv-script`, `vv-produce`, `vv-cancel`, ilerleme `vv-progress`), `renderer/voice-video.js/.css`.
 - **Gemini 3.x TTS biçimi değişti:** köşeli etiketler yerine anlık sesler `<laugh>`, `<sigh>`, `<short pause>`; sürekli ton part başına `speech_metadata.style`. Satır içi "Say cheerfully:" 3.x'te sesli okunabilir; yalnız 2.x modellerine verilir (`body(model)` ile model başına istek).
 - **ElevenLabs:** Hikâye Kurgusu'ndaki `eleven_multilingual_v2` ses etiketlerini desteklemez; bu ekran `eleven_v4` → `eleven_v3` kullanır (Türkçe destekli). Duraklama etiketi yok, "…" kullanılır.
 - **HyperFrames çalıştırma:** `process.execPath` + `ELECTRON_RUN_AS_NODE=1` (Electron 37 = Node 22.21, HyperFrames ≥22 ister). Ortam sıfırdan kurulur (API anahtarları alt sürece geçmez; `HYPERFRAMES_NO_TELEMETRY=1`, `DO_NOT_TRACK=1`). ffmpeg-static'te ffprobe yok → `@ffprobe-installer/ffprobe` (yalnız kurulu platformun ikilisi) + `HYPERFRAMES_FFPROBE_PATH`. İlk render tarayıcıyı `~/.cache/hyperframes` altına indirir (~270 MB, bir kerelik; `browser ensure` adımı). Derleyici Inter yazı tipini Google Fonts'tan bir kez çekip önbelleğe alır.

@@ -112,5 +112,11 @@ contextBridge.exposeInMainWorld('api', {
   vvChooseMedia: () => ipcRenderer.invoke('vv-choose-media'),
   vvMediaInfo: (path) => ipcRenderer.invoke('vv-media-info', path),
   vvChooseMusic: () => ipcRenderer.invoke('vv-choose-music'),
+  vvThemes: () => ipcRenderer.invoke('vv-themes'),
+  vvThemeSave: (theme) => ipcRenderer.invoke('vv-theme-save', theme),
+  vvThemeDelete: (id) => ipcRenderer.invoke('vv-theme-delete', id),
+  vvThemeLogo: () => ipcRenderer.invoke('vv-theme-logo'),
+  vvChooseImage: () => ipcRenderer.invoke('vv-choose-image'),
+  vvThemeFromPrompt: (opts) => ipcRenderer.invoke('vv-theme-from-prompt', opts),
   onVvProgress: (cb) => ipcRenderer.on('vv-progress', (e, p) => cb(p))
 });
