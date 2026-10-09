@@ -232,3 +232,9 @@
 .vv-safe-guide .r { right: 0; top: 11.98%; bottom: 25%; width: 15.74%; }
 .vv-safe-guide span { position: absolute; left: 6.5%; top: 13%; font-size: 10px; font-weight: 700; color: #e5484d; background: rgba(255, 255, 255, .85); padding: 1px 5px; border-radius: 4px; }
 .vv-guide-row { margin-top: 6px; }
+
+/* Arka planı kaldırılmış görsel önizlemesi: şeffaflık dama deseniyle görünür */
+.vv-media-preview.cut { background: repeating-conic-gradient(#8883 0 25%, transparent 0 50%) 0 0 / 12px 12px; }
+.vv-media-preview.cut img { object-fit: contain; }
+.vv-cut-row { margin-top: 4px; flex-wrap: wrap; }
+.vv-theme-tools { display: flex; gap: 6px; }

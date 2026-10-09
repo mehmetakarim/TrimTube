@@ -106,7 +106,10 @@ Bu akış yalnızca **Windows**'ta güvenilir çalışır. **macOS**'ta uygulama
   oluşturduğunuz, logolu kendi temanız); AI sahne yönetmeni her sahnenin düzenini,
   vurgusunu ve geçişini bu stile göre seçer, sahne kartından değiştirebilirsiniz.
   Dikey videolarda yazılar Reels, Shorts ve TikTok arayüzünün kapladığı bölgelerin
-  dışında (güvenli alan) tutulur. Pexels
+  dışında (güvenli alan) tutulur. Sahne görsellerinin arka planı tek tıkla kaldırılabilir
+  (yerel model, ilk kullanımda bir kez indirilir; Whisper ile aynı Python kurulumu gerekir).
+  Kendi temalarınızı logolarıyla birlikte `.trimtube-theme` dosyasına dışa aktarıp yeniden
+  kurulumdan sonra ya da başka bir bilgisayarda içe aktarabilirsiniz. Pexels
   stok görselleri isteğe bağlıdır. Video, sahne parçaları ve altyazı katmanıyla kurgu
   masasına taşınabilir. İlk render'da video motorunun tarayıcı bileşeni bir kez indirilir.
 - **Ayarlar:** çalışma ortamı ve hizmet bağlantıları ayrı bölümlerdedir.

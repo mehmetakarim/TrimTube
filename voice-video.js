@@ -22,6 +22,13 @@ const SCENE_GAP = 0.4, LAST_GAP = 1.0;
 const ELEVEN_MODELS = ['eleven_v4', 'eleven_v3'];
 const hash = value => crypto.createHash('sha256').update(typeof value === 'string' ? value : JSON.stringify(value)).digest('hex').slice(0, 20);
 const PROJECT_ID = /^[a-z0-9-]{6,48}$/;
+// Arka plan kaldırma modeli: ISNet genel amaçlı nesne ayırma (rembg dağıtımı,
+// Apache-2.0). İlk kullanımda bir kez indirilir; boyut ve SHA-256 doğrulanır.
+const CUTOUT_MODEL = {
+  file: 'isnet-general-use.onnx', size: 178648008,
+  sha256: '60920e99c45464f2ba57bee2ad08c919a52bbf852739e96947fbb4358c0d964a',
+  url: 'https://github.com/danielgatis/rembg/releases/download/v0.0.0/isnet-general-use.onnx'
+};
 
 function register({ ipcMain, app, getWin, loadSettings, providerClient, ffmpeg, procEnv, uniquePath, sanitizeName, dialog = null, resolvePython = () => (process.platform === 'win32' ? 'python' : 'python3') }) {
   const root = () => path.join(app.getPath('userData'), 'voice-video');
@@ -315,7 +322,8 @@ function register({ ipcMain, app, getWin, loadSettings, providerClient, ffmpeg, 
 
   // Üretimde: sayfa görseli indirilir, yerel dosya kopyalanır; boyut ve şeffaflık
   // ölçülür (şeffaf PNG/WEBP ürün kesimi kartsız, gölgeli sunulur).
-  async function prepareHero(media, dir) {
+  async function sourceFile(media, dir, guard = check) {
+    fs.mkdirSync(dir, { recursive: true });
     let target;
     if (media.source === 'page') {
       const ext = (media.url.split('?')[0].match(/\.(jpe?g|png|webp|avif|bmp)$/i) || [, 'img'])[1].toLowerCase();
@@ -323,8 +331,8 @@ function register({ ipcMain, app, getWin, loadSettings, providerClient, ffmpeg, 
       if (!fs.existsSync(target)) {
         let res;
         try { res = await timedFetch(media.url, { headers: { 'User-Agent': 'Mozilla/5.0 (TrimTube)', Accept: 'image/avif,image/webp,image/png,image/jpeg,*/*;q=0.5' } }, 45000); }
-        catch { check(); throw Error('Sayfa görseli indirilemedi.'); }
-        check();
+        catch { guard(); throw Error('Sayfa görseli indirilemedi.'); }
+        guard();
         if (!res.ok) throw Error(`Sayfa görseli indirilemedi (HTTP ${res.status}).`);
         if (!/^image\/(jpeg|png|webp|avif|bmp)/i.test(res.headers.get('content-type') || '')) throw Error('Sayfa görseli desteklenen bir resim biçiminde değil.');
         const buf = await readLimited(res, 30 * 1024 * 1024);
@@ -335,6 +343,96 @@ function register({ ipcMain, app, getWin, loadSettings, providerClient, ffmpeg, 
       const st = fs.statSync(media.path);
       target = path.join(dir, `local-${hash([path.resolve(media.path), st.size, st.mtimeMs])}${path.extname(media.path).toLowerCase()}`);
       if (!fs.existsSync(target)) { fs.copyFileSync(media.path, target + '.part'); fs.renameSync(target + '.part', target); }
+    }
+    return target;
+  }
+
+  // ---- Arka plan kaldırma (yerel model, Python + onnxruntime) ----
+  const modelFile = () => path.join(app.getPath('userData'), 'models', CUTOUT_MODEL.file);
+  let modelReady = null;
+  function ensureCutoutModel(progress) {
+    const dest = modelFile();
+    if (fs.existsSync(dest) && fs.statSync(dest).size === CUTOUT_MODEL.size) return Promise.resolve(dest);
+    if (modelReady) return modelReady;
+    modelReady = (async () => {
+      fs.mkdirSync(path.dirname(dest), { recursive: true });
+      let res;
+      try { res = await timedFetch(CUTOUT_MODEL.url, { headers: { 'User-Agent': 'TrimTube' } }, 20 * 60 * 1000); }
+      catch { throw Error('Arka plan kaldırma modeli indirilemedi (bağlantıyı kontrol edin).'); }
+      if (!res.ok) throw Error(`Arka plan kaldırma modeli indirilemedi (HTTP ${res.status}).`);
+      const part = dest + '.part', out = fs.createWriteStream(part), sha = crypto.createHash('sha256'), reader = res.body.getReader();
+      let size = 0, last = -1;
+      try {
+        for (;;) {
+          const { done, value } = await reader.read(); if (done) break;
+          size += value.length; if (size > CUTOUT_MODEL.size) throw Error('Model dosyası beklenenden büyük.');
+          sha.update(value);
+          if (!out.write(Buffer.from(value))) await new Promise(r => out.once('drain', r));
+          const pct = Math.floor(size / CUTOUT_MODEL.size * 100); if (pct !== last) { last = pct; progress?.(pct); }
+        }
+      } finally { await new Promise(r => out.end(r)); }
+      if (size !== CUTOUT_MODEL.size || sha.digest('hex') !== CUTOUT_MODEL.sha256) { try { fs.unlinkSync(part); } catch {} throw Error('İndirilen model doğrulanamadı; yeniden deneyin.'); }
+      fs.renameSync(part, dest);
+      return dest;
+    })().finally(() => { modelReady = null; });
+    return modelReady;
+  }
+  // Kesim önbelleği: kaynak dosyanın içerik özeti → şeffaf PNG (konuya kırpılmış)
+  const cutDir = () => path.join(root(), 'cutouts');
+  async function cutoutOf(src, progress) {
+    const key = hash([CUTOUT_MODEL.sha256, crypto.createHash('sha256').update(fs.readFileSync(src)).digest('hex')]);
+    const out = path.join(cutDir(), `cut-${key}.png`);
+    if (fs.existsSync(out)) return out;
+    const info = await probeVisual(src);
+    if (!info.w) throw Error('Görsel okunamadı.');
+    const model = await ensureCutoutModel(progress);
+    fs.mkdirSync(cutDir(), { recursive: true });
+    let errLine = '';
+    const r = await new Promise(resolve => {
+      const proc = spawn(resolvePython(), [path.join(__dirname, 'voice_cutout.py'), '--ffmpeg', ffmpeg, '--model', model, '--width', String(info.w), '--height', String(info.h), src, out + '.part.png'], { windowsHide: true, env: { ...procEnv, PYTHONIOENCODING: 'utf-8' } });
+      procs.add(proc);
+      let buf = '';
+      const onData = d => { buf += d.toString('utf8'); const lines = buf.split(/\r?\n/); buf = lines.pop(); for (const l of lines) if (l.startsWith('ERROR ')) errLine = l.slice(6); };
+      proc.stdout.on('data', onData); proc.stderr.on('data', onData);
+      proc.on('error', err => { procs.delete(proc); resolve({ code: -1, missing: err.code === 'ENOENT' }); });
+      proc.on('close', code => { procs.delete(proc); resolve({ code }); });
+    });
+    if (r.code !== 0 || !fs.existsSync(out + '.part.png')) {
+      try { fs.unlinkSync(out + '.part.png'); } catch {}
+      throw Error(errLine || (r.missing ? 'Arka plan kaldırma için Python bulunamadı (Whisper ile aynı kurulum gerekir).' : 'Arka plan kaldırılamadı.'));
+    }
+    fs.renameSync(out + '.part.png', out);
+    return out;
+  }
+  async function alphaThumb(file) {
+    const buf = await new Promise(resolve => {
+      const proc = spawn(ffmpeg, ['-i', file, '-frames:v', '1', '-vf', 'scale=280:-2', '-f', 'image2pipe', '-vcodec', 'png', 'pipe:1'], { windowsHide: true });
+      const chunks = []; proc.stdout.on('data', d => chunks.push(d)); proc.on('error', () => resolve(null)); proc.on('close', code => resolve(code === 0 ? Buffer.concat(chunks) : null));
+    });
+    return buf && buf.length < 110000 ? 'data:image/png;base64,' + buf.toString('base64') : '';
+  }
+  // Önizleme: kullanıcı "Arka planı kaldır"ı açınca hemen çalışır; üretim aynı önbelleği kullanır
+  ipcMain.handle('vv-cutout', async (event, m) => {
+    const media = VoiceScript.normalizeMedia(m);
+    if (!media || media.kind !== 'image') return { error: 'Arka plan yalnız görsellerden kaldırılabilir.' };
+    try {
+      const src = await sourceFile(media, path.join(cutDir(), 'src'), () => {});
+      const out = await cutoutOf(src, pct => { try { event.sender.send('vv-cutout-progress', pct); } catch {} });
+      return { ok: true, thumb: await alphaThumb(out) };
+    } catch (err) { return { error: err.message || 'Arka plan kaldırılamadı.' }; }
+  });
+
+  async function prepareHero(media, dir, warnings, label) {
+    let target = await sourceFile(media, dir);
+    if (media.cutout && media.kind === 'image' && !VIDEO_EXT.test(target)) {
+      try {
+        send({ phase: 'media', message: `${label}: arka plan kaldırılıyor…` });
+        const cut = await cutoutOf(target, pct => send({ phase: 'media', message: `Arka plan kaldırma modeli indiriliyor (bir kerelik, ~180 MB): %${pct}` }));
+        check();
+        const local = path.join(dir, path.basename(cut));
+        if (!fs.existsSync(local)) fs.copyFileSync(cut, local);
+        target = local;
+      } catch (err) { if (err.cancelled) throw err; warnings.push(`${label}: ${err.message} Görsel özgün haliyle kullanıldı.`); }
     }
     const info = await probeVisual(target);
     if (!info.w || Math.min(info.w, info.h) < 200) throw Error('Görsel çok küçük veya okunamadı.');
@@ -410,6 +508,71 @@ function register({ ipcMain, app, getWin, loadSettings, providerClient, ffmpeg, 
   });
   ipcMain.handle('vv-theme-delete', (event, id) => {
     try { writeThemes(readThemes().filter(t => t.id !== id)); return { ok: true }; } catch { return { error: 'Tema silinemedi.' }; }
+  });
+  // Dışa/içe aktarma: tek dosya (.trimtube-theme, JSON), logolar içine gömülü.
+  // Uygulama yeniden kurulduğunda ya da başka bilgisayara taşınırken temalar korunur.
+  const LOGO_TYPES = { png: [0x89, 0x50, 0x4e, 0x47], jpg: [0xff, 0xd8, 0xff], webp: [0x52, 0x49, 0x46, 0x46] };
+  const logoType = buf => Object.keys(LOGO_TYPES).find(k => LOGO_TYPES[k].every((b, i) => buf[i] === b) && (k !== 'webp' || buf.slice(8, 12).toString('latin1') === 'WEBP'));
+  function exportPayload(themes) {
+    return {
+      app: 'trimtube', kind: 'voice-themes', version: 1, exportedAt: new Date().toISOString(),
+      themes: themes.map(t => {
+        const out = { ...t }; delete out.builtIn;
+        if (t.logo) {
+          const src = path.join(logoDir(), t.logo.file);
+          out.logo = fs.existsSync(src) ? { position: t.logo.position, size: t.logo.size, data: fs.readFileSync(src).toString('base64') } : null;
+        }
+        return out;
+      })
+    };
+  }
+  ipcMain.handle('vv-theme-export', async (event, ids) => {
+    if (!dialog) return { cancelled: true };
+    const all = readThemes(), list = Array.isArray(ids) && ids.length ? all.filter(t => ids.includes(t.id)) : all;
+    if (!list.length) return { error: 'Dışa aktarılacak özel tema yok (hazır temalar uygulamayla gelir).' };
+    const name = list.length === 1 ? sanitizeName(list[0].name).slice(0, 60) || 'tema' : `TrimTube temalari (${list.length})`;
+    const res = await dialog.showSaveDialog(getWin(), { defaultPath: path.join(app.getPath('documents'), name + '.trimtube-theme'), filters: [{ name: 'TrimTube teması', extensions: ['trimtube-theme'] }] });
+    if (res.canceled || !res.filePath) return { cancelled: true };
+    try { fs.writeFileSync(res.filePath, JSON.stringify(exportPayload(list), null, 2), 'utf8'); return { ok: true, count: list.length, file: res.filePath }; }
+    catch { return { error: 'Tema dosyası yazılamadı.' }; }
+  });
+  function importThemes(raw) {
+    let data;
+    try { data = JSON.parse(raw); } catch { return { error: 'Dosya bir TrimTube tema dosyası değil.' }; }
+    if (!data || data.app !== 'trimtube' || data.kind !== 'voice-themes' || !Array.isArray(data.themes)) return { error: 'Dosya bir TrimTube tema dosyası değil.' };
+    const list = readThemes(), taken = new Set([...list.map(t => t.id), ...Themes.BUILT_IN.map(t => t.id)]);
+    const added = [], skipped = [];
+    for (const item of data.themes.slice(0, 40)) {
+      if (list.length >= 40) { skipped.push(String(item?.name || 'tema')); continue; }
+      const { logo, ...rest } = item || {};
+      const t = Themes.normalizeTheme(rest);
+      // Aynı tema zaten varsa (aynı kimlik ve içerik) atla; kimlik çakışırsa yeni kimlikle ekle
+      const same = list.find(x => x.id === t.id);
+      if (same && JSON.stringify({ ...same, logo: null }) === JSON.stringify({ ...t, logo: null })) { skipped.push(t.name); continue; }
+      if (taken.has(t.id)) t.id = 'custom-' + crypto.randomBytes(4).toString('hex');
+      t.logo = null;
+      if (logo && typeof logo.data === 'string' && logo.data.length < 7 * 1024 * 1024) {
+        const buf = Buffer.from(logo.data, 'base64'), ext = logoType(buf);
+        if (ext) {
+          fs.mkdirSync(logoDir(), { recursive: true });
+          const file = `logo-${hash(buf.toString('base64'))}.${ext}`;
+          if (!fs.existsSync(path.join(logoDir(), file))) fs.writeFileSync(path.join(logoDir(), file), buf);
+          t.logo = Themes.normalizeTheme({ logo: { file, position: logo.position, size: logo.size } }).logo;
+        }
+      }
+      taken.add(t.id); list.push(t); added.push(t);
+    }
+    if (added.length) writeThemes(list);
+    return { ok: true, added: added.map(t => ({ id: t.id, name: t.name })), skipped };
+  }
+  ipcMain.handle('vv-theme-import', async () => {
+    if (!dialog) return { cancelled: true };
+    const res = await dialog.showOpenDialog(getWin(), { properties: ['openFile'], filters: [{ name: 'TrimTube teması', extensions: ['trimtube-theme', 'json'] }] });
+    if (res.canceled || !res.filePaths?.[0]) return { cancelled: true };
+    try {
+      if (fs.statSync(res.filePaths[0]).size > 30 * 1024 * 1024) return { error: 'Tema dosyası çok büyük.' };
+      return importThemes(fs.readFileSync(res.filePaths[0], 'utf8'));
+    } catch { return { error: 'Tema dosyası okunamadı.' }; }
   });
   ipcMain.handle('vv-theme-logo', async () => {
     if (!dialog) return { cancelled: true };
@@ -607,7 +770,7 @@ function register({ ipcMain, app, getWin, loadSettings, providerClient, ffmpeg, 
         if (!scenes[i].media || scenes[i].direction?.hero === 'none') continue;
         check();
         send({ phase: 'media', pct: i / scenes.length * 100, message: `Sahne görselleri hazırlanıyor: ${i + 1}/${scenes.length}` });
-        try { heroes[i] = await prepareHero(scenes[i].media, mediaDir); }
+        try { heroes[i] = await prepareHero(scenes[i].media, mediaDir, warnings, `Sahne ${i + 1}`); }
         catch (err) { if (err.cancelled) throw err; warnings.push(`Sahne ${i + 1}: ${err.message} Görselsiz devam edildi.`); }
       }
       // 3b) Stok medya (isteğe bağlı) — bulunamazsa sahne şablon zeminiyle sürer

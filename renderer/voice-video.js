@@ -412,7 +412,9 @@
     const preview = document.createElement('div'); preview.className = 'vv-media-preview';
     const m = scene.media;
     if (m) {
-      const img = document.createElement('img'); img.alt = ''; img.src = m.source === 'page' ? m.url : (m.thumb || '');
+      const cut = m.cutout && m.cutThumb;
+      if (cut) preview.classList.add('cut');
+      const img = document.createElement('img'); img.alt = ''; img.src = cut ? m.cutThumb : m.source === 'page' ? m.url : (m.thumb || '');
       img.referrerPolicy = 'no-referrer'; img.onerror = () => img.replaceWith(Object.assign(document.createElement('span'), { textContent: 'Önizleme yok' }));
       preview.append(img);
       if (m.kind === 'video') preview.append(Object.assign(document.createElement('b'), { className: 'vv-media-badge', textContent: 'VİDEO' }));
@@ -439,9 +441,28 @@
     });
     if (m) btn('Kaldır', () => { delete scene.media; onChange(); });
     side.append(label, row);
+    // Arka planı kaldır: ürün/kişi zeminden ayrılır, sahnede kartsız ve gölgeli durur
+    if (m && m.kind === 'image') {
+      const cutRow = document.createElement('label'); cutRow.className = 'cmp-check vv-cut-row';
+      const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = !!m.cutout; cb.disabled = !!state.running;
+      const status = document.createElement('span'); status.className = 'cmp-check-sub vv-cut-status';
+      status.textContent = m.cutout ? (m.cutThumb ? '(hazır)' : '(üretimde uygulanır)') : '(ürün veya kişi fotoğraflarında en iyi sonucu verir)';
+      cb.addEventListener('change', async () => {
+        if (!cb.checked) { delete m.cutout; delete m.cutThumb; onChange(); return; }
+        cb.disabled = true; status.dataset.busy = '1'; status.textContent = '(arka plan kaldırılıyor…)';
+        const r = await window.api.vvCutout(m);
+        delete status.dataset.busy;
+        if (scene.media !== m) return; // bu sırada görsel değiştirildi
+        if (r.error) { cb.checked = false; cb.disabled = false; status.textContent = ''; showError(r.error); return; }
+        showError(''); m.cutout = true; m.cutThumb = r.thumb || undefined; if (!m.cutThumb) delete m.cutThumb; onChange();
+      });
+      cutRow.append(cb, document.createTextNode(' Arka planı kaldır '), status);
+      side.append(cutRow);
+    }
     box.append(preview, side, gallery);
     return box;
   }
+  window.api.onVvCutoutProgress?.(pct => document.querySelectorAll('.vv-cut-status[data-busy]').forEach(el => { el.textContent = `(model indiriliyor, bir kerelik ~180 MB: %${pct})`; }));
   window.vvDropOutside = () => showError('Görseli veya videoyu kullanmak istediğin sahnenin kartına bırak.');
 
   $('vvTitle').addEventListener('input', () => { if (state.script) { state.script.title = $('vvTitle').value.slice(0, 120); changed(); } });

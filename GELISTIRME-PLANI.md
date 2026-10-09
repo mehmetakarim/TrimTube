@@ -1,5 +1,11 @@
 # TrimTube geliştirme planı
 
+## 9 Ekim 2026 — Arka plan kaldırma (yayımlanmadı)
+
+- Sahne görselinde "Arka planı kaldır": yerel ISNet modeli (Python onnxruntime, yeni bağımlılık yok), önizleme, önbellek; üretimde kesik ürün sunumu.
+- Tema dışa/içe aktarma (.trimtube-theme, logolar gömülü).
+- Sırada: prompttan tema gerçek testi, EMA Lightning, v1.24.0.
+
 ## 9 Ekim 2026 — v1.23.0: Görsel stiller, AI Sahne Yönetmeni, güvenli alan (yayımlandı)
 
 - Serbest üretim kaldırıldı; tema kütüphanesi (modal, hazır 4 tema + prompttan/elle özel tema, logo) ve sahne başına yönetmen kararları; yeni tipler: adımlar, teknik özellikler, karşılaştırma; tasarım notu.

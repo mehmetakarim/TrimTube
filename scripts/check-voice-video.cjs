@@ -176,6 +176,10 @@ check('Page images: og image, article images, lazy and srcset sources; logos, ic
   assert.ok(!script.scenes[1].media && !script.scenes[2].media, 'out-of-range or unsafe picks are dropped');
   assert.equal(V.normalizeMedia({ source: 'local', path: 'C:/x/a.exe' }), null);
   assert.equal(V.normalizeMedia({ source: 'local', kind: 'video', path: 'C:/x/a.mp4' }).kind, 'video');
+  const cut = V.normalizeMedia({ source: 'page', url: 'https://x.com/a.png', cutout: true, cutThumb: 'data:image/png;base64,AA' });
+  assert.ok(cut.cutout === true && cut.cutThumb.startsWith('data:image/png'), 'background removal choice survives the draft');
+  assert.ok(!V.normalizeMedia({ source: 'local', kind: 'video', path: 'C:/x/a.mp4', cutout: true }).cutout, 'videos are never cut out');
+  assert.ok(!V.normalizeMedia({ source: 'page', url: 'https://x.com/a.png', cutout: 'yes', cutThumb: 'javascript:1' }).cutThumb);
 });
 check('Hero media: uncropped 16:9 photo frame with blurred fill, studio and cutout treatments; text starts below', () => {
   const base = { scene: { visual: { type: 'title', heading: 'K1 vs K2' } }, duration: 4, speech: 3 };
@@ -261,7 +265,8 @@ async function renderPipeline() {
   require('../voice-video').register({
     ipcMain: { handle: (name, fn) => { handlers[name] = fn; } }, app: { getPath: () => root }, getWin: () => null,
     loadSettings: () => ({ geminiKey: 'x', geminiTtsChain: '' }), providerClient, ffmpeg: require('ffmpeg-static'), procEnv: process.env,
-    uniquePath: p => { let c = p, i = 2; while (fs.existsSync(c)) c = p.replace(/\.mp4$/, `-${i++}.mp4`); return c; }, sanitizeName: n => n.replace(/[\\/:*?"<>|]/g, '')
+    uniquePath: p => { let c = p, i = 2; while (fs.existsSync(c)) c = p.replace(/\.mp4$/, `-${i++}.mp4`); return c; }, sanitizeName: n => n.replace(/[\\/:*?"<>|]/g, ''),
+    dialog: { showSaveDialog: async () => ({ filePath: path.join(root, 'temalar.trimtube-theme') }) }
   });
   // Tema deposu: kayıt, listeleme, hazır tema kimliğiyle çakışma, silme
   const saved = await handlers['vv-theme-save']({}, { id: 'tech', name: 'Benim temam', colors: { bg: '#111111', accents: ['#F9B233'] }, logo: { file: 'yok.png' } });
@@ -269,6 +274,23 @@ async function renderPipeline() {
   const listed = await handlers['vv-themes']({});
   assert.equal(listed.builtIn.length, 4); assert.deepEqual(listed.custom.map(t => t.name), ['Benim temam']);
   assert.ok((await handlers['vv-theme-delete']({}, saved.theme.id)).ok && !(await handlers['vv-themes']({})).custom.length);
+  // Dışa/içe aktarma: logolu tema dosyaya, oradan "yeniden kurulmuş" uygulamaya
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');
+  fs.mkdirSync(path.join(root, 'voice-themes', 'logos'), { recursive: true }); fs.writeFileSync(path.join(root, 'voice-themes', 'logos', 'logo-qa.png'), png);
+  const branded = await handlers['vv-theme-save']({}, { name: 'Marka', colors: { bg: '#f4efe4', accents: ['#f9b233'] }, logo: { file: 'logo-qa.png', position: 'bottom-left', size: 120 } });
+  const themeFile = path.join(root, 'temalar.trimtube-theme'), fresh = fs.mkdtempSync(path.join(os.tmpdir(), 'trimtube-vv-fresh-')), h2 = {};
+  const dialogMock = { showSaveDialog: async () => ({ filePath: themeFile }), showOpenDialog: async () => ({ filePaths: [themeFile] }) };
+  const exported = await handlers['vv-theme-export']({}, null);
+  assert.ok(exported.ok && exported.count === 1 && JSON.parse(fs.readFileSync(themeFile, 'utf8')).themes[0].logo.data === png.toString('base64'), 'logo travels inside the theme file');
+  require('../voice-video').register({ ipcMain: { handle: (n, f) => { h2[n] = f; } }, app: { getPath: () => fresh }, getWin: () => null, loadSettings: () => ({}), providerClient: {}, ffmpeg: require('ffmpeg-static'), procEnv: process.env, uniquePath: p => p, sanitizeName: n => n, dialog: dialogMock });
+  const imported = await h2['vv-theme-import']({});
+  const restored = (await h2['vv-themes']({})).custom;
+  assert.ok(imported.ok && imported.added.length === 1 && restored[0].name === 'Marka' && restored[0].id === branded.theme.id && restored[0].logo.position === 'bottom-left');
+  assert.ok(fs.readFileSync(path.join(fresh, 'voice-themes', 'logos', restored[0].logo.file)).equals(png), 'logo restored byte for byte');
+  assert.deepEqual((await h2['vv-theme-import']({})).skipped, ['Marka'], 'importing the same file twice adds nothing');
+  fs.writeFileSync(themeFile, '{"app":"other"}');
+  assert.ok((await h2['vv-theme-import']({})).error && (await h2['vv-themes']({})).custom.length === 1, 'foreign files are rejected');
+  await handlers['vv-theme-delete']({}, branded.theme.id); fs.rmSync(fresh, { recursive: true, force: true });
   const scenes = [
     { id: 'a1', narration: '[excited] Birinci sahne. [laughs] Harika!', visual: { type: 'title', heading: 'Birinci' } },
     { id: 'b2', narration: '[whispering] İkinci sahne fısıltıyla.', visual: { type: 'stat', value: '%45', label: 'oran' } },
@@ -303,6 +325,8 @@ async function renderPipeline() {
   third.scenes.slice(1).forEach(sc => { const d = sc.start % .5; assert.ok(Math.min(d, .5 - d) < .045, 'scene starts on a beat: ' + sc.start); });
   const probe3 = require('child_process').spawnSync(require('ffmpeg-static'), ['-i', third.outFile], { encoding: 'utf8' }).stderr;
   assert.ok(/Audio: aac.*stereo/.test(probe3), 'music mix is stereo');
+  assert.ok((await handlers['vv-cutout']({ sender: { send() {} } }, { source: 'local', kind: 'video', path: path.join(root, 'a.mp4') })).error, 'cut-out refuses video without downloading the model');
+  assert.ok(!fs.existsSync(path.join(root, 'models')), 'model is only fetched when a picture is actually cut out');
   const missing = await handlers['vv-produce']({}, { ...job, music: { path: path.join(root, 'yok.mp3'), name: 'yok.mp3' } });
   assert.ok(missing.ok && missing.warnings.some(w => w.includes('Müzik dosyası bulunamadı')));
   fs.rmSync(root, { recursive: true, force: true });

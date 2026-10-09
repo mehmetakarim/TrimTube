@@ -1,5 +1,22 @@
 # TrimTube Geliştirme Günlüğü
 
+## 10 Ekim 2026 — Tema dışa/içe aktarma (yayımlanmadı)
+
+Kullanıcı isteği: uygulama silinip yeniden kurulunca temalar kaybolmasın.
+- `.trimtube-theme` (JSON: `app:'trimtube', kind:'voice-themes', version:1, themes[]`); logo dosyası base64 olarak gömülü (taşınabilir tek dosya). Kütüphane başlığında "İçe aktar…" / "Tümünü dışa aktar…", özel tema kartında "Dışa aktar".
+- İçe aktarma: her tema `normalizeTheme`'den geçer; logo yalnız PNG/JPEG/WEBP imzasıyla kabul edilir (≤ ~5 MB), içerik özetli adla `logos/` altına yazılır. Aynı kimlik + aynı içerik → atlanır; kimlik çakışırsa yeni kimlikle eklenir; 40 tema sınırı korunur. Yabancı dosya reddedilir.
+- Arka plan kaldırma sahada denendi: çalışıyor, kenarlarda üründen yer yer kırpıyor (%100 değil); kullanıcı gerektiğinde şeffaf PNG'yi kendisi hazırlayabilir (şeffaf PNG zaten otomatik "kesik ürün" sunumu alır).
+- Testler: uçtan uca gidiş-dönüş (logo bayt bayt, tekrar içe aktarma atlanır, yabancı dosya reddi), 149 arayüz.
+
+## 9 Ekim 2026 — Arka plan kaldırma (yayımlanmadı)
+
+- **TUZAK:** HyperFrames `remove-background` yalnız insan modeli (`u2net_human_seg`) indirir ve `onnxruntime-node` ister (kurulu değil) — ürün görsellerinde işe yaramaz. Kullanılmadı.
+- `voice_cutout.py`: ISNet genel amaçlı (`isnet-general-use.onnx`, rembg dağıtımı, Apache-2.0), Python `onnxruntime` + `numpy` (faster-whisper ile zaten gelir; yeni bağımlılık yok). Görüntü okuma/ölçekleme/yazma ffmpeg ile (Pillow yok). Ön işleme rembg ile aynı (x/max − 0,5, 1024²); maske min-max, kenar eşiği .08–.92, konuya %4 payla kırpılmış RGBA PNG. CPU'da ~1,7 sn/görsel.
+- Model `userData/models` altına ilk kullanımda akışla indirilir (178 648 008 bayt, SHA-256 `60920e99…`), doğrulanmazsa silinir. Kesim önbelleği `voice-video/cutouts/cut-<içerik özeti>.png` (önizleme ve üretim paylaşır; sayfa görseli farklı klasöre inse de içerik özeti aynı).
+- Arayüz: görsel sahne kartında "Arka planı kaldır" → hemen `vv-cutout` önizlemesi (dama desenli şeffaf PNG küçük resmi, taslakta saklanır), model indirilirken yüzde. Üretimde şeffaf PNG mevcut alfa algısıyla "kesik ürün" sunumuna (kartsız, gölge + hale) düşer. Hata → uyarı + özgün görsel.
+- **Not:** yazılı kapak görsellerinde yazılar da konu sayılır; özellik bu yüzden kullanıcı seçimi, otomatik değil.
+- Testler: 24 anlatımlı video (+taslak/medya doğrulaması, video reddi ve modelin yalnız gerektiğinde indirilmesi), 147 arayüz. Uçtan uca (gerçek indirme + kesim + render) yerelde doğrulandı.
+
 ## v1.23.0 — 9 Ekim 2026, yayımlandı
 
 Release: https://github.com/mehmetakarim/TrimTube/releases/tag/v1.23.0 — etiket commit `4cdf339`, Actions `37940166106` (4 regresyon + 3 derleme başarılı, 10 dosya, latest). İçerik: görsel stiller + AI Sahne Yönetmeni + güvenli alan (aşağıdaki iki bölüm).

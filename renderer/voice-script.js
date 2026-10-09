@@ -178,10 +178,13 @@
   function normalizeMedia(m) {
     if (!m || typeof m !== 'object') return null;
     const kind = m.kind === 'video' ? 'video' : 'image';
-    if (m.source === 'page' && typeof m.url === 'string' && /^https?:\/\//i.test(m.url) && m.url.length < 2000) return { source: 'page', kind: 'image', url: m.url, alt: clampText(m.alt, 120) };
+    // Arka planı kaldırılmış görsel: yalnız görselde; önizleme küçük resmi (şeffaf PNG) taslakta saklanır
+    const cut = kind === 'image' && m.cutout === true
+      ? { cutout: true, ...(typeof m.cutThumb === 'string' && /^data:image\/png;base64,/.test(m.cutThumb) && m.cutThumb.length < 150000 ? { cutThumb: m.cutThumb } : {}) } : {};
+    if (m.source === 'page' && typeof m.url === 'string' && /^https?:\/\//i.test(m.url) && m.url.length < 2000) return { source: 'page', kind: 'image', url: m.url, alt: clampText(m.alt, 120), ...cut };
     if (m.source === 'local' && typeof m.path === 'string' && m.path.length < 1000 && MEDIA_EXT.test(m.path)) {
       const thumb = typeof m.thumb === 'string' && /^data:image\/(jpeg|png|webp);base64,/.test(m.thumb) && m.thumb.length < 120000 ? m.thumb : '';
-      return { source: 'local', kind, path: m.path, ...(thumb ? { thumb } : {}) };
+      return { source: 'local', kind, path: m.path, ...(thumb ? { thumb } : {}), ...cut };
     }
     return null;
   }

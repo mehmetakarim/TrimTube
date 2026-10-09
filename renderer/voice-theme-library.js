@@ -65,6 +65,7 @@
       const btn = (text, fn, primary) => { const b = el('button', primary ? 'btn-primary small' : 'btn-ghost small', text); b.type = 'button'; b.addEventListener('click', e => { e.stopPropagation(); fn(); }); actions.append(b); };
       btn(theme.id === currentId ? 'Seçili' : 'Seç', () => pick(theme), theme.id !== currentId);
       btn(theme.builtIn ? 'Çoğalt' : 'Düzenle', () => edit(theme.builtIn ? { ...JSON.parse(JSON.stringify(theme)), id: undefined, builtIn: false, name: theme.name + ' (kopya)' } : theme));
+      if (!theme.builtIn) btn('Dışa aktar', () => exportThemes([theme.id]));
       if (!theme.builtIn) btn('Sil', async () => { if (!confirm(`“${theme.name}” silinsin mi?`)) return; await window.api.vvThemeDelete(theme.id); if (currentId === theme.id) pick(T.BUILT_IN[0]); await load(); renderGrid(); });
       card.append(preview(theme), meta, actions);
       card.addEventListener('click', () => pick(theme));
@@ -76,12 +77,28 @@
     add.addEventListener('click', () => edit(null));
     grid.append(add);
   }
+  async function exportThemes(ids) {
+    const r = await window.api.vvThemeExport(ids);
+    if (r?.error) status(r.error, true);
+    else if (r?.ok) status(`${r.count} tema dışa aktarıldı: ${r.file.split(/[\\/]/).pop()}`);
+  }
+  async function importThemes() {
+    const r = await window.api.vvThemeImport();
+    if (r?.error) { status(r.error, true); return; }
+    if (!r?.ok) return;
+    await load(); renderGrid();
+    const parts = [];
+    if (r.added.length) parts.push(`${r.added.length} tema eklendi (${r.added.map(t => t.name).join(', ')})`);
+    if (r.skipped.length) parts.push(`${r.skipped.length} tema zaten kütüphanede`);
+    status(parts.join(' · ') || 'Dosyada tema yok.');
+  }
   function pick(theme) { currentId = theme.id; onPick?.(theme); renderGrid(); status(`“${theme.name}” seçildi.`); }
   function view(editor) {
     document.getElementById('vvThemeGrid').classList.toggle('hidden', editor);
     document.getElementById('vvThemeEditor').classList.toggle('hidden', !editor);
     document.getElementById('vvThemeTitle').textContent = editor ? (editing?.id ? 'Temayı düzenle' : 'Yeni tema') : 'Tema kütüphanesi';
     document.getElementById('vvThemeBack').classList.toggle('hidden', !editor);
+    document.getElementById('vvThemeTools').classList.toggle('hidden', editor);
   }
 
   // ---- düzenleyici ----
@@ -179,6 +196,8 @@
 
   function close() { modal().classList.add('hidden'); document.getElementById('vvThemeOpen')?.focus(); }
   document.getElementById('vvThemeClose').addEventListener('click', close);
+  document.getElementById('vvThemeImportBtn').addEventListener('click', importThemes);
+  document.getElementById('vvThemeExportAll').addEventListener('click', () => exportThemes(null));
   document.getElementById('vvThemeBack').addEventListener('click', () => { view(false); status(''); });
   document.getElementById('vvThemeCancel').addEventListener('click', () => { view(false); status(''); });
   document.getElementById('vvThemeSaveBtn').addEventListener('click', save);

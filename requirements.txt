@@ -9,3 +9,7 @@ opencv-contrib-python
 # Whisper ile otomatik altyazı (subtitle.py) — ses→metin.
 # Model ilk kullanımda indirilir (base ~140MB, small ~460MB, medium ~1.5GB).
 faster-whisper
+
+# Anlatımlı video: arka plan kaldırma (voice_cutout.py) faster-whisper ile gelen
+# onnxruntime + numpy'yi kullanır; ek paket gerekmez. ISNet modeli (~180MB,
+# Apache-2.0) ilk kullanımda indirilir ve SHA-256 ile doğrulanır.
