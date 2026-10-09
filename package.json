@@ -33,6 +33,7 @@
   },
   "build": {
     "appId": "com.mehmetakarim.trimtube",
+    "afterPack": "scripts/after-pack.js",
     "productName": "TrimTube",
     "asar": false,
     "compression": "maximum",
@@ -64,8 +65,10 @@
       "!extension/**",
       "!.venv/**",
       "!tools/**",
-      "!node_modules/onnxruntime-node/bin/napi-v6/win32/arm64/**",
-      "!node_modules/onnxruntime-node/bin/napi-v6/linux/arm64/**"
+      "!node_modules/onnxruntime-node/bin/napi-v6/win32/x64/DirectML.dll",
+      "!node_modules/onnxruntime-node/bin/napi-v6/win32/x64/dxcompiler.dll",
+      "!node_modules/onnxruntime-node/bin/napi-v6/win32/x64/dxil.dll",
+      "!node_modules/onnxruntime-node/bin/napi-v6/darwin/arm64/libonnxruntime.1.30.0.dylib"
     ],
     "directories": {
       "output": "dist"
@@ -76,8 +79,7 @@
       "extraResources": [
         { "from": "resources/bin/win", "to": "bin" },
         { "from": "resources/ema", "to": "ema" }
-      ],
-      "files": ["!node_modules/onnxruntime-node/bin/napi-v6/darwin/**", "!node_modules/onnxruntime-node/bin/napi-v6/linux/**", "!node_modules/onnxruntime-node/bin/napi-v6/win32/x64/DirectML.dll", "!node_modules/onnxruntime-node/bin/napi-v6/win32/x64/dxcompiler.dll", "!node_modules/onnxruntime-node/bin/napi-v6/win32/x64/dxil.dll"]
+      ]
     },
     "nsis": {
       "oneClick": false,
@@ -90,8 +92,7 @@
       "extraResources": [
         { "from": "resources/bin/mac", "to": "bin" },
         { "from": "resources/ema", "to": "ema" }
-      ],
-      "files": ["!node_modules/onnxruntime-node/bin/napi-v6/win32/**", "!node_modules/onnxruntime-node/bin/napi-v6/linux/**", "!node_modules/onnxruntime-node/bin/napi-v6/darwin/arm64/libonnxruntime.1.30.0.dylib"]
+      ]
     },
     "linux": {
       "icon": "assets/icon.png",
@@ -100,8 +101,7 @@
       "extraResources": [
         { "from": "resources/bin/linux", "to": "bin" },
         { "from": "resources/ema", "to": "ema" }
-      ],
-      "files": ["!node_modules/onnxruntime-node/bin/napi-v6/win32/**", "!node_modules/onnxruntime-node/bin/napi-v6/darwin/**"]
+      ]
     }
   }
 }
