@@ -9,6 +9,7 @@ const V = require('../renderer/voice-script');
 const C = require('../voice-compose');
 const Beat = require('../beat-detect');
 const T = require('../renderer/voice-themes');
+const Ema = require('../ema-tts');
 const checks = [];
 const check = (name, fn) => { fn(); checks.push(name); };
 
@@ -89,6 +90,10 @@ check('Themes: built-ins are distinct; custom themes are clamped, readable and o
   assert.deepEqual(bad.motifs, ['tape', 'arrows']); assert.equal(bad.logo, null); assert.equal(bad.radius, 60);
   const p = T.buildThemePrompt('Renk sistemi sabit: #F9B233 sarı, kömür siyahı; analog kolaj, maskeleme bandı', { hasReference: true });
   assert.ok(p.includes('#F9B233') && p.includes('ekteki örnek görsel') && T.FONTS.every(f => p.includes(f)) && T.MOTIFS.every(m => p.includes(m)));
+  assert.ok(p.includes('cut=sert kesme') && p.includes('yer tutucuları') && p.includes('sabit bir seri/marka etiketi'), 'prompt explains transitions and keeps per-video variables out of the theme');
+  const drifted = T.normalizeTheme({ colors: { bg: '#ede7dc', accents: ['#f5af00', '#191715', '#d97706'] } });
+  assert.deepEqual(T.pinBrandColors(drifted, 'Hero renk: sarı #F9B233, koyu nötr').colors.accents, ['#f9b233', '#191715', '#d97706'], 'written brand hex wins over a reference-image tint');
+  assert.deepEqual(T.pinBrandColors(drifted, 'renk yok, #F9B2331 geçersiz').colors.accents, drifted.colors.accents);
 });
 check('Director and theme drive the composition: variants, emphasis, hero placement, transitions, logo', () => {
   const ed = T.byId([], 'editorial'), tech = T.byId([], 'tech');
@@ -107,6 +112,9 @@ check('Director and theme drive the composition: variants, emphasis, hero placem
   const logo = C.buildSceneHtml({ scene: { visual: { type: 'cta', heading: 'Son' } }, duration: 3, theme: branded, logo: 'media/logo-1.png' });
   assert.ok(logo.includes('<img class="logo" id="logo" src="media/logo-1.png"') && logo.includes('left:70px;bottom:520px') && logo.includes('height:110px'), 'logo stays inside the Reels safe area');
   assert.ok(!C.buildSceneHtml({ scene: { visual: { type: 'cta', heading: 'Son' } }, duration: 3, theme: ed, logo: 'media/x.png' }).includes('class="logo"'), 'no logo without a theme logo');
+  const kraft = T.normalizeTheme({ colors: { bg: '#efebe4', ink: '#111111', accents: ['#f9b233', '#111111'] }, background: 'paper', motifs: ['blobs'] });
+  const blobCss = C.buildSceneHtml({ scene: { visual: { type: 'title', heading: 'x' } }, index: 0, duration: 2, theme: kraft });
+  assert.ok(/\.b2\{[^}]*background:#f9b233/.test(blobCss), 'ink-dark accents never become muddy grey glows on light themes');
   for (const theme of T.BUILT_IN) for (const type of V.VISUAL_TYPES) for (const variant of V.VARIANTS[type]) {
     const html = C.buildSceneHtml({ scene: { visual: V.normalizeVisual({ type, heading: 'Başlık', value: '%45', label: 'L', quote: 'Q', items: [{ value: '1', text: 't' }, { value: '2', text: 'u' }], left: { title: 'A', items: ['a'] }, right: { title: 'B', items: ['b'] } }), direction: { variant } }, duration: 2, format: 'reels', theme });
     assert.ok(html.includes('data-width="1080"') && html.includes('window.__timelines["root"]'), `${theme.id}/${type}/${variant}`);
@@ -219,6 +227,17 @@ check('Frames never sit empty: structure enters in the first second, spoken item
   assert.ok(/tl\.fromTo\('#statValue',\{opacity:0[^;]*\},0\.3\)/.test(stat) && /tl\.fromTo\('\.stat-label',[^;]*\},1\.1\)/.test(stat), 'value box and label appear early; the count waits for the spoken number');
 });
 
+check('Local EMA voice: no emotion tags in its script, readable units and suffixes before normalization', () => {
+  assert.deepEqual(V.vocabulary('ema'), { tones: ['normal'], events: [] });
+  const p = V.buildScriptPrompt({ source: 'kaynak', format: 'reels', provider: 'ema' });
+  assert.ok(p.includes('etiketi OKUMAZ') && !p.includes('[excited]') && !p.includes('[empathetic]') && p.includes('"narration":"..."'));
+  assert.equal(V.plainText('[excited] Selam [laughs] dünya'), 'Selam dünya');
+  const cases = { "K2'yi": "ke 2'yi", "ABS'yi": 'a be seyi', "3D'de": '3 dede', '600 mm/s': '600 milimetre bölü saniye', '60°C': '60 derece', '350x350 mm': '350 çarpı 350 mm', 'x2 hız': '2 kat hız', 'K1 vs K2': 'K1 karşı K2', 'X1C': 'X1C' };
+  for (const [input, want] of Object.entries(cases)) assert.equal(Ema.prepare(input), want, input);
+  const wav = Ema.wavBuffer(new Float32Array([0, 1, -1, .5]), 48000);
+  assert.ok(wav.toString('latin1', 0, 4) === 'RIFF' && wav.readUInt32LE(24) === 48000 && wav.readInt16LE(46) === 32767 && wav.readInt16LE(48) === -32767);
+});
+
 check('Sound effect cues follow spoken highlights, spaced and capped per scene', () => {
   const words = [{ text: '600', start: .5, end: .9 }, { text: 'bir', start: 1, end: 1.2 }, { text: 'iki', start: 1.3, end: 1.5 }, { text: 'üç', start: 1.6, end: 1.8 }];
   const r = C.buildScene({ scene: { visual: { type: 'list', heading: 'Liste', items: [{ text: 'bir' }, { text: 'iki' }, { text: 'üç' }, { text: 'dört' }, { text: 'beş' }] } }, duration: 6, speech: 5, words });
@@ -327,10 +346,25 @@ async function renderPipeline() {
   assert.ok(/Audio: aac.*stereo/.test(probe3), 'music mix is stereo');
   assert.ok((await handlers['vv-cutout']({ sender: { send() {} } }, { source: 'local', kind: 'video', path: path.join(root, 'a.mp4') })).error, 'cut-out refuses video without downloading the model');
   assert.ok(!fs.existsSync(path.join(root, 'models')), 'model is only fetched when a picture is actually cut out');
+  // Yerel seslendirme (EMA, ONNX): API çağrısı yok, kelime zamanları modelden (Whisper gerekmez)
+  const calls = bodies.length;
+  const local = await handlers['vv-produce']({}, { ...job, projectId: 'vv-test-ema', provider: 'ema', voice: '1', scenes: [
+    { id: 'e1', narration: "[excited] Creality K1 ile K2'yi karşılaştırıyoruz!", visual: { type: 'title', heading: 'K1 mi K2 mi?' } },
+    { id: 'e2', narration: 'Saniyede 600 mm/s hız ve 60°C kabin.', visual: { type: 'stat', value: '600 mm/s', label: 'Hız' } }] });
+  assert.ok(local.ok, local.error);
+  assert.equal(bodies.length, calls, 'local voice makes no provider calls');
+  assert.ok(!local.warnings.some(w => w.startsWith('Kelime zamanları tahmini')), 'word timings come from the model: ' + JSON.stringify(local.warnings));
+  const emaAudio = path.join(root, 'voice-video', 'vv-test-ema', 'audio');
+  assert.equal(fs.readdirSync(emaAudio).filter(f => f.endsWith('.words.json')).length, 2);
+  assert.ok(local.scenes[0].speech > 1.5 && local.scenes[1].speech > 1.5 && local.cues.length >= 2, 'speech and caption cues: ' + JSON.stringify(local.scenes));
+  const again = await handlers['vv-produce']({}, { ...job, projectId: 'vv-test-ema', provider: 'ema', voice: '1', scenes: [
+    { id: 'e1', narration: "[serious] Creality K1 ile K2'yi karşılaştırıyoruz!", visual: { type: 'title', heading: 'K1 mi K2 mi?' } },
+    { id: 'e2', narration: 'Saniyede 600 mm/s hız ve 60°C kabin.', visual: { type: 'stat', value: '600 mm/s', label: 'Hız' } }] });
+  assert.equal(again.rendered, 0, 'changing only an emotion tag (which EMA does not read) reuses the same voice and scenes');
   const missing = await handlers['vv-produce']({}, { ...job, music: { path: path.join(root, 'yok.mp3'), name: 'yok.mp3' } });
   assert.ok(missing.ok && missing.warnings.some(w => w.includes('Müzik dosyası bulunamadı')));
   fs.rmSync(root, { recursive: true, force: true });
-  checks.push('Theme store and full pipeline: scene TTS, HyperFrames render, lossless join, per-scene cache, SFX and ducked music');
+  checks.push('Theme store and full pipeline: scene TTS (cloud and local EMA), HyperFrames render, lossless join, per-scene cache, SFX and ducked music');
 }
 
 (async () => {

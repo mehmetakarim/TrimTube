@@ -6,3 +6,5 @@ build/
 resources/bin/
 __pycache__/
 .venv/
+resources/ema/
+tools/ema/normalizer-wasm/target/

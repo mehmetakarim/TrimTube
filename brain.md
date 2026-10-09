@@ -1,5 +1,23 @@
 # TrimTube Geliştirme Günlüğü
 
+## 10 Ekim 2026 — EMA Lightning: PyTorch'suz yerel Türkçe seslendirme (yayımlanmadı)
+
+Kullanıcı kararı "PyTorch kurulumla gelsin" idi; ölçüm sonrası (PyTorch Windows'ta kurulunca 546 MB, ayrıca gömülü Python gerekir → kurulum ~450–500 MB) ONNX yolu önerildi ve seçildi.
+- **ONNX:** model üç grafiğe çevrildi (`ema_text` 4,8 MB, `ema_sound` 18,1 MB, `ema_decoder` 12,0 MB); PyTorch farkı h 7e-7, latent 1,7e-4, ses 7e-7. **TUZAK:** opset 17 eski dışa aktarıcıda `expm1` yok → `exp(x)-1`. Araç: `tools/ema/export_onnx.py` (Hugging Face resmi ağırlıkları, değiştirilmeden).
+- **Normalleştirici:** `normalizer-tr` 0.4.0 Rust (regex/unicode, saf Rust) → `wasm32-unknown-unknown`, 1,2 MB, C ABI sarmalayıcı (`tools/ema/normalizer-wasm`). Çıktı Python sürümüyle birebir (8/8). Önüne Türkçe ön işleme (`prepare`): "K2'yi"→"ke 2'yi", büyük harf kısaltma + ek, "mm/s"→"bölü saniye", "°C"→"derece", "350x350"→"çarpı", "x2"→"kat", "vs"→"karşı" (kütüphanenin geri dönüşü bunları harf harf okuyordu: "kesme ye i", "eğik çizgi s", "derece işareti ce").
+- **Çalışma:** `ema-tts.js` (onnxruntime-node 1.30, CPU), engine.py/chunker.py/frontend.py birebir; harf kimliği, parçalama ve kelime zamanları Python ile aynı (3/3). Tohumlu Gauss gürültüsü (mulberry32+Box-Muller; torch'unkiyle aynı değil, aynı dağılım). Hız: ilk çağrı ~1,4 sn (yükleme), sonra ~30× gerçek zaman. Whisper ile dökümde metin neredeyse birebir.
+- **Uygulama:** Anlatımlı Video'da "Yerel (EMA)"; anahtar yok, ses listesi yerine hız (0,9/1/1,1), etiket paleti yerine açıklama, uyarı yok. Senaryo istemi EMA için etiketsiz + birimleri okunuşuyla. Kelime zamanları modelden `.words.json` → Whisper atlanır. Önbellek anahtarı etiketsiz metin + `EMA_ID` (yalnız etiket değişince ses/sahne yeniden üretilmez).
+- **Paket:** platform başına yalnız kendi ORT ikilisi (Windows 29 MB, DirectML'siz çalıştığı doğrulandı; mac'te yalnız `libonnxruntime.1.dylib` — eklenti onu bağlıyor; Linux'ta CUDA indirmesi `.npmrc` `onnxruntime-node-install=skip` ile kapalı) + `resources/ema` 35 MB → kurulum ~+64 MB. Modeller git'te yok: `ema-models-1` ön sürüm release eki (latest değil), `scripts/fetch-ema.js` SHA-256 ile indirir; `fetch:*` ve regresyon entegrasyonu çağırır. Paketlenmiş Windows uygulamasından ses üretildi.
+- Testler: 25 anlatımlı video (+EMA birim; uçtan uca: API çağrısı yok, Whisper uyarısı yok, etiket değişikliği önbelleği bozmaz), 153 arayüz.
+
+## 10 Ekim 2026 — Prompttan tema: gerçek Gemini testi (yayımlanmadı)
+
+Kullanıcının kapak tarifi (analog kolaj, #F9B233) gerçek Gemini 3.8 Flash ile 8 kez denendi (uygulamanın `vv-theme-from-prompt` yolu; anahtar şifreli ayarların kopyasından çözüldü, gerçek ayar dosyasına yazılmadı). Süre 8–18 sn.
+- İlk turda tarife sadık (kâğıt zemin, kömür yazı, bant çerçeve, yırtık kâğıt/ok/halftone) ama: geçiş hep `cut` (whoosh yok, sert), örnek görsel eklenince ana renk görselden örneklenen #F5AF00'a kaydı, etiket tarifteki değişken içerik türünden ("KARŞILAŞTIRMA") alındı.
+- Düzeltme: istemde geçiş/enerji anlamları; değişken alanların ({…}, içerik türü listeleri) temaya yazılmaması; etiket yalnız sabit seri/marka adı. `Themes.pinBrandColors`: tarifte yazılı hex'ler ana vurgular olur (model yorumundan önce). İkinci turda 4/4: #F9B233, `slide`, sabit marka etiketi.
+- Motor: açık zeminde yazı rengine yakın vurgu (kömür) bulanık leke (`blobs`) olunca kirli gri görünüyordu → leke rengi renkli vurgudan seçilir (`glowOf`).
+- **TUZAK (test betiği):** argüman kaydırma hatası çıktıyı prompt dosyasının üzerine yazdı; sonraki denemeler eski çıktıyı tarif sandı ("Teknik Terminal Akışı"). Uygulama hatası değildi.
+
 ## v1.24.0 — 10 Ekim 2026, yayımlandı
 
 Release: https://github.com/mehmetakarim/TrimTube/releases/tag/v1.24.0 — etiket commit `3fc6881`, Actions `37997690809` (4 regresyon + 3 derleme başarılı, 10 dosya, latest). İçerik: arka plan kaldırma + tema dışa/içe aktarma (aşağıdaki iki bölüm).

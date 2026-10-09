@@ -332,6 +332,8 @@ function captionLayer(words, land) {
 function baseCss(W, H, theme, accent, accent2, textAccent = accent) {
   const land = W > H, c = theme.colors, light = Themes.isLight(c.bg), R = theme.radius;
   const onAccent = Themes.contrast(accent, '#ffffff') >= Themes.contrast(accent, '#111111') ? '#ffffff' : '#111111';
+  // Açık zeminde yazı rengine yakın (koyu) vurgu bulanık leke olunca kirli gri görünür: renkli vurgu kullanılır
+  const glowOf = a => !light || Themes.contrast(a, c.ink) >= 3 ? a : c.accents.find(x => Themes.contrast(x, c.ink) >= 3) || c.bg2;
   const font = f => `'${f}','Segoe UI',Arial,sans-serif`;
   const cardBg = { glass: alpha(c.card, .82), paper: c.card, solid: c.card, outline: 'transparent' }[theme.card];
   const cardBorder = { glass: `1.5px solid ${alpha(c.ink, .12)}`, paper: `2px solid ${alpha(c.ink, .14)}`, solid: '0', outline: `3px solid ${accent}` }[theme.card];
@@ -340,8 +342,8 @@ function baseCss(W, H, theme, accent, accent2, textAccent = accent) {
 #root{position:relative;width:${W}px;height:${H}px;overflow:hidden;font-family:${font(theme.fonts.body)};color:${c.ink};background:${c.bg}}
 .clip{position:absolute;inset:0}
 .blob{position:absolute;border-radius:50%;filter:blur(${land ? 150 : 140}px);opacity:${light ? .35 : .3}}
-.b1{width:${land ? 1100 : 1000}px;height:${land ? 1100 : 1000}px;background:${accent};left:${land ? -12 : -48}%;top:${land ? -30 : -14}%}
-.b2{width:${land ? 900 : 860}px;height:${land ? 900 : 860}px;background:${accent2};right:${land ? -14 : -50}%;top:${land ? 40 : 58}%;opacity:.2}
+.b1{width:${land ? 1100 : 1000}px;height:${land ? 1100 : 1000}px;background:${glowOf(accent)};left:${land ? -12 : -48}%;top:${land ? -30 : -14}%}
+.b2{width:${land ? 900 : 860}px;height:${land ? 900 : 860}px;background:${glowOf(accent2)};right:${land ? -14 : -50}%;top:${land ? 40 : 58}%;opacity:.2}
 .b3{width:700px;height:700px;background:${c.bg2};left:22%;bottom:-30%;opacity:.5}
 .halo{position:absolute;left:50%;top:${land ? 50 : 42}%;width:${land ? 1100 : 1000}px;height:${land ? 700 : 900}px;transform:translate(-50%,-50%);background:radial-gradient(ellipse,${alpha(accent, light ? .16 : .2)},transparent 62%)}
 .soft-bg{position:absolute;inset:0;background:radial-gradient(circle at 30% 20%,${c.bg2},transparent 60%),radial-gradient(circle at 80% 85%,${alpha(accent, .22)},transparent 55%)}

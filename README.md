@@ -109,7 +109,9 @@ Bu akış yalnızca **Windows**'ta güvenilir çalışır. **macOS**'ta uygulama
   dışında (güvenli alan) tutulur. Sahne görsellerinin arka planı tek tıkla kaldırılabilir
   (yerel model, ilk kullanımda bir kez indirilir; Whisper ile aynı Python kurulumu gerekir).
   Kendi temalarınızı logolarıyla birlikte `.trimtube-theme` dosyasına dışa aktarıp yeniden
-  kurulumdan sonra ya da başka bir bilgisayarda içe aktarabilirsiniz. Pexels
+  kurulumdan sonra ya da başka bir bilgisayarda içe aktarabilirsiniz. Seslendirme için Gemini
+  ve ElevenLabs'in yanında ücretsiz, internetsiz **yerel Türkçe ses (EMA Lightning)** de
+  seçilebilir; uygulamayla birlikte gelir, anahtar gerektirmez (duygu etiketlerini okumaz). Pexels
   stok görselleri isteğe bağlıdır. Video, sahne parçaları ve altyazı katmanıyla kurgu
   masasına taşınabilir. İlk render'da video motorunun tarayıcı bileşeni bir kez indirilir.
 - **Ayarlar:** çalışma ortamı ve hizmet bağlantıları ayrı bölümlerdedir.

@@ -32,7 +32,7 @@
   function savePrefs() { if (settings) { settings.voiceVideo = prefs(); window.api.setSettings({ voiceVideo: prefs() }); } }
   function applyPrefs() {
     const p = settings?.voiceVideo; if (!p || typeof p !== 'object') return;
-    for (const [key, allowed] of Object.entries({ source: ['text', 'url'], format: ['reels', 'podcast'], length: ['short', 'medium', 'long'], wave: ['none', 'wave', 'audiogram'], tts: ['gemini', 'eleven'], media: ['off', 'image', 'video'] }))
+    for (const [key, allowed] of Object.entries({ source: ['text', 'url'], format: ['reels', 'podcast'], length: ['short', 'medium', 'long'], wave: ['none', 'wave', 'audiogram'], tts: ['gemini', 'eleven', 'ema'], media: ['off', 'image', 'video'] }))
       if (allowed.includes(p[key])) state[key] = p[key];
     state.designNote = String(p.designNote || '').slice(0, 600);
     if (typeof p.themeId === 'string' && /^[a-z0-9-]{2,40}$/.test(p.themeId)) state.themeId = p.themeId;
@@ -86,7 +86,8 @@
     const audiogram = state.format === 'podcast' && state.wave === 'audiogram';
     $('vvMediaSeg').querySelectorAll('.seg').forEach(b => { b.disabled = audiogram && b.dataset.vvMedia !== 'off'; });
     const notes = [];
-    if (state.tts === 'eleven') notes.push('ElevenLabs duygu etiketli modeli (Eleven v4/v3) kullanılır; hesabında karakter kredisi gerekir.');
+    if (state.tts === 'ema') notes.push('Yerel seslendirme (EMA Lightning) bilgisayarında çalışır: ücretsiz, anahtarsız ve internetsiz. Tek Türkçe ses; duygu etiketlerini okumaz, senaryo etiketsiz yazılır.');
+    else if (state.tts === 'eleven') notes.push('ElevenLabs duygu etiketli modeli (Eleven v4/v3) kullanılır; hesabında karakter kredisi gerekir.');
     else notes.push('Gemini TTS mevcut Gemini anahtarınla çalışır; ton ve anlık sesler yeni TTS biçimine çevrilir.');
     if (state.media !== 'off' && !audiogram) notes.push('Stok medya Pexels anahtarınla aranır; kaynak listesi videonun yanına yazılır.');
     if (audiogram) notes.push('Audiogram görünümünde stok medya kullanılmaz.');
@@ -157,6 +158,13 @@
   function loadVoices() {
     const sel = $('vvVoice');
     $('vvVoiceReload').classList.toggle('hidden', state.tts !== 'eleven');
+    if (state.tts === 'ema') {
+      // Tek ses; seçim konuşma hızıdır (değer, üretimde voice alanıyla gider)
+      sel.innerHTML = '';
+      for (const [v, t] of [['0.9', 'Türkçe anlatıcı · sakin'], ['1', 'Türkçe anlatıcı · normal'], ['1.1', 'Türkçe anlatıcı · hızlı']]) { const o = document.createElement('option'); o.value = v; o.textContent = t; sel.append(o); }
+      sel.value = ['0.9', '1', '1.1'].includes(settings?.voiceVideoVoiceEma) ? settings.voiceVideoVoiceEma : '1';
+      return;
+    }
     if (state.tts === 'gemini') {
       sel.innerHTML = '';
       GEMINI_VOICES.forEach(v => { const o = document.createElement('option'); o.value = v.id; o.textContent = v.name; sel.append(o); });
@@ -179,7 +187,7 @@
   }
   $('vvVoice').addEventListener('change', () => {
     const v = $('vvVoice').value; if (!v || !settings) return;
-    const key = state.tts === 'gemini' ? 'voiceVideoVoiceGemini' : 'voiceVideoVoiceEleven';
+    const key = { gemini: 'voiceVideoVoiceGemini', eleven: 'voiceVideoVoiceEleven', ema: 'voiceVideoVoiceEma' }[state.tts];
     settings[key] = v; window.api.setSettings({ [key]: v }); refresh();
   });
   $('vvVoiceReload').addEventListener('click', () => { state.voicesLoaded = false; loadVoices(); });
@@ -252,6 +260,7 @@
   let lastNarration = null;
   function renderTagHelp() {
     const vocab = V.vocabulary(state.tts), box = $('vvTagHelp'); box.replaceChildren();
+    if (state.tts === 'ema') { const n = document.createElement('span'); n.className = 'vv-tag-note'; n.textContent = 'Yerel seslendirme duygu etiketi okumaz; metindeki etiketler atlanır. Duyguyu kelime ve noktalamayla ver.'; box.append(n); return; }
     const add = (label, list, dict, cls) => {
       const b = document.createElement('b'); b.textContent = label; box.append(b);
       for (const tag of list) {
@@ -327,8 +336,8 @@
       const check = () => {
         const parsed = V.parseNarration(scene.narration, state.tts);
         const notes = [];
-        if (parsed.unknown.length) notes.push(`Tanınmayan etiket: ${parsed.unknown.map(t => `[${t}]`).join(', ')} — seslendirmede atlanır.`);
-        if (parsed.unsupported.length) notes.push(`${state.tts === 'eleven' ? 'ElevenLabs' : 'Gemini TTS'} bu etiketi desteklemiyor: ${parsed.unsupported.map(t => `[${t}]`).join(', ')} — atlanır.`);
+        if (parsed.unknown.length && state.tts !== 'ema') notes.push(`Tanınmayan etiket: ${parsed.unknown.map(t => `[${t}]`).join(', ')} — seslendirmede atlanır.`);
+        if (parsed.unsupported.length && state.tts !== 'ema') notes.push(`${state.tts === 'eleven' ? 'ElevenLabs' : 'Gemini TTS'} bu etiketi desteklemiyor: ${parsed.unsupported.map(t => `[${t}]`).join(', ')} — atlanır.`);
         if (!V.plainText(scene.narration)) notes.push('Seslendirilecek metin yok.');
         warn.textContent = notes.join(' '); warn.classList.toggle('hidden', !notes.length);
         time.textContent = `~${fmtSec(V.estimateSeconds(scene.narration))}`;

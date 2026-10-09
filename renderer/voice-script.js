@@ -42,6 +42,8 @@
   const CHARS_PER_SECOND = 15; // Türkçe akıcı anlatım için ölçülü bir ortalama
 
   function vocabulary(provider) {
+    // EMA Lightning (yerel TTS) duygu etiketi okumaz: yalnız düz anlatım
+    if (provider === 'ema') return { tones: ['normal'], events: [] };
     const key = provider === 'eleven' ? 'eleven' : 'gemini';
     return {
       tones: Object.keys(TONES).filter(t => TONES[t][key] !== null),
@@ -190,6 +192,8 @@
   }
 
   // ---- Gemini senaryo istemi ----
+  const EMA_RULES = `SESLENDİRME: Metin yerel bir Türkçe ses modeliyle okunacak; bu model duygu etiketi OKUMAZ. Köşeli ayraçlı etiket YAZMA. Duyguyu ve tempoyu kelime seçimiyle, kısa cümlelerle ve noktalamayla ver (soru, ünlem, virgülle nefes). Ölçü birimlerini okunuşuyla yaz (ör. "saniyede 600 milimetre", "60 derece"); model adlarını ve sayıları rakamla yazabilirsin.
+`;
   function buildScriptPrompt({ source, title = '', format = 'reels', length = 'medium', provider = 'gemini', fromUrl = false, images = [], theme = null, designNote = '' }) {
     const pics = (Array.isArray(images) ? images : []).slice(0, 24);
     const picList = pics.map((p, i) => `[${i}] ${p.alt || '(açıklama yok)'} — ${String(p.url).split('/').pop().split('?')[0].slice(0, 60)}`).join('\n');
@@ -209,11 +213,11 @@ BİÇİM: ${reels
     : `Podcast. Samimi, derinlemesine, sohbet havasında tek anlatıcı. Toplam anlatım ${minS}-${maxS} saniyede okunacak uzunlukta (yaklaşık ${words(minS)}-${words(maxS)} kelime). Enerjik bir girişle başla, konuyu detaylı incele, artıları ve eksileri tartış, toparlayıcı bir kapanış ve dinleyiciye bir soruyla bitir. Her sahne 15-30 saniyelik anlatım olsun.`}
 Kaynakta geçmeyen bir marka, program veya topluluk adı kullanma; kendini bir program adıyla tanıtma.
 
-SESLENDİRME ETİKETLERİ (yalnız bunlar; köşeli ayraç içinde ve İngilizce):
+${provider === 'ema' ? EMA_RULES : `SESLENDİRME ETİKETLERİ (yalnız bunlar; köşeli ayraç içinde ve İngilizce):
 - Ton (cümlenin/paragrafın başına; sonraki ton etiketine kadar geçerli): ${tones}
 - Anlık ses (cümlenin içinde, olduğu yerde): ${events}
 Bilgilendirici anlatıma dönerken [normal] kullan. Etiketleri ölçülü kullan: paragraf başına en fazla bir ton ve bir-iki anlık ses. Liste dışı etiket YAZMA.
-Kurallar: Metin tamamen Türkçe. "İşte metniniz" gibi giriş yok. Cümleler kısa, nefes aralıklarına uygun, akıcı konuşma dilinde. Kısaltmalardan kaçın.
+`}Kurallar: Metin tamamen Türkçe. "İşte metniniz" gibi giriş yok. Cümleler kısa, nefes aralıklarına uygun, akıcı konuşma dilinde. Kısaltmalardan kaçın.
 
 SAHNE TİPİ (visual.type) — içeriğe en uygun olanı SEN seç; ekrandaki metinler anlatımı tekrar etmesin, özetlesin (en fazla 6-8 kelime):
 - "title": büyük kinetik başlık (heading, isteğe bağlı subheading, label = kısa kategori etiketi)
@@ -240,7 +244,7 @@ ${designNote ? `KULLANICININ TASARIM NOTU (yönetmenliği buna göre yap): ${Str
 "image": Aşağıdaki SAYFA GÖRSELLERİ listesinden sahnede anlatılan ürüne/konuya en uygun görselin numarası. Görsel açıklaması ve dosya adı sahneyle gerçekten eşleşmiyorsa null yaz. Ürün sahnelerinde mutlaka uygun ürün görselini seç; mümkünse her görseli bir kez kullan.` : ''}
 
 ÇIKTI: Yalnız şu JSON nesnesi:
-{"title":"videonun kısa başlığı","scenes":[{"narration":"[excited] ...","visual":{"type":"title","heading":"...","subheading":"..."},"direction":{"variant":"kinetic","emphasis":{"word":"...","style":"marker"},"hero":"auto","transition":"whip","tone":0},"keywords":"..."${pics.length ? ',"image":0' : ''}}]}
+{"title":"videonun kısa başlığı","scenes":[{"narration":"${provider === 'ema' ? '' : '[excited] '}...","visual":{"type":"title","heading":"...","subheading":"..."},"direction":{"variant":"kinetic","emphasis":{"word":"...","style":"marker"},"hero":"auto","transition":"whip","tone":0},"keywords":"..."${pics.length ? ',"image":0' : ''}}]}
 
 ${pics.length ? `SAYFA GÖRSELLERİ:
 ${picList}

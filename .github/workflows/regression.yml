@@ -43,6 +43,7 @@ jobs:
           python-version: '3.12'
       - run: npm ci
       - run: python -m pip install opencv-contrib-python-headless numpy
+      - run: node scripts/fetch-ema.js
       - run: npm run test:integration
       - name: Preserve reports and editor screenshots
         if: always()

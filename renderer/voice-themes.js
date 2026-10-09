@@ -88,6 +88,14 @@
       label: text(t.label, 24), logo
     };
   }
+  // Tarifte açıkça yazılmış marka renkleri (hex) modelin yorumundan önce gelir:
+  // ilk hex ana vurgu olur, diğer yazılı hex'ler sırayla vurgulara eklenir.
+  function pinBrandColors(theme, description) {
+    const hexes = [...new Set((String(description || '').match(/#[0-9a-f]{6}(?![0-9a-f])/gi) || []).map(h => h.toLowerCase()))].slice(0, 4);
+    if (!hexes.length) return theme;
+    const rest = theme.colors.accents.filter(a => !hexes.includes(a.toLowerCase()) && contrast(a, hexes[0]) > 1.25);
+    return normalizeTheme({ ...theme, colors: { ...theme.colors, accents: [...hexes, ...rest].slice(0, 6) } });
+  }
   const byId = (themes, id) => (themes || []).find(t => t.id === id) || BUILT_IN.find(t => t.id === id) || BUILT_IN[0];
 
   // Kullanıcının tasarım tarifinden (ör. kapak görseli prompt'u) tema çıkarma istemi
@@ -110,10 +118,10 @@ Yalnız şu JSON nesnesini döndür (alan değerleri listelerden seçilmeli):
  "emphasis": [en fazla 3: ${EMPHASIS.join(', ')}],
  "energy": "${ENERGY.join('|')}",
  "transition": "${TRANSITIONS.join('|')}",
- "label": "sahnelerde kullanılacak kısa kategori/etiket stili kelimesi veya boş"
+ "label": "boş bırak; yalnız tarif HER videoda aynı kalacak sabit bir seri/marka etiketi veriyorsa onu yaz"
 }
-Anlamlar: background glow=koyu ışıklı, paper=kâğıt dokulu açık zemin, grid=teknik ızgara, soft=yumuşak gradyan. frame (sahne görseli çerçevesi) card=yuvarlak kart, tape=maskeleme bantlı kolaj, polaroid=beyaz çerçeveli fotoğraf, hud=köşe çizgili teknik çerçeve, soft=yumuşak gölgeli. Motifler: tape=maskeleme bandı, arrows=el çizimi ok, scribble=karalama daire/çizgi, halftone=nokta raster, registration=baskı hizalama işareti, torn=yırtık kâğıt renk lekesi, hud=teknik köşe çizgileri, scanline=tarama ışığı, dots=nokta ızgara, blobs=yumuşak renk lekeleri, dust=parçacık, comets=ışık izi, sweep=ışık süpürmesi, grain=film greni.
-Tarifte sabit renkler (hex) varsa birebir kullan. Ana marka rengi accents dizisinin İLK elemanı olsun. Yazı rengi zeminle yüksek karşıtlıkta olsun.
+Anlamlar: background glow=koyu ışıklı, paper=kâğıt dokulu açık zemin, grid=teknik ızgara, soft=yumuşak gradyan. frame (sahne görseli çerçevesi) card=yuvarlak kart, tape=maskeleme bantlı kolaj, polaroid=beyaz çerçeveli fotoğraf, hud=köşe çizgili teknik çerçeve, soft=yumuşak gölgeli. Geçişler: whip=hızlı savrulma (enerjik, sosyal medya), zoom=yakınlaşarak giriş (dinamik), slide=kâğıt gibi kayarak giriş (kolaj/editoryal), flash=parlama (gösterişli), cut=sert kesme (yalnız çok sade/belgesel dil). Enerji: calm=sakin, normal=dengeli, punchy=hızlı ve vurgulu. Motifler: tape=maskeleme bandı, arrows=el çizimi ok, scribble=karalama daire/çizgi, halftone=nokta raster, registration=baskı hizalama işareti, torn=yırtık kâğıt renk lekesi, hud=teknik köşe çizgileri, scanline=tarama ışığı, dots=nokta ızgara, blobs=yumuşak renk lekeleri, dust=parçacık, comets=ışık izi, sweep=ışık süpürmesi, grain=film greni.
+Tarifte sabit renkler (hex) varsa birebir kullan; örnek görseldeki tonlar tarifteki hex'i geçersiz kılmaz. Tarifteki değişken alanlar ({...} yer tutucuları, içerik türü listeleri) temaya yazılmaz; tema her içerik türünde aynı kalmalı. Ana marka rengi accents dizisinin İLK elemanı olsun. Yazı rengi zeminle yüksek karşıtlıkta olsun.
 
 TASARIM TARİFİ:
 """
@@ -121,5 +129,5 @@ ${String(description || '').slice(0, 12000)}
 """`;
   }
 
-  return { FONTS, BACKGROUNDS, CARDS, FRAMES, MOTIFS, ENERGY, TRANSITIONS, EMPHASIS, BUILT_IN, normalizeTheme, byId, buildThemePrompt, contrast, isLight };
+  return { FONTS, BACKGROUNDS, CARDS, FRAMES, MOTIFS, ENERGY, TRANSITIONS, EMPHASIS, BUILT_IN, normalizeTheme, byId, buildThemePrompt, pinBrandColors, contrast, isLight };
 });

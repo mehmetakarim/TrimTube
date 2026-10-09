@@ -417,6 +417,13 @@ app.whenReady().then(async () => {
   await check('Reels safe area is on by default with a preview guide toggle', `$('vvSafeArea').checked && !$('vvSafeRow').classList.contains('hidden') && !$('vvGuideRow').classList.contains('hidden') && (()=>{$('vvShowGuide').checked=true;$('vvShowGuide').dispatchEvent(new Event('change'));const on=!$('vvSafeGuide').classList.contains('hidden');$('vvShowGuide').checked=false;$('vvShowGuide').dispatchEvent(new Event('change'));return on&&$('vvSafeGuide').classList.contains('hidden');})()`);
   await check('Chosen scene media is attached and travels with the production request', `${calls.filter(c=>c.channel==='vv-produce').at(-1)?.data.scenes[0].media?.path==='C:/qa/urun.png' && calls.filter(c=>c.channel==='vv-produce').at(-1)?.data.scenes[0].media?.cutout===true} && document.querySelector('#vvScenes .vv-media-label').textContent.includes('urun.png')`);
   await check('Production sends the approved scenes and shows a playable result', `!$('vvResult').classList.contains('hidden') && !!$('vvPreview').getAttribute('src') && !$('vvToDeskBtn').classList.contains('hidden')`);
+  await run(`document.querySelector('[data-vv-tts="ema"]').click()`); await delay(150);
+  await check('Local EMA voice needs no voice key and offers speeds instead of voices', `$('vvKeyWarn').classList.contains('hidden') && [...$('vvVoice').options].map(o=>o.value).join(',')==='0.9,1,1.1' && $('vvVoice').value==='1'`);
+  await check('Local EMA voice explains that emotion tags are not read and does not flag them', `$('vvTagHelp').textContent.includes('etiketi okumaz') && !$('vvTagHelp').querySelector('.vv-chip') && [...document.querySelectorAll('#vvScenes .vv-warn')].every(w=>!w.textContent.includes('desteklemiyor'))`);
+  await check('Local EMA voice is described as free and offline', `$('vvOptionNote').textContent.includes('ücretsiz')`);
+  await run(`$('vvVoice').value='1.1'; $('vvVoice').dispatchEvent(new Event('change')); $('vvProduceBtn').click()`); await delay(500);
+  await check('Local EMA production request carries provider and speed', `${(()=>{const d=calls.filter(c=>c.channel==='vv-produce').at(-1)?.data;return d?.provider==='ema'&&d.voice==='1.1';})()} && settings.voiceVideoVoiceEma==='1.1'`);
+  await run(`document.querySelector('[data-vv-tts="gemini"]').click()`); await delay(150);
   await run(`document.querySelector('#vvScenes .vv-visual').open=true; $('vvReview').scrollIntoView({block:'start'})`); await screenshot('voice-video-review');
   await run(`$('vvResult').scrollIntoView({block:'center'})`); await screenshot('voice-video-result');
   await run(`var ta=document.querySelector('#vvScenes .vv-narration'); ta.value=ta.value+' Ek cümle.'; ta.dispatchEvent(new Event('input'))`);

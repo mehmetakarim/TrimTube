@@ -1,0 +1,18 @@
+TrimTube — yerel Türkçe seslendirme (EMA Lightning) bileşenleri
+
+Bu klasördeki dosyalar aşağıdaki açık kaynak çalışmalardan türetilmiştir. Her ikisi de
+Apache License 2.0 ile lisanslıdır (https://www.apache.org/licenses/LICENSE-2.0).
+
+1) EMA Lightning — Türkçe metinden konuşma modeli
+   Ağırlıklar: https://huggingface.co/canberkkkkkk/ema-lightning (ema.pt, decoder.pt)
+   Kod: https://pypi.org/project/ema-lightning/ (1.0.4)
+   Değişiklik: ağırlıklar değiştirilmeden üç ONNX grafiğine çevrildi
+   (ema_text.onnx, ema_sound.onnx, ema_decoder.onnx) ve ema_config.json yazıldı.
+   Araç: tools/ema/export_onnx.py
+
+2) normalizer-tr — Türkçe metin normalleştirici (Erdem Tuna)
+   Kaynak: https://github.com/erdemtuna/normalizer-tr (crate 0.4.0)
+   Değişiklik: değiştirilmeden WebAssembly'ye derlendi (normalizer_tr.wasm),
+   küçük bir C ABI sarmalayıcıyla. Araç: tools/ema/normalizer-wasm
+
+Çalışma zamanı: onnxruntime-node (MIT, Microsoft).

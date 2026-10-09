@@ -13,6 +13,9 @@ const Themes = require('./renderer/voice-themes');
 const { buildScene, envelopeFromPcm, snap } = require('./voice-compose');
 const MUSIC_EXT = /\.(mp3|wav|m4a|aac|ogg|oga|flac|opus)$/i;
 const { detectBeats, tileBeats } = require('./beat-detect');
+const { createEma, wavBuffer } = require('./ema-tts');
+// EMA Lightning sürümü (ONNX çevirisi): önbellek anahtarına girer, model değişirse sesler yenilenir
+const EMA_ID = 'ema-lightning-1.0.4-onnx1';
 
 const SAMPLE_RATE = 48000;
 // Son sahnedeki 1 sn sessizlik: kurgu masası yerel dosya süresini tam saniyeye
@@ -188,6 +191,30 @@ function register({ ipcMain, app, getWin, loadSettings, providerClient, ffmpeg, 
       return model;
     }
     throw Error('ElevenLabs duygu etiketli modeli bu hesapta kullanılamıyor.');
+  }
+
+  // EMA Lightning: yerel, ücretsiz Türkçe TTS (ONNX, uygulamayla gelir). Duygu etiketi
+  // okumaz; kelime zamanlarını kendisi verir, bu yüzden bu seslerde Whisper ölçümü gerekmez.
+  const emaDir = () => app.isPackaged ? path.join(process.resourcesPath, 'ema') : path.join(__dirname, 'resources', 'ema');
+  let ema = null;
+  function emaEngine() {
+    if (ema) return ema;
+    if (!fs.existsSync(path.join(emaDir(), 'ema_text.onnx'))) throw Error('Yerel seslendirme modeli (EMA) bu kurulumda bulunamadı. Uygulamayı yeniden kurun.');
+    ema = createEma({ dir: emaDir(), ort: require('onnxruntime-node') });
+    return ema;
+  }
+  async function emaTts(scene, voice, out, wordsFile) {
+    const speed = Math.min(1.3, Math.max(.8, +voice || 1));
+    const text = VoiceScript.plainText(scene.narration);
+    const seed = parseInt(hash(text).slice(0, 8), 16) % 2147483647; // aynı metin, aynı ses
+    let r;
+    try { r = await emaEngine().synthesize(text, { speed, seed }); }
+    catch (err) { throw Error(/EMA/.test(err.message) ? err.message : 'Yerel seslendirme başarısız: ' + err.message); }
+    check();
+    if (!r.audio.length) throw Error('Yerel seslendirme boş ses üretti.');
+    fs.writeFileSync(out, wavBuffer(r.audio, SAMPLE_RATE));
+    fs.writeFileSync(wordsFile, JSON.stringify({ words: r.words }), 'utf8');
+    return EMA_ID;
   }
 
   // ---- Pexels medyası ----
@@ -612,7 +639,7 @@ function register({ ipcMain, app, getWin, loadSettings, providerClient, ffmpeg, 
     });
     if (result.cancelled || scriptCancelled) return { cancelled: true };
     if (result.error) return { error: result.error };
-    return { ok: true, theme: Themes.normalizeTheme({ ...result.data, id: undefined }) };
+    return { ok: true, theme: Themes.pinBrandColors(Themes.normalizeTheme({ ...result.data, id: undefined }), description) };
   });
 
   // ---- render ----
@@ -674,7 +701,7 @@ function register({ ipcMain, app, getWin, loadSettings, providerClient, ffmpeg, 
     const images = (Array.isArray(opts.images) ? opts.images : []).filter(p => p && typeof p.url === 'string' && /^https?:\/\//i.test(p.url)).slice(0, 24).map(p => ({ url: p.url, alt: String(p.alt || '').slice(0, 120) }));
     const prompt = VoiceScript.buildScriptPrompt({ images,
       source, title: String(opts.title || ''), format: opts.format === 'podcast' ? 'podcast' : 'reels',
-      length: opts.length, provider: opts.provider === 'eleven' ? 'eleven' : 'gemini', fromUrl: !!opts.fromUrl, theme, designNote: String(opts.designNote || '').slice(0, 600)
+      length: opts.length, provider: ['eleven', 'ema'].includes(opts.provider) ? opts.provider : 'gemini', fromUrl: !!opts.fromUrl, theme, designNote: String(opts.designNote || '').slice(0, 600)
     });
     const result = await providerClient.generate({
       key: (settings.geminiKey || '').trim(), chain: settings.geminiModelChain,
@@ -696,7 +723,7 @@ function register({ ipcMain, app, getWin, loadSettings, providerClient, ffmpeg, 
     if (busy) return { error: 'Devam eden bir video üretimi var.' };
     if (!job || !PROJECT_ID.test(String(job.projectId || ''))) return { error: 'Proje kimliği geçersiz.' };
     const format = job.format === 'podcast' ? 'podcast' : 'reels', landscape = format === 'podcast';
-    const provider = job.provider === 'eleven' ? 'eleven' : 'gemini';
+    const provider = ['eleven', 'ema'].includes(job.provider) ? job.provider : 'gemini';
     const waveMode = format === 'podcast' && ['wave', 'audiogram'].includes(job.waveMode) ? job.waveMode : 'none';
     const mediaMode = ['image', 'video'].includes(job.mediaMode) && waveMode !== 'audiogram' ? job.mediaMode : 'off';
     let scenes;
@@ -717,12 +744,13 @@ function register({ ipcMain, app, getWin, loadSettings, providerClient, ffmpeg, 
       const audio = [];
       for (let i = 0; i < scenes.length; i++) {
         check();
-        const s = scenes[i], key = hash([provider, job.voice || '', provider === 'gemini' ? settings.geminiTtsChain || '' : ELEVEN_MODELS, s.narration]);
+        const s = scenes[i], key = hash([provider, job.voice || '', provider === 'gemini' ? settings.geminiTtsChain || '' : provider === 'ema' ? EMA_ID : ELEVEN_MODELS, provider === 'ema' ? VoiceScript.plainText(s.narration) : s.narration]);
         const file = path.join(audioDir, `${key}.wav`);
         if (!fs.existsSync(file)) {
           send({ phase: 'tts', pct: i / scenes.length * 100, message: `Seslendiriliyor: sahne ${i + 1}/${scenes.length}` });
           const part = file + '.part.wav';
-          if (provider === 'eleven') await elevenTts(s, job.voice, part, tmp); else await geminiTts(s, job.voice, part, tmp);
+          if (provider === 'ema') await emaTts(s, job.voice, part, file.slice(0, -4) + '.words.json');
+          else if (provider === 'eleven') await elevenTts(s, job.voice, part, tmp); else await geminiTts(s, job.voice, part, tmp);
           fs.renameSync(part, file);
         }
         const pcm = readPcm(file);
