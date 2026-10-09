@@ -1,6 +1,6 @@
 # TrimTube geliştirme planı
 
-## 9 Ekim 2026 — Arka plan kaldırma (yayımlanmadı)
+## 10 Ekim 2026 — v1.24.0: Arka plan kaldırma ve tema yedekleme (yayımlandı)
 
 - Sahne görselinde "Arka planı kaldır": yerel ISNet modeli (Python onnxruntime, yeni bağımlılık yok), önizleme, önbellek; üretimde kesik ürün sunumu.
 - Tema dışa/içe aktarma (.trimtube-theme, logolar gömülü).

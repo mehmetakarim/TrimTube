@@ -132,8 +132,8 @@ Saha geri bildirimi: 3 dk'lık klip ~350MB çıkabiliyor (donanım kodlayıcı b
 - [x] 16:9 kırpmasız görsel kartı, 3 sütunlu kaydırmasız ekran, müzik bölümü seçimi ve ritim senkronu (geçişler/vurgular vuruşa oturur) — geliştirme dalında
 - [x] Görsel stiller + **AI Sahne Yönetmeni**: serbest üretim kaldırıldı; 4 hazır tema + kullanıcı temaları (tasarım tarifinden Gemini ile ya da elle; renk, yazı tipi, motif, logo), sahne başına düzen/vurgu kelimesi/görsel yerleşimi/geçiş kararı, yeni sahne tipleri (adımlar, teknik özellikler, karşılaştırma), isteğe bağlı tasarım notu — v1.23.0
 - [x] Reels/Shorts/TikTok **güvenli alan** (varsayılan açık, önizleme kılavuzu), görsel + içeriğin birlikte dikey ortalanması, taşma koruması, boş kare kalmaması (yapı ilk saniyede, vurgu konuşmayla) — v1.23.0
-- [x] **Arka plan kaldırma**: sahne görselinde tek tıkla (yerel ISNet modeli, ilk kullanımda indirilir), anında önizleme; ürün kartsız ve gölgeli yerleşir — geliştirme dalında
-- [x] Tema **dışa/içe aktarma** (.trimtube-theme, logolar gömülü) — yeniden kurulumda temalar korunur — geliştirme dalında
+- [x] **Arka plan kaldırma**: sahne görselinde tek tıkla (yerel ISNet modeli, ilk kullanımda indirilir), anında önizleme; ürün kartsız ve gölgeli yerleşir — v1.24.0
+- [x] Tema **dışa/içe aktarma** (.trimtube-theme, logolar gömülü) — yeniden kurulumda temalar korunur — v1.24.0
 - [ ] **EMA Lightning** (yerel, ücretsiz Türkçe TTS) genel seslendirme seçeneği olarak — ayrı iş kalemi (duygu kontrolü yok; PyTorch dağıtımı kararı gerekiyor)
 
 ### Bilinçli olarak kapsam dışı

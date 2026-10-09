@@ -1,6 +1,10 @@
 # TrimTube Geliştirme Günlüğü
 
-## 10 Ekim 2026 — Tema dışa/içe aktarma (yayımlanmadı)
+## v1.24.0 — 10 Ekim 2026, yayımlandı
+
+Release: https://github.com/mehmetakarim/TrimTube/releases/tag/v1.24.0 — etiket commit `3fc6881`, Actions `37997690809` (4 regresyon + 3 derleme başarılı, 10 dosya, latest). İçerik: arka plan kaldırma + tema dışa/içe aktarma (aşağıdaki iki bölüm).
+
+## 10 Ekim 2026 — Tema dışa/içe aktarma
 
 Kullanıcı isteği: uygulama silinip yeniden kurulunca temalar kaybolmasın.
 - `.trimtube-theme` (JSON: `app:'trimtube', kind:'voice-themes', version:1, themes[]`); logo dosyası base64 olarak gömülü (taşınabilir tek dosya). Kütüphane başlığında "İçe aktar…" / "Tümünü dışa aktar…", özel tema kartında "Dışa aktar".
@@ -8,7 +12,7 @@ Kullanıcı isteği: uygulama silinip yeniden kurulunca temalar kaybolmasın.
 - Arka plan kaldırma sahada denendi: çalışıyor, kenarlarda üründen yer yer kırpıyor (%100 değil); kullanıcı gerektiğinde şeffaf PNG'yi kendisi hazırlayabilir (şeffaf PNG zaten otomatik "kesik ürün" sunumu alır).
 - Testler: uçtan uca gidiş-dönüş (logo bayt bayt, tekrar içe aktarma atlanır, yabancı dosya reddi), 149 arayüz.
 
-## 9 Ekim 2026 — Arka plan kaldırma (yayımlanmadı)
+## 9 Ekim 2026 — Arka plan kaldırma
 
 - **TUZAK:** HyperFrames `remove-background` yalnız insan modeli (`u2net_human_seg`) indirir ve `onnxruntime-node` ister (kurulu değil) — ürün görsellerinde işe yaramaz. Kullanılmadı.
 - `voice_cutout.py`: ISNet genel amaçlı (`isnet-general-use.onnx`, rembg dağıtımı, Apache-2.0), Python `onnxruntime` + `numpy` (faster-whisper ile zaten gelir; yeni bağımlılık yok). Görüntü okuma/ölçekleme/yazma ffmpeg ile (Pillow yok). Ön işleme rembg ile aynı (x/max − 0,5, 1024²); maske min-max, kenar eşiği .08–.92, konuya %4 payla kırpılmış RGBA PNG. CPU'da ~1,7 sn/görsel.
