@@ -1,5 +1,10 @@
 # TrimTube Geliştirme Günlüğü
 
+## v1.22.0 — 9 Ekim 2026, yayımlandı
+
+Release: https://github.com/mehmetakarim/TrimTube/releases/tag/v1.22.0 — etiket commit `891a407`, Actions `37919700424` (4 regresyon + 3 derleme başarılı, 10 dosya, bildirimler 1.22.0, latest).
+- **TUZAK:** ilk deneme (`37919038530`) Windows entegrasyonunda düştü: render testi "hiç uyarı yok" bekliyordu, CI'da faster-whisper yok → tahmini zaman uyarısı. Test yalnız bu ortama bağlı uyarıyı dışlar hale getirildi (Python'suz PATH ile yerelde doğrulandı); release oluşmadığı için etiket düzeltilmiş commit'e taşındı. **Ders:** yerel makinede kurulu olan isteğe bağlı bağımlılıklara (Whisper) güvenen test, CI ortamını taklit ederek de çalıştırılmalı.
+
 ## 9 Ekim 2026 — Saha geri bildirimi turu: 16:9 görsel, 3 sütunlu ekran, ritim senkronu
 
 Kullanıcı: müzik iyi; görseller kırpılıyor; ekranda sürekli kaydırma yorucu; başlık pop sesi yüksek; müziğin bölümü seçilebilsin ve geçişler ritme otursun.
