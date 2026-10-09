@@ -544,110 +544,149 @@
 
     <!-- Anlatımlı video: metin/URL → duygu etiketli senaryo (onaylı) → TTS →
          HyperFrames sahneleri → kurgu masası. Kendi süreç/iptal kanalı vardır. -->
-    <section id="viewVoice" class="view view-scroll hidden">
-      <div class="view-inner">
-        <div class="view-head">
-          <span class="view-title">Anlatımlı Video</span>
-          <span class="view-sub">Metin veya bağlantıdan duygulu seslendirmeli video üret.</span>
-        </div>
-
+    <section id="viewVoice" class="view vv-view hidden">
+      <div class="vv-shell">
+        <header class="vv-head">
+          <div class="vv-head-title">
+            <span class="studio-eyebrow">Metni anlat</span>
+            <span class="view-title" role="heading" aria-level="1">Anlatımlı Video</span>
+          </div>
+          <ol class="vv-steps" id="vvSteps" aria-label="Adımlar">
+            <li data-step="1">Kaynak</li>
+            <li data-step="2">Senaryo</li>
+            <li data-step="3">Video</li>
+          </ol>
+        </header>
         <div id="vvKeyWarn" class="ai-key-warn hidden">
           <span class="ai-key-warn-text" id="vvKeyWarnText"></span>
           <button id="vvGoSettings" class="btn-ghost small">Bağlantıları ayarla</button>
         </div>
 
-        <div id="vvSourceGroup" class="setting-group">
-          <span class="label">Kaynak</span>
-          <div class="segmented" id="vvSourceSeg">
-            <button class="seg active" data-vv-source="text">Metin</button>
-            <button class="seg" data-vv-source="url">Bağlantı</button>
-          </div>
-          <textarea id="vvText" class="vv-textarea" rows="7" spellcheck="true" aria-label="Kaynak metin" placeholder="Seslendirilecek konunun metnini yapıştırın (makale, not, ürün açıklaması…)"></textarea>
-          <input type="text" id="vvUrl" class="title-input hidden" aria-label="Kaynak bağlantı" placeholder="https://… makale veya sayfa bağlantısı" spellcheck="false">
-          <div id="vvUrlNote" class="setting-note hidden">Sayfa önce okunur; senaryo yalnızca sayfadaki gerçek içerikten yazılır. Okunan metni senaryonun altında görebilirsin.</div>
-        </div>
-
-        <div id="vvOptions" class="setting-group">
-          <span class="label">Biçim</span>
-          <div class="segmented" id="vvFormatSeg">
-            <button class="seg active" data-vv-format="reels">Reels/Shorts · 9:16</button>
-            <button class="seg" data-vv-format="podcast">Podcast · 16:9</button>
-          </div>
-          <div id="vvPodcastOpts" class="vv-sub-options hidden">
-            <span class="label">Podcast uzunluğu</span>
-            <div class="segmented" id="vvLengthSeg">
-              <button class="seg" data-vv-length="short">Kısa · 1-2 dk</button>
-              <button class="seg active" data-vv-length="medium">Orta · 3-4 dk</button>
-              <button class="seg" data-vv-length="long">Uzun · 6-8 dk</button>
+        <div class="vv-cols">
+          <aside class="vv-col vv-col-settings" aria-label="Kaynak ve seçenekler">
+            <div class="vv-col-head"><span>Kaynak ve seçenekler</span></div>
+            <div class="vv-col-body">
+            <div id="vvSourceGroup" class="setting-group">
+              <span class="label">Kaynak</span>
+              <div class="segmented" id="vvSourceSeg">
+                <button class="seg active" data-vv-source="text">Metin</button>
+                <button class="seg" data-vv-source="url">Bağlantı</button>
+              </div>
+              <textarea id="vvText" class="vv-textarea" rows="7" spellcheck="true" aria-label="Kaynak metin" placeholder="Seslendirilecek konunun metnini yapıştırın (makale, not, ürün açıklaması…)"></textarea>
+              <input type="text" id="vvUrl" class="title-input hidden" aria-label="Kaynak bağlantı" placeholder="https://… makale veya sayfa bağlantısı" spellcheck="false">
+              <div id="vvUrlNote" class="setting-note hidden">Sayfa önce okunur; senaryo yalnızca sayfadaki gerçek içerikten yazılır. Okunan metni senaryonun altında görebilirsin.</div>
             </div>
-            <span class="label">Podcast görünümü</span>
-            <div class="segmented" id="vvWaveSeg">
-              <button class="seg active" data-vv-wave="none">Sahneler</button>
-              <button class="seg" data-vv-wave="wave">Sahneler + ses dalgası</button>
-              <button class="seg" data-vv-wave="audiogram">Audiogram</button>
+            <div id="vvOptions" class="setting-group">
+              <span class="label">Biçim</span>
+              <div class="segmented" id="vvFormatSeg">
+                <button class="seg active" data-vv-format="reels">Reels/Shorts · 9:16</button>
+                <button class="seg" data-vv-format="podcast">Podcast · 16:9</button>
+              </div>
+              <div id="vvPodcastOpts" class="vv-sub-options hidden">
+                <span class="label">Podcast uzunluğu</span>
+                <div class="segmented" id="vvLengthSeg">
+                  <button class="seg" data-vv-length="short">Kısa · 1-2 dk</button>
+                  <button class="seg active" data-vv-length="medium">Orta · 3-4 dk</button>
+                  <button class="seg" data-vv-length="long">Uzun · 6-8 dk</button>
+                </div>
+                <span class="label">Podcast görünümü</span>
+                <div class="segmented" id="vvWaveSeg">
+                  <button class="seg active" data-vv-wave="none">Sahneler</button>
+                  <button class="seg" data-vv-wave="wave">Sahneler + ses dalgası</button>
+                  <button class="seg" data-vv-wave="audiogram">Audiogram</button>
+                </div>
+              </div>
+              <span class="label">Seslendirme</span>
+              <div class="segmented" id="vvTtsSeg">
+                <button class="seg active" data-vv-tts="gemini">Gemini TTS</button>
+                <button class="seg" data-vv-tts="eleven">ElevenLabs</button>
+              </div>
+              <div class="md-voice-row">
+                <div class="select-wrap md-voice-select">
+                  <select id="vvVoice" aria-label="Anlatıcı sesi"><option value="">Ses listesi yüklenmedi</option></select>
+                  <svg width="10" height="14" viewBox="0 0 10 14" fill="none" stroke="#86868b" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 5 5 2l3 3M2 9l3 3 3-3"/></svg>
+                </div>
+                <button id="vvVoiceReload" class="btn-ghost small hidden">Yenile</button>
+              </div>
+              <span class="label">Görsel tasarım</span>
+              <div class="segmented" id="vvDesignSeg">
+                <button class="seg active" data-vv-design="template">Şablon kütüphanesi</button>
+                <button class="seg" data-vv-design="free">Serbest üretim</button>
+              </div>
+              <span class="label">Stok medya (Pexels)</span>
+              <div class="segmented" id="vvMediaSeg">
+                <button class="seg active" data-vv-media="off">Kapalı</button>
+                <button class="seg" data-vv-media="image">Fotoğraf</button>
+                <button class="seg" data-vv-media="video">Video</button>
+              </div>
+              <label class="cmp-check"><input type="checkbox" id="vvCaptions"> Kinetik altyazıyı videoya işle <span class="cmp-check-sub">(kelime kelime; kapalıyken altyazı kurgu masasında ayrı katman olur)</span></label>
+              <label class="cmp-check"><input type="checkbox" id="vvSfx" checked> Ses efektleri <span class="cmp-check-sub">(sahne geçişinde whoosh, vurgu anlarında pop)</span></label>
+              <span class="label">Müzik altlığı</span>
+              <div class="vv-music">
+                <span id="vvMusicName" class="vv-music-name">Müzik yok</span>
+                <button id="vvMusicPick" class="btn-ghost small">Müzik seç…</button>
+                <button id="vvMusicClear" class="btn-ghost small hidden">Kaldır</button>
+              </div>
+              <div id="vvMusicOpts" class="vv-music-opts hidden">
+                <label class="vv-music-level">Başlangıç <input type="range" id="vvMusicStart" min="0" max="60" step="0.5" value="0"><output id="vvMusicStartValue">0:00</output><button id="vvMusicListen" class="btn-ghost small" type="button">▶ Dinle</button></label>
+                <label class="vv-music-level">Seviye <input type="range" id="vvMusicLevel" min="10" max="60" step="5" value="30"><output id="vvMusicLevelValue">%30</output></label>
+                <label class="cmp-check"><input type="checkbox" id="vvBeatSync" checked> Ritme senkronize et <span id="vvBpm" class="cmp-check-sub"></span></label>
+                <audio id="vvMusicAudio" preload="none"></audio>
+              </div>
+              <div id="vvOptionNote" class="setting-note"></div>
             </div>
-          </div>
-          <span class="label">Seslendirme</span>
-          <div class="segmented" id="vvTtsSeg">
-            <button class="seg active" data-vv-tts="gemini">Gemini TTS</button>
-            <button class="seg" data-vv-tts="eleven">ElevenLabs</button>
-          </div>
-          <div class="md-voice-row">
-            <div class="select-wrap md-voice-select">
-              <select id="vvVoice" aria-label="Anlatıcı sesi"><option value="">Ses listesi yüklenmedi</option></select>
-              <svg width="10" height="14" viewBox="0 0 10 14" fill="none" stroke="#86868b" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 5 5 2l3 3M2 9l3 3 3-3"/></svg>
             </div>
-            <button id="vvVoiceReload" class="btn-ghost small hidden">Yenile</button>
-          </div>
-          <span class="label">Görsel tasarım</span>
-          <div class="segmented" id="vvDesignSeg">
-            <button class="seg active" data-vv-design="template">Şablon kütüphanesi</button>
-            <button class="seg" data-vv-design="free">Serbest üretim</button>
-          </div>
-          <span class="label">Stok medya (Pexels)</span>
-          <div class="segmented" id="vvMediaSeg">
-            <button class="seg active" data-vv-media="off">Kapalı</button>
-            <button class="seg" data-vv-media="image">Fotoğraf</button>
-            <button class="seg" data-vv-media="video">Video</button>
-          </div>
-          <label class="cmp-check"><input type="checkbox" id="vvCaptions"> Kinetik altyazıyı videoya işle <span class="cmp-check-sub">(kelime kelime; kapalıyken altyazı kurgu masasında ayrı katman olur)</span></label>
-          <div id="vvOptionNote" class="setting-note"></div>
+          </aside>
+
+          <main class="vv-col vv-col-script" aria-label="Senaryo">
+            <div class="vv-col-head"><span>Senaryo</span><span id="vvSummary" class="cache-info"></span></div>
+            <div class="vv-col-body">
+              <div id="vvScriptEmpty" class="vv-empty">
+                <span aria-hidden="true">✎</span>
+                <p>Kaynağı girip <b>Metni hazırla</b>'ya bas. Senaryo, duygu etiketleri ve sahne görselleri burada görünür; seslendirmeden önce düzenleyebilirsin.</p>
+              </div>
+              <div id="vvReview" class="vv-review hidden">
+                <input type="text" id="vvTitle" class="title-input vv-title" aria-label="Video başlığı" maxlength="120" placeholder="Videonun başlığı">
+                <div id="vvTagHelp" class="vv-tag-help"></div>
+                <div id="vvScenes" class="vv-scenes"></div>
+                <button id="vvAddScene" class="btn-ghost small">＋ Sahne ekle</button>
+                <details id="vvSourceView" class="vv-source-view hidden"><summary>Okunan kaynak metin</summary><pre id="vvSourceText"></pre></details>
+              </div>
+            </div>
+          </main>
+
+          <aside class="vv-col vv-col-preview" aria-label="Önizleme">
+            <div class="vv-col-head"><span>Önizleme</span></div>
+            <div class="vv-col-body">
+              <div id="vvStage" class="vv-stage" data-format="reels">
+                <video id="vvPreview" class="vv-preview" controls preload="metadata"></video>
+                <div class="vv-stage-empty"><span aria-hidden="true">▷</span><p>Video üretildiğinde burada oynatılır.</p></div>
+              </div>
+              <div id="vvProgress" class="progress-block hidden">
+                <div class="progress-head">
+                  <span id="vvPhaseLabel" class="pulse">Hazırlanıyor…</span>
+                  <span id="vvProgressText"></span>
+                </div>
+                <div class="progress-bar"><div id="vvProgressFill"></div></div>
+              </div>
+              <div id="vvResult" class="cmp-result vv-result hidden">
+                <div class="cmp-result-text">
+                  <span id="vvResultTitle" class="cmp-result-title"></span>
+                  <span id="vvResultSub" class="cmp-result-sub"></span>
+                </div>
+              </div>
+              <div id="vvError" class="error-banner hidden"></div>
+            </div>
+          </aside>
         </div>
 
-        <div id="vvProgress" class="progress-block hidden">
-          <div class="progress-head">
-            <span id="vvPhaseLabel" class="pulse">Hazırlanıyor…</span>
-            <span id="vvProgressText"></span>
-          </div>
-          <div class="progress-bar"><div id="vvProgressFill"></div></div>
-        </div>
-
-        <div id="vvReview" class="setting-group hidden">
-          <span class="label">Videonun başlığı</span>
-          <input type="text" id="vvTitle" class="title-input" aria-label="Video başlığı" maxlength="120">
-          <div class="pl-toolbar"><span class="label">Senaryo · seslendirmeden önce kontrol et</span><span id="vvSummary" class="cache-info"></span></div>
-          <div id="vvTagHelp" class="vv-tag-help"></div>
-          <div id="vvScenes" class="vv-scenes"></div>
-          <button id="vvAddScene" class="btn-ghost small">＋ Sahne ekle</button>
-          <details id="vvSourceView" class="vv-source-view hidden"><summary>Okunan kaynak metin</summary><pre id="vvSourceText"></pre></details>
-        </div>
-
-        <div id="vvResult" class="cmp-result vv-result hidden">
-          <video id="vvPreview" class="vv-preview" controls preload="metadata"></video>
-          <div class="cmp-result-text">
-            <span id="vvResultTitle" class="cmp-result-title"></span>
-            <span id="vvResultSub" class="cmp-result-sub"></span>
-          </div>
-        </div>
-        <div id="vvError" class="error-banner hidden"></div>
-
-        <div class="cmp-foot">
+        <div class="cmp-foot vv-foot">
           <span id="vvFootHint" class="cmp-foot-hint">Önce metin hazırlanır; onayladığında seslendirilir ve video üretilir.</span>
           <button id="vvCancelBtn" class="btn-ghost small hidden">İptal</button>
           <button id="vvOpenFolderBtn" class="btn-ghost small hidden">Klasörü aç</button>
           <button id="vvToDeskBtn" class="btn-ghost small hidden" title="Videoyu sahne parçaları ve altyazı katmanıyla kurgu masasına yükle">Kurgu masasına taşı</button>
-          <button id="vvProduceBtn" class="btn-primary small hidden">Onayla ve videoyu üret</button>
           <button id="vvScriptBtn" class="btn-primary small">Metni hazırla</button>
+          <button id="vvProduceBtn" class="btn-primary small hidden">Onayla ve videoyu üret</button>
         </div>
       </div>
     </section>

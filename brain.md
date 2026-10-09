@@ -1,5 +1,24 @@
 # TrimTube Geliştirme Günlüğü
 
+## 9 Ekim 2026 — Saha geri bildirimi turu: 16:9 görsel, 3 sütunlu ekran, ritim senkronu
+
+Kullanıcı: müzik iyi; görseller kırpılıyor; ekranda sürekli kaydırma yorucu; başlık pop sesi yüksek; müziğin bölümü seçilebilsin ve geçişler ritme otursun.
+- **Görsel:** kırpmanın kaynağı karttaki içsel Ken Burns (1,14 kat + kayma) idi. Artık standart 16:9 kart, görsel `contain` (hiç kırpılmaz), boş kenarları aynı görselin bulanık kopyası (`.hero-fill`) doldurur; yakınlaşma kart düzeyinde %3,5. Şeffaf kesim kendi oranında.
+- **Pop sesi** 0,30 → 0,12 (whoosh 0,42 aynı).
+- **Ekran:** Anlatımlı Video workspace.js iki kart düzeninden çıkarıldı; kendi 3 sütunlu düzeni (ayarlar | senaryo | sabit önizleme), sayfa kaymaz, sütunlar kendi içinde kayar; adım göstergesi; ≤1320 px 2 sütun (ayarlar+önizleme solda), ≤900 px tek sütun. **TUZAK:** yapışkan etiket şeridindeki negatif yan boşluk ve müzik satırı sütunda gizli yatay taşma yapıyordu; testte `scrollWidth<=clientWidth` ile yakalanıyor.
+- **Müzik bölümü:** başlangıç kaydırıcısı + 12 sn dinleme (`<audio>`); seçilen noktadan döngü birimi (`music-unit.wav`).
+- **Ritim:** `beat-detect.js` (bas+tüm bant onset → otokorelasyon 70–180 BPM, 120 civarı tercih → tarak fazı; düzenli ızgara — vuruş başına tepeye kaydırma aksak his veriyordu). Güven = tempo gecikmesindeki otokorelasyon / sıfır gecikme enerjisi. **TUZAK:** ilk güven ölçüsü (tepe/pozitif ortalama) beyaz gürültüyü ritimli sayıyordu. Ölçülen: müzik 0,56–0,98, gürültü 0,06, konuşma 0,07 → eşik 0,25. Mel-RoFormer: parçanın üç bölümünde 129,7–129,9 BPM.
+  - Sahne sınırları en yakın sonraki vuruşa oturur (yalnız boşluk uzar, ≤max(0,6 sn, 1 vuruş)); ölçülen sapma 3–15 ms (kare hizalaması). Hale her vuruşta nabız, 4 vuruşta bir hafif flaş, ışık süpürmesi 8 vuruşta bir, başlık kelimeleri yarım vuruş (≤0,2 sn) aralıkla.
+  - **TUZAK (ölçüm):** doğrulama betiğinde ortam değişkeni yeni kabuğa taşınmadığı için müziksiz çıktı ölçülüp "senkron yok" sanıldı — hattın içine iz koyunca doğru çalıştığı görüldü.
+- Testler: 21 anlatımlı video (ritim birim + 120 BPM tık müzikle uçtan uca vuruş hizası), 137 arayüz (1680x1000 ve 1280x800 düzen/taşma), 43 medya.
+
+## 9 Ekim 2026 — Anlatımlı Video: D (ses efektleri + müzik) — kod tamam, yayımlanmadı
+
+- `voice-compose.buildScene` → {html, sfx}: konuşmayla senkron vurgu anlarından pop zamanları (≥0,7 sn aralık, sahne başına ≤4). Sahne geçişinde whoosh (sahne başı −0,1 sn, görüntüdeki whip ile). Efektler anlatım PCM'ine Node'da örnek düzeyinde eklenir (assets/sfx, 48 kHz mono, kırpma korumalı).
+- Müzik altlığı: kullanıcı dosyası (`vv-choose-music`), döngü, 1,2 sn giriş / 2,5 sn çıkış geçişi, anlatım sidechain'i ile kısılır, alimiter. Seviye %10–60 (varsayılan %30); tercihlerde hatırlanır. Dosya yoksa uyarı + müziksiz.
+- **Ölçüm (gerçek Gemini TTS ile):** `threshold=0.02:ratio=4` → konuşma altında müzik −40,9 dB, boşlukta −26,8 dB = 14 dB kısma (yayın standardı). İlk ayar (ratio 10) test tonunda 22 dB'e çıkıp müziği konuşma altında yok ediyordu. **TUZAK:** test tonu gerçek konuşmadan yüksek — kısmayı gerçek seslendirmeyle ölç.
+- Yerel dosya artık yoksa anlaşılır uyarı (ham ENOENT yerine). Testler: 20 anlatımlı video (müzik/efekt uçtan uca dahil), 135 arayüz.
+
 ## v1.21.0 — 8 Ekim 2026, yayımlandı
 
 Release: https://github.com/mehmetakarim/TrimTube/releases/tag/v1.21.0

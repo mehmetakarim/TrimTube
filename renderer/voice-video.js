@@ -14,20 +14,22 @@
     cta: [['heading', 'Başlık', 'wide'], ['subheading', 'Alt satır'], ['button', 'Düğme metni']]
   };
   const state = {
-    source: 'text', format: 'reels', length: 'medium', wave: 'none', tts: 'gemini', design: 'template', media: 'off', captions: false,
+    source: 'text', format: 'reels', length: 'medium', wave: 'none', tts: 'gemini', design: 'template', media: 'off', captions: false, sfx: true, music: null,
     script: null, sourceText: '', sourceTitle: '', fromUrl: false, projectId: null, pageImages: [],
     running: null, result: null, producedKey: null, voicesLoaded: false, lastNarration: null
   };
   const DRAFT_KEY = 'trimtube.voiceVideo.draft';
 
   // ---- tercihler ----
-  function prefs() { return { source: state.source, format: state.format, length: state.length, wave: state.wave, tts: state.tts, design: state.design, media: state.media, captions: state.captions }; }
+  function prefs() { return { source: state.source, format: state.format, length: state.length, wave: state.wave, tts: state.tts, design: state.design, media: state.media, captions: state.captions, sfx: state.sfx, music: state.music }; }
   function savePrefs() { if (settings) { settings.voiceVideo = prefs(); window.api.setSettings({ voiceVideo: prefs() }); } }
   function applyPrefs() {
     const p = settings?.voiceVideo; if (!p || typeof p !== 'object') return;
     for (const [key, allowed] of Object.entries({ source: ['text', 'url'], format: ['reels', 'podcast'], length: ['short', 'medium', 'long'], wave: ['none', 'wave', 'audiogram'], tts: ['gemini', 'eleven'], design: ['template', 'free'], media: ['off', 'image', 'video'] }))
       if (allowed.includes(p[key])) state[key] = p[key];
     state.captions = p.captions === true;
+    state.sfx = p.sfx !== false;
+    state.music = p.music && typeof p.music.path === 'string' ? { path: p.music.path, name: String(p.music.name || ''), level: Math.max(.1, Math.min(.6, +p.music.level || .3)), start: Math.max(0, +p.music.start || 0), duration: +p.music.duration || 0, bpm: +p.music.bpm || null, beatSync: p.music.beatSync !== false } : null;
   }
   function saveDraft() {
     try {
@@ -54,6 +56,19 @@
     $('vvUrlNote').classList.toggle('hidden', state.source !== 'url');
     $('vvPodcastOpts').classList.toggle('hidden', state.format !== 'podcast');
     $('vvCaptions').checked = state.captions;
+    $('vvSfx').checked = state.sfx;
+    $('vvMusicName').textContent = state.music ? state.music.name : 'Müzik yok';
+    $('vvMusicName').title = state.music ? state.music.path : '';
+    $('vvMusicClear').classList.toggle('hidden', !state.music);
+    $('vvMusicOpts').classList.toggle('hidden', !state.music);
+    if (state.music) {
+      const m = state.music, max = Math.max(0, (m.duration || 60) - 5);
+      $('vvMusicLevel').value = Math.round(m.level * 100); $('vvMusicLevelValue').textContent = `%${Math.round(m.level * 100)}`;
+      $('vvMusicStart').max = max; $('vvMusicStart').value = Math.min(m.start, max); $('vvMusicStartValue').textContent = clock(m.start);
+      $('vvBeatSync').checked = m.beatSync !== false;
+      $('vvBpm').textContent = m.bpm ? `(algılanan tempo: ${Math.round(m.bpm)} BPM)` : '(ritim algılanamazsa normal geçiş kullanılır)';
+    }
+    $('vvStage').dataset.format = state.format;
     const audiogram = state.format === 'podcast' && state.wave === 'audiogram';
     $('vvMediaSeg').querySelectorAll('.seg').forEach(b => { b.disabled = audiogram && b.dataset.vvMedia !== 'off'; });
     const notes = [];
@@ -77,6 +92,33 @@
   }
 
   $('vvCaptions').addEventListener('change', () => { state.captions = $('vvCaptions').checked; savePrefs(); refresh(); });
+  $('vvSfx').addEventListener('change', () => { state.sfx = $('vvSfx').checked; savePrefs(); refresh(); });
+  $('vvMusicPick').addEventListener('click', async () => {
+    if (state.running) return;
+    const r = await window.api.vvChooseMusic();
+    if (r.cancelled) return; if (r.error) { showError(r.error); return; }
+    showError(''); state.music = { path: r.music.path, name: r.music.name, level: state.music?.level || .3, start: 0, duration: r.music.duration || 0, bpm: r.music.bpm || null, beatSync: state.music?.beatSync !== false };
+    syncSegments(); savePrefs(); refresh();
+  });
+  $('vvMusicClear').addEventListener('click', () => { stopListen(); state.music = null; syncSegments(); savePrefs(); refresh(); });
+  // Müziğin kullanılacak bölümü: başlangıç kaydırıcısı + kısa dinleme
+  const clock = t => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+  let listenTimer = null;
+  function stopListen() { clearTimeout(listenTimer); const a = $('vvMusicAudio'); a.pause(); $('vvMusicListen').textContent = '▶ Dinle'; }
+  $('vvMusicStart').addEventListener('input', () => { if (!state.music) return; state.music.start = +$('vvMusicStart').value; $('vvMusicStartValue').textContent = clock(state.music.start); });
+  $('vvMusicStart').addEventListener('change', () => { savePrefs(); refresh(); if (!$('vvMusicAudio').paused) { stopListen(); $('vvMusicListen').click(); } });
+  $('vvMusicListen').addEventListener('click', () => {
+    const a = $('vvMusicAudio');
+    if (!state.music) return;
+    if (!a.paused) { stopListen(); return; }
+    const url = fileUrl(state.music.path);
+    if (a.dataset.src !== url) { a.src = url; a.dataset.src = url; }
+    const play = () => { a.currentTime = state.music.start; a.volume = .8; a.play().then(() => { $('vvMusicListen').textContent = '■ Durdur'; listenTimer = setTimeout(stopListen, 12000); }).catch(() => showError('Müzik önizlemesi oynatılamadı.')); };
+    if (a.readyState >= 1) play(); else { a.addEventListener('loadedmetadata', play, { once: true }); a.load(); }
+  });
+  $('vvBeatSync').addEventListener('change', () => { if (!state.music) return; state.music.beatSync = $('vvBeatSync').checked; savePrefs(); refresh(); });
+  $('vvMusicLevel').addEventListener('input', () => { if (!state.music) return; state.music.level = +$('vvMusicLevel').value / 100; $('vvMusicLevelValue').textContent = `%${$('vvMusicLevel').value}`; });
+  $('vvMusicLevel').addEventListener('change', () => { savePrefs(); refresh(); });
 
   // ---- sesler ----
   function loadVoices() {
@@ -139,7 +181,7 @@
     if (state.media !== 'off' && !(state.format === 'podcast' && state.wave === 'audiogram') && !(settings?.pexelsKey || '').trim()) missing.push('Pexels (stok medya)');
     return missing;
   }
-  const productionKey = () => JSON.stringify([state.script, state.format, state.wave, state.tts, $('vvVoice').value, state.design, state.media, state.captions]);
+  const productionKey = () => JSON.stringify([state.script, state.format, state.wave, state.tts, $('vvVoice').value, state.design, state.media, state.captions, state.sfx, state.music]);
   function refresh() {
     const missing = keysMissing();
     $('vvKeyWarn').classList.toggle('hidden', !missing.length);
@@ -151,6 +193,10 @@
     $('vvScriptBtn').classList.toggle('btn-primary', !state.script); $('vvScriptBtn').classList.toggle('btn-ghost', !!state.script);
     const hasScript = !!state.script?.scenes?.length;
     $('vvReview').classList.toggle('hidden', !hasScript);
+    $('vvScriptEmpty').classList.toggle('hidden', hasScript);
+    $('vvStage').classList.toggle('has-video', !!state.result);
+    const step = state.result ? 3 : hasScript ? 2 : 1;
+    document.querySelectorAll('#vvSteps li').forEach(li => { const n = +li.dataset.step; li.classList.toggle('active', n === step); li.classList.toggle('done', n < step); });
     $('vvProduceBtn').classList.toggle('hidden', !hasScript);
     const stale = state.result && state.producedKey !== productionKey();
     $('vvProduceBtn').textContent = state.result ? (stale ? 'Değişiklikleri uygula' : 'Videoyu yeniden üret') : 'Onayla ve videoyu üret';
@@ -381,7 +427,7 @@
     try {
       const r = await window.api.vvProduce({
         projectId: state.projectId, title: state.script.title, format: state.format, provider: state.tts, voice: $('vvVoice').value,
-        design: state.design, waveMode: state.format === 'podcast' ? state.wave : 'none', mediaMode: state.media, captions: state.captions,
+        design: state.design, waveMode: state.format === 'podcast' ? state.wave : 'none', mediaMode: state.media, captions: state.captions, sfx: state.sfx, music: state.music,
         scenes: state.script.scenes, outDir: settings?.lastFolder || $('folder')?.textContent || null
       });
       if (r.cancelled) { showToast('Video üretimi iptal edildi'); return; }
@@ -390,7 +436,7 @@
       const name = r.outFile.split(/[\\/]/).pop();
       $('vvPreview').src = fileUrl(r.outFile) + `?v=${Date.now()}`;
       $('vvResultTitle').textContent = `Video hazır — ${name}`;
-      $('vvResultSub').textContent = [`${fmtClock(r.duration)} · ${r.scenes.length} sahne`, r.rendered < r.scenes.length ? `${r.rendered} sahne yeniden üretildi` : '', r.credits ? `${r.credits} Pexels kaynağı listelendi` : '', ...(r.warnings || [])].filter(Boolean).join(' · ');
+      $('vvResultSub').textContent = [`${fmtClock(r.duration)} · ${r.scenes.length} sahne`, r.bpm ? `geçişler ${Math.round(r.bpm)} BPM ritme oturtuldu` : '', r.rendered < r.scenes.length ? `${r.rendered} sahne yeniden üretildi` : '', r.credits ? `${r.credits} Pexels kaynağı listelendi` : '', ...(r.warnings || [])].filter(Boolean).join(' · ');
       showToast('Anlatımlı video hazır');
     } catch (err) { showError('Beklenmeyen hata: ' + (err.message || err)); }
     finally { setRunning(null); }

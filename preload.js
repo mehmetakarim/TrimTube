@@ -111,5 +111,6 @@ contextBridge.exposeInMainWorld('api', {
   vvCancel: () => ipcRenderer.invoke('vv-cancel'),
   vvChooseMedia: () => ipcRenderer.invoke('vv-choose-media'),
   vvMediaInfo: (path) => ipcRenderer.invoke('vv-media-info', path),
+  vvChooseMusic: () => ipcRenderer.invoke('vv-choose-music'),
   onVvProgress: (cb) => ipcRenderer.on('vv-progress', (e, p) => cb(p))
 });

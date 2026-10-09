@@ -7,6 +7,7 @@ const os = require('os');
 const path = require('path');
 const V = require('../renderer/voice-script');
 const C = require('../voice-compose');
+const Beat = require('../beat-detect');
 const checks = [];
 const check = (name, fn) => { fn(); checks.push(name); };
 
@@ -143,10 +144,13 @@ check('Page images: og image, article images, lazy and srcset sources; logos, ic
   assert.equal(V.normalizeMedia({ source: 'local', path: 'C:/x/a.exe' }), null);
   assert.equal(V.normalizeMedia({ source: 'local', kind: 'video', path: 'C:/x/a.mp4' }).kind, 'video');
 });
-check('Hero media: cutout, studio and photo treatments; box follows aspect and text starts below it', () => {
+check('Hero media: uncropped 16:9 photo frame with blurred fill, studio and cutout treatments; text starts below', () => {
   const base = { scene: { visual: { type: 'title', heading: 'K1 vs K2' } }, duration: 4, speech: 3 };
   const wide = C.buildSceneHtml({ ...base, hero: { kind: 'image', file: 'media/a.png', w: 1920, h: 1080 } });
-  assert.ok(wide.includes('class="hero hero-photo"') && wide.includes('height:523px') && wide.includes('padding-top:703px'));
+  assert.ok(wide.includes('class="hero hero-photo"') && wide.includes('width:960px') && wide.includes('height:540px') && wide.includes('padding-top:730px'));
+  assert.ok(wide.includes('class="hero-fill"') && /.hero-media{[^}]*object-fit:contain/.test(wide), 'photo is never cropped: contain over a blurred fill');
+  const square = C.buildSceneHtml({ ...base, hero: { kind: 'image', file: 'media/s.png', w: 1000, h: 1000 } });
+  assert.ok(square.includes('height:540px'), 'every photo uses the standard 16:9 frame');
   const studio = C.buildSceneHtml({ ...base, hero: { kind: 'image', file: 'media/b.png', w: 1000, h: 1000, edge: '#ffffff' } });
   assert.ok(studio.includes('hero-studio') && studio.includes('background:#ffffff'));
   const cut = C.buildSceneHtml({ ...base, hero: { kind: 'image', file: 'media/c.png', w: 800, h: 1000, cutout: true } });
@@ -155,6 +159,33 @@ check('Hero media: cutout, studio and photo treatments; box follows aspect and t
   assert.ok(vid.includes('<video class="hero-media"') && vid.includes('muted') && vid.includes('padding-left:46%'));
   const audiogram = C.buildSceneHtml({ ...base, format: 'podcast', waveMode: 'audiogram', hero: { kind: 'image', file: 'media/a.png', w: 10, h: 10 } });
   assert.ok(!audiogram.includes('id="hero"'), 'audiogram keeps its own layout');
+});
+
+check('Sound effect cues follow spoken highlights, spaced and capped per scene', () => {
+  const words = [{ text: '600', start: .5, end: .9 }, { text: 'bir', start: 1, end: 1.2 }, { text: 'iki', start: 1.3, end: 1.5 }, { text: 'üç', start: 1.6, end: 1.8 }];
+  const r = C.buildScene({ scene: { visual: { type: 'list', heading: 'Liste', items: [{ text: 'bir' }, { text: 'iki' }, { text: 'üç' }, { text: 'dört' }, { text: 'beş' }] } }, duration: 6, speech: 5, words });
+  assert.ok(r.html.startsWith('<!doctype html>') && r.sfx.length >= 1 && r.sfx.length <= 4);
+  for (let i = 1; i < r.sfx.length; i++) assert.ok(r.sfx[i].t - r.sfx[i - 1].t >= .7);
+  assert.ok(r.sfx.every(e => e.kind === 'pop' && e.t > .35 && e.t < 5.5));
+  assert.equal(C.buildSceneHtml({ scene: { visual: { type: 'title', heading: 'x' } }, duration: 2 }), C.buildScene({ scene: { visual: { type: 'title', heading: 'x' } }, duration: 2 }).html);
+});
+
+check('Beat detection finds tempo and phase of a steady track and rejects arrhythmic audio', () => {
+  const rate = 11025, seconds = 16, pcm = Buffer.alloc(rate * seconds * 2);
+  for (let i = 0; i < rate * seconds; i++) {
+    const t = i / rate, ph = (t - .1 + 10) % .5; // 120 BPM, ilk vuruş 0,1 sn
+    pcm.writeInt16LE(Math.round(26000 * Math.sin(2 * Math.PI * 70 * t) * Math.exp(-28 * ph)), i * 2);
+  }
+  const r = Beat.detectBeats(pcm, rate);
+  assert.ok(Math.abs(r.bpm - 120) < 1.5, 'bpm ' + r.bpm);
+  assert.ok(r.beats.every(b => { const d = (b - .1) % .5; return Math.min(d, .5 - d) < .03; }), 'phase');
+  const tiled = Beat.tileBeats({ beats: [0, .5, 1, 1.5] }, 2, 5);
+  assert.deepEqual(tiled, [0, .5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5]);
+  const noise = Buffer.alloc(rate * 8 * 2); let seed = 7;
+  for (let i = 0; i < rate * 8; i++) { seed = (seed * 1103515245 + 12345) % 2147483648; noise.writeInt16LE(Math.round((seed / 2147483648 - .5) * 4000), i * 2); }
+  const n = Beat.detectBeats(noise, rate);
+  assert.ok(!n || n.confidence < .25, 'noise must not be treated as rhythmic');
+  assert.ok(r.confidence >= .25, 'steady track is confidently rhythmic');
 });
 
 async function renderPipeline() {
@@ -201,8 +232,19 @@ async function renderPipeline() {
   assert.equal(second.rendered, 1, 'only the edited scene is re-rendered');
   assert.equal(bodies.length, 4, 'only the edited scene is re-voiced');
   assert.notEqual(second.outFile, first.outFile);
+  // Müzik + efekt: sahneler yeniden render edilmez, ses karışımı stereo ve uyarısız
+  const music = path.join(root, 'music.wav');
+  require('child_process').spawnSync(require('ffmpeg-static'), ['-y', '-f', 'lavfi', '-i', "aevalsrc='0.7*sin(2*PI*70*t)*exp(-28*mod(t,0.5))+0.15*sin(2*PI*440*t)':s=44100:d=12", '-ac', '2', music], { windowsHide: true });
+  const third = await handlers['vv-produce']({}, { ...job, scenes: scenes.map((s, i) => i === 1 ? { ...s, narration: '[whispering] İkinci sahne değişti, biraz daha uzun.' } : s), sfx: true, music: { path: music, name: 'music.wav', level: .3 } });
+  assert.ok(third.ok, third.error); assert.deepEqual(third.warnings, [], JSON.stringify(third.warnings));
+  assert.ok(Math.abs(third.bpm - 120) < 2, 'music tempo ' + third.bpm);
+  third.scenes.slice(1).forEach(sc => { const d = sc.start % .5; assert.ok(Math.min(d, .5 - d) < .045, 'scene starts on a beat: ' + sc.start); });
+  const probe3 = require('child_process').spawnSync(require('ffmpeg-static'), ['-i', third.outFile], { encoding: 'utf8' }).stderr;
+  assert.ok(/Audio: aac.*stereo/.test(probe3), 'music mix is stereo');
+  const missing = await handlers['vv-produce']({}, { ...job, music: { path: path.join(root, 'yok.mp3'), name: 'yok.mp3' } });
+  assert.ok(missing.ok && missing.warnings.some(w => w.includes('Müzik dosyası bulunamadı')));
   fs.rmSync(root, { recursive: true, force: true });
-  checks.push('Full pipeline: scene TTS, HyperFrames render, lossless join and per-scene cache');
+  checks.push('Full pipeline: scene TTS, HyperFrames render, lossless join, per-scene cache, SFX and ducked music');
 }
 
 (async () => {

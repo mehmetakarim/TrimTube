@@ -1,5 +1,10 @@
 # TrimTube geliştirme planı
 
+## 9 Ekim 2026 — v1.22.0: Ses, müzik ve ritim
+
+- Ses efektleri, kullanıcı müziği (bölüm seçimi, ~14 dB kısma), ritim senkronu (beat-detect.js), 16:9 kırpmasız görsel kartı, 3 sütunlu kaydırmasız ekran.
+- Ayrıntı: RELEASE-v1.22.0.md, brain.md. Sırada: Görsel Tasarım (şablon / serbest üretim) değerlendirmesi, arka plan kaldırma, EMA Lightning.
+
 ## 8 Ekim 2026 — v1.21.0: Anlatımlı Video
 
 - Metin/URL → Gemini duygu etiketli senaryo (onaylı) → sahne başına Gemini/ElevenLabs TTS → Whisper kelime zamanları → HyperFrames sahneleri → kurgu masası.

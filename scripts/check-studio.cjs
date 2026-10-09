@@ -47,6 +47,7 @@ for (const [, channel] of fs.readFileSync(path.join(root, 'preload.js'), 'utf8')
     if (channel === 'cache-info') return { videos: 0, bytes: 0 };
     if (channel === 'ytdlp-info') return { version: 'test' };
     if (channel === 'mood-voices') return { voices: [] };
+    if (channel === 'vv-choose-music') return { ok: true, music: { path: 'C:/qa/fon.mp3', name: 'fon.mp3', duration: 30 } };
     if (channel === 'vv-choose-media') return { ok: true, media: { source: 'local', kind: 'image', path: 'C:/qa/urun.png', thumb: 'data:image/jpeg;base64,/9j/' } };
     if (channel === 'vv-source') return { ok: true, title: 'Sayfa', text: 'Okunan sayfa metni '.repeat(30), url: data.url };
     if (channel === 'vv-script') { await new Promise(resolve => setTimeout(resolve, 80)); return { ok: true, model: 'gemini-3.8-flash', script: { title: 'Test anlatımı', scenes: [
@@ -380,14 +381,21 @@ app.whenReady().then(async () => {
   await check('Unknown tags are flagged before voicing', `document.querySelector('#vvScenes .vv-warn').textContent.includes('[foo]')`);
   await run(`document.querySelector('[data-vv-tts="eleven"]').click()`); await delay(100);
   await check('Switching to ElevenLabs swaps the tag dictionary and flags unsupported tones', `[...document.querySelectorAll('#vvTagHelp .vv-chip')].some(c=>c.textContent==='[sarcastic]') && document.querySelectorAll('#vvScenes .vv-warn')[1].textContent.includes('[empathetic]')`);
-  await run(`document.querySelector('[data-vv-tts="gemini"]').click(); var ta=document.querySelector('#vvScenes .vv-narration'); ta.value='[excited] Selam! [laughs] Bugün harika bir konu var.'; ta.dispatchEvent(new Event('input')); [...document.querySelectorAll('#vvScenes .vv-scene')[0].querySelectorAll('button')].find(b=>b.textContent==='Dosya seç…').click()`); await delay(200); await run(`$('vvProduceBtn').click()`); await delay(500);
+  await run(`document.querySelector('[data-vv-tts="gemini"]').click(); var ta=document.querySelector('#vvScenes .vv-narration'); ta.value='[excited] Selam! [laughs] Bugün harika bir konu var.'; ta.dispatchEvent(new Event('input')); [...document.querySelectorAll('#vvScenes .vv-scene')[0].querySelectorAll('button')].find(b=>b.textContent==='Dosya seç…').click()`); await delay(200); await run(`$('vvMusicPick').click()`); await delay(200); await run(`$('vvProduceBtn').click()`); await delay(500);
+  await check('Music bed and sound effect choices travel with the production request', `${(()=>{const d=calls.filter(c=>c.channel==='vv-produce').at(-1)?.data;return d?.music?.path==='C:/qa/fon.mp3'&&d.music.level===.3&&d.sfx===true;})()} && $('vvMusicName').textContent==='fon.mp3' && !$('vvMusicOpts').classList.contains('hidden')`);
   await check('Chosen scene media is attached and travels with the production request', `${calls.filter(c=>c.channel==='vv-produce').at(-1)?.data.scenes[0].media?.path==='C:/qa/urun.png'} && document.querySelector('#vvScenes .vv-media-label').textContent.includes('urun.png')`);
   await check('Production sends the approved scenes and shows a playable result', `!$('vvResult').classList.contains('hidden') && !!$('vvPreview').getAttribute('src') && !$('vvToDeskBtn').classList.contains('hidden')`);
   await run(`document.querySelector('#vvScenes .vv-visual').open=true; $('vvReview').scrollIntoView({block:'start'})`); await screenshot('voice-video-review');
   await run(`$('vvResult').scrollIntoView({block:'center'})`); await screenshot('voice-video-result');
   await run(`var ta=document.querySelector('#vvScenes .vv-narration'); ta.value=ta.value+' Ek cümle.'; ta.dispatchEvent(new Event('input'))`);
   await check('Edits after production offer an incremental update and hide stale hand-off', `$('vvProduceBtn').textContent.includes('Değişiklikleri') && $('vvToDeskBtn').classList.contains('hidden')`);
-  await run(`$('vvProduceBtn').click()`); await delay(500); await run(`$('vvToDeskBtn').click()`); await delay(900);
+  await run(`$('vvProduceBtn').click()`); await delay(500);
+  for (const [w, h, name] of [[1680, 1000, 'voice-wide'], [1280, 800, 'voice-compact']]) {
+    win.setSize(w, h); await run(`$('sideNav').classList.add('collapsed')`); await delay(350); await screenshot(name);
+    await check(`Narrated video workspace fits ${w}x${h} without page scrolling; columns scroll on their own`, `(()=>{const v=$('viewVoice');const cols=[...document.querySelectorAll('#viewVoice .vv-col')];return v.scrollHeight<=v.clientHeight+1 && [...document.querySelectorAll('#viewVoice .vv-col-body')].every(b=>b.scrollWidth<=b.clientWidth+1) && cols.every(c=>c.getBoundingClientRect().bottom<=innerHeight+1) && document.documentElement.scrollWidth<=innerWidth && !$('vvStage').classList.contains('hidden') && $('vvStage').classList.contains('has-video') && document.querySelector('#vvSteps li.active')?.dataset.step==='3';})()`);
+  }
+  win.setSize(1280, 900); await delay(200);
+  await run(`$('vvToDeskBtn').click()`); await delay(900);
   await check('Hand-off loads scenes as desk clips and subtitles as an unapproved layer', `currentView==='cutter' && sequenceProject().clips.length===2 && sequenceProject().enabled && reviewProject().doc?.cues.length===3 && !reviewProject().doc.approved && $('subEnable').checked`);
 
   await win.loadFile(path.join(root,'renderer/index.html')); await delay(500); await run(`switchView('voice')`); await delay(200);

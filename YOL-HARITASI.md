@@ -128,6 +128,8 @@ Saha geri bildirimi: 3 dk'lık klip ~350MB çıkabiliyor (donanım kodlayıcı b
 - [x] Sahne başına ses + render, içerik özetiyle önbellek → düzenlemeden sonra **yalnız değişen sahneler** yeniden seslendirilir/render edilir; görüntü kayıpsız birleştirilir
 - [x] Kurgu masasına aktarım (Yol A): sahneler kurgu parçası, altyazı ayrı ve onay bekleyen katman
 - [ ] Gerçek API ile saha testi (Gemini 3.8 TTS `speech_metadata`, ElevenLabs v4 Türkçe) ve paketlenmiş kurulumda deneme (ilk render tarayıcı bileşenini indirir)
+- [x] Ses efektleri (geçişte whoosh, konuşmayla senkron vurguda pop) ve kullanıcı müziği altlığı (anlatım altında ~14 dB otomatik kısma) — geliştirme dalında
+- [x] 16:9 kırpmasız görsel kartı, 3 sütunlu kaydırmasız ekran, müzik bölümü seçimi ve ritim senkronu (geçişler/vurgular vuruşa oturur) — geliştirme dalında
 - [ ] **EMA Lightning** (yerel, ücretsiz Türkçe TTS) genel seslendirme seçeneği olarak — ayrı iş kalemi (duygu kontrolü yok; PyTorch dağıtımı kararı gerekiyor)
 
 ### Bilinçli olarak kapsam dışı

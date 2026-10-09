@@ -79,3 +79,72 @@
 .vv-gallery-item { padding: 0; border: 2px solid transparent; border-radius: 8px; overflow: hidden; height: 66px; background: var(--fill); cursor: pointer; }
 .vv-gallery-item.active, .vv-gallery-item:hover { border-color: var(--accent); }
 .vv-gallery-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+.vv-music { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.vv-music-name { flex: 1; min-width: 120px; font-size: 12.5px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vv-music-level { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--muted); }
+.vv-music-level input { flex: 1; accent-color: var(--accent); }
+.vv-music-level output { min-width: 38px; font-variant-numeric: tabular-nums; }
+
+/* ---- Üç sütunlu çalışma alanı: sayfa kaymaz, sütunlar kendi içinde kayar ---- */
+#viewVoice.vv-view { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; padding: 16px 20px 0; }
+.vv-shell { flex: 1; min-height: 0; width: 100%; max-width: 1760px; margin: 0 auto; display: flex; flex-direction: column; gap: 12px; }
+.vv-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.vv-head-title { display: flex; flex-direction: column; gap: 4px; }
+.vv-head .view-title { font-size: 26px; }
+.vv-steps { list-style: none; display: flex; gap: 6px; margin: 0; padding: 0; counter-reset: vvstep; }
+.vv-steps li { counter-increment: vvstep; font-size: 12px; color: var(--muted); padding: 6px 12px 6px 8px; border: 1px solid var(--border); border-radius: 999px; display: flex; align-items: center; gap: 7px; }
+.vv-steps li::before { content: counter(vvstep); width: 18px; height: 18px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 10.5px; font-weight: 700; background: var(--fill); color: var(--muted); }
+.vv-steps li.active { color: var(--text); border-color: var(--accent); background: var(--accent-soft); }
+.vv-steps li.active::before { background: var(--accent); color: #fff; }
+.vv-steps li.done::before { content: '✓'; background: var(--green); color: #fff; }
+.vv-cols { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(300px, 360px) minmax(420px, 1fr) minmax(300px, 400px); gap: 14px; }
+.vv-col { min-height: 0; min-width: 0; display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 12px; background: var(--panel); overflow: hidden; }
+.vv-col-head { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--hairline); font-size: 13px; font-weight: 600; }
+.vv-col-head .cache-info { font-size: 11.5px; font-weight: 500; }
+.vv-col-body { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 16px 18px; display: flex; flex-direction: column; gap: 16px; }
+.vv-col-settings .setting-group + .setting-group { border-top: 1px solid var(--hairline); padding-top: 14px; }
+.vv-col-settings .segmented { flex-wrap: wrap; }
+.vv-col-settings .seg { min-width: 84px; font-size: 12px; }
+.vv-col-settings .setting-note { text-align: left; }
+.vv-col-settings .vv-textarea { min-height: 120px; }
+.vv-review { display: flex; flex-direction: column; gap: 12px; }
+.vv-title { font-weight: 600; }
+.vv-col-script .vv-tag-help { position: sticky; top: -14px; z-index: 2; margin: -14px 0 0; padding: 10px 0; background: var(--panel); border-bottom: 1px solid var(--hairline); }
+.vv-col-script .vv-scenes { max-height: none; overflow: visible; padding-right: 0; }
+.vv-empty { flex: 1; min-height: 200px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; text-align: center; color: var(--muted); padding: 24px; }
+.vv-empty > span { font-size: 34px; color: var(--faint); }
+.vv-empty p { font-size: 12.5px; line-height: 1.6; max-width: 360px; }
+.vv-stage { position: relative; margin: 0 auto; width: 100%; aspect-ratio: 9 / 16; max-height: calc(100vh - 330px); max-width: calc((100vh - 330px) * 9 / 16); border-radius: 14px; overflow: hidden; background: #000; border: 1px solid var(--border); }
+.vv-stage[data-format="podcast"] { aspect-ratio: 16 / 9; max-width: 100%; max-height: none; }
+.vv-stage .vv-preview { width: 100%; height: 100%; max-height: none; border-radius: 0; display: none; }
+.vv-stage.has-video .vv-preview { display: block; }
+.vv-stage-empty { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: #8a8fa8; text-align: center; padding: 20px; background: radial-gradient(circle at 50% 40%, #1c1f3a, #07080f 70%); }
+.vv-stage-empty span { font-size: 34px; }
+.vv-stage-empty p { font-size: 12px; line-height: 1.5; }
+.vv-stage.has-video .vv-stage-empty { display: none; }
+.vv-col-preview .vv-result { padding: 10px 12px; }
+.vv-foot { flex: none; margin: 0 -20px; padding: 12px 20px; border-top: 1px solid var(--border); background: var(--panel); flex-wrap: wrap; }
+.vv-music-opts { display: flex; flex-direction: column; gap: 8px; }
+.vv-music-level button { flex: none; }
+@media (max-width: 1320px) {
+  .vv-cols { grid-template-columns: minmax(290px, 340px) minmax(380px, 1fr); grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); }
+  .vv-col-settings { grid-row: 1; grid-column: 1; }
+  .vv-col-preview { grid-row: 2; grid-column: 1; }
+  .vv-col-script { grid-row: 1 / span 2; grid-column: 2; }
+  .vv-stage { max-height: calc(50vh - 120px); max-width: calc((50vh - 120px) * 9 / 16); }
+}
+@media (max-width: 900px) {
+  #viewVoice.vv-view { overflow-y: auto; }
+  .vv-shell { flex: none; }
+  .vv-cols { display: flex; flex-direction: column; }
+  .vv-col { overflow: visible; }
+  .vv-col-body { overflow: visible; }
+  .vv-stage { max-height: 70vh; max-width: calc(70vh * 9 / 16); }
+}
+.vv-col-body { overflow-x: hidden; }
+.vv-col-settings .seg { min-width: 0; flex: 1 1 auto; padding: 0 8px; white-space: nowrap; }
+.vv-col-settings .md-voice-select, .vv-col-settings .md-voice-select select { min-width: 0; width: 100%; }
+.vv-col-settings .vv-music-level { flex-wrap: wrap; min-width: 0; }
+.vv-col-settings .vv-music-level input[type="range"] { min-width: 90px; flex: 1 1 90px; }
+.vv-col-settings .cmp-check { min-width: 0; flex-wrap: wrap; }

@@ -9,7 +9,9 @@ const path = require('path');
 const crypto = require('crypto');
 const { spawn } = require('child_process');
 const VoiceScript = require('./renderer/voice-script');
-const { buildSceneHtml, envelopeFromPcm, snap } = require('./voice-compose');
+const { buildScene, envelopeFromPcm, snap } = require('./voice-compose');
+const MUSIC_EXT = /\.(mp3|wav|m4a|aac|ogg|oga|flac|opus)$/i;
+const { detectBeats, tileBeats } = require('./beat-detect');
 
 const SAMPLE_RATE = 48000;
 // Son sahnedeki 1 sn sessizlik: kurgu masası yerel dosya süresini tam saniyeye
@@ -328,6 +330,7 @@ function register({ ipcMain, app, getWin, loadSettings, providerClient, ffmpeg, 
         fs.writeFileSync(target + '.part', buf); fs.renameSync(target + '.part', target);
       }
     } else {
+      if (!fs.existsSync(media.path)) throw Error(`Dosya bulunamadı (${path.basename(media.path)}) — taşınmış veya silinmiş olabilir.`);
       const st = fs.statSync(media.path);
       target = path.join(dir, `local-${hash([path.resolve(media.path), st.size, st.mtimeMs])}${path.extname(media.path).toLowerCase()}`);
       if (!fs.existsSync(target)) { fs.copyFileSync(media.path, target + '.part'); fs.renameSync(target + '.part', target); }
@@ -337,6 +340,38 @@ function register({ ipcMain, app, getWin, loadSettings, providerClient, ffmpeg, 
     const video = VIDEO_EXT.test(target), surface = video ? { cutout: false, edge: null } : await surfaceOf(target);
     return { kind: video ? 'video' : 'image', file: 'media/' + path.basename(target), cutout: surface.cutout, edge: surface.cutout ? null : surface.edge, w: info.w, h: info.h };
   }
+
+  const sfxCache = new Map();
+  async function sfxPcm(kind) {
+    if (sfxCache.has(kind)) return sfxCache.get(kind);
+    const src = path.join(__dirname, 'assets', 'sfx', `${kind}.wav`);
+    let clip = null;
+    if (fs.existsSync(src)) clip = await new Promise(resolve => {
+      const proc = spawn(ffmpeg, ['-i', src, '-ac', '1', '-ar', String(SAMPLE_RATE), '-f', 's16le', 'pipe:1'], { windowsHide: true });
+      const chunks = []; proc.stdout.on('data', d => chunks.push(d)); proc.on('error', () => resolve(null)); proc.on('close', code => resolve(code === 0 ? Buffer.concat(chunks) : null));
+    });
+    sfxCache.set(kind, clip);
+    return clip;
+  }
+  // Müziğin bir bölümünü 11 kHz mono çözüp ritmini bulur
+  async function musicBeats(p, start = 0, seconds = 120) {
+    const raw = await new Promise(resolve => {
+      const proc = spawn(ffmpeg, ['-ss', String(Math.max(0, start)), '-t', String(seconds), '-i', p, '-vn', '-ac', '1', '-ar', '11025', '-f', 's16le', 'pipe:1'], { windowsHide: true });
+      const chunks = []; proc.stdout.on('data', d => chunks.push(d)); proc.on('error', () => resolve(null)); proc.on('close', code => resolve(code === 0 ? Buffer.concat(chunks) : null));
+    });
+    return raw ? detectBeats(raw, 11025) : null;
+  }
+  ipcMain.handle('vv-choose-music', async () => {
+    if (!dialog) return { cancelled: true };
+    const res = await dialog.showOpenDialog(getWin(), { properties: ['openFile'], filters: [{ name: 'Müzik', extensions: ['mp3', 'wav', 'm4a', 'aac', 'ogg', 'oga', 'flac', 'opus'] }] });
+    if (res.canceled || !res.filePaths?.[0]) return { cancelled: true };
+    const p = res.filePaths[0];
+    const r = await run(ffmpeg, ['-hide_banner', '-i', p]);
+    const dur = r.stderr.match(/Duration:\s*(\d+):(\d+):([\d.]+)/);
+    if (!/Audio:/.test(r.stderr) || !dur) return { error: 'Dosyada ses bulunamadı.' };
+    const beat = await musicBeats(p, 0, 90);
+    return { ok: true, music: { path: p, name: path.basename(p), duration: +dur[1] * 3600 + +dur[2] * 60 + +dur[3], bpm: beat && beat.confidence >= .25 ? beat.bpm : null } };
+  });
 
   // ---- render ----
   async function renderScene(e, renderDir, html, out, workers) {
@@ -457,11 +492,34 @@ function register({ ipcMain, app, getWin, loadSettings, providerClient, ffmpeg, 
       // 1b) Kelime zamanları: görseller konuşmayla senkron girsin diye
       const words = await wordTimings(scenes, audio, tmp, warnings);
 
-      // 2) Zamanlama: sahne süresi = ses + kısa nefes, kare hizalı
+      // 1c) Müzik: seçilen başlangıçtan döngü birimi; istenirse ritmi bulunur
+      const music = job.music && typeof job.music.path === 'string' && MUSIC_EXT.test(job.music.path) && fs.existsSync(job.music.path) ? job.music.path : null;
+      if (job.music && !music) warnings.push('Müzik dosyası bulunamadı; müziksiz üretildi.');
+      let musicUnit = null, unitLength = 0, beat = null;
+      if (music) {
+        const start = Math.max(0, +job.music.start || 0);
+        musicUnit = path.join(tmp, 'music-unit.wav');
+        const r = await run(ffmpeg, ['-y', '-ss', String(start), '-i', music, '-vn', '-ac', '2', '-ar', String(SAMPLE_RATE), '-c:a', 'pcm_s16le', musicUnit]); check();
+        unitLength = r.code === 0 && fs.existsSync(musicUnit) ? (fs.statSync(musicUnit).size - 44) / 4 / SAMPLE_RATE : 0;
+        if (unitLength < 1) { warnings.push('Müzik okunamadı; müziksiz üretildi.'); musicUnit = null; }
+        else if (job.music.beatSync !== false) {
+          beat = await musicBeats(musicUnit, 0, Math.min(unitLength, 120));
+          if (!beat || beat.confidence < .25) { beat = null; warnings.push('Müzikte belirgin bir ritim bulunamadı; geçişler ritme oturtulmadı.'); }
+        }
+      }
+      const beats = beat ? tileBeats(beat, unitLength, audio.reduce((n, a) => n + a.speech + 2, 0) + 10) : [];
+
+      // 2) Zamanlama: sahne süresi = ses + kısa nefes, kare hizalı; ritim varsa
+      // sonraki sahne en yakın vuruşta başlar (konuşma asla kısalmaz)
       let t = 0;
       const timed = scenes.map((s, i) => {
-        const duration = snap(audio[i].speech + (i === scenes.length - 1 ? LAST_GAP : SCENE_GAP));
-        const item = { ...s, start: +t.toFixed(4), duration, speech: audio[i].speech, words: words[i] }; t += duration; return item;
+        let duration = snap(audio[i].speech + (i === scenes.length - 1 ? LAST_GAP : SCENE_GAP));
+        if (beats.length && i < scenes.length - 1) {
+          const desired = t + audio[i].speech + SCENE_GAP;
+          const next = beats.find(b => b >= desired - .04);
+          if (next !== undefined && next - desired <= Math.max(.6, beat.period * 1.05)) duration = snap(Math.max(audio[i].speech + .15, next - t));
+        }
+        const item = { ...s, start: +t.toFixed(4), duration, speech: audio[i].speech, words: words[i], beats: beats.filter(b => b >= t - .01 && b < t + duration).map(b => +(b - t).toFixed(3)) }; t += duration; return item;
       });
 
       // 3a) Sahne görselleri (sayfadan veya kullanıcıdan) — sahnenin kahramanı
@@ -491,9 +549,9 @@ function register({ ipcMain, app, getWin, loadSettings, providerClient, ffmpeg, 
       fs.copyFileSync(e.gsap, path.join(renderDir, 'gsap.min.js'));
       const plan = timed.map((s, i) => {
         const envelope = waveMode === 'none' ? null : envelopeFromPcm(Buffer.concat([audio[i].pcm, Buffer.alloc(Math.max(0, Math.round((s.duration - s.speech) * SAMPLE_RATE)) * 2)]), SAMPLE_RATE);
-        const input = { scene: { visual: s.visual, html: s.html }, index: i, total: timed.length, duration: s.duration, speech: s.speech, words: s.words, format, media: media[i] && { kind: media[i].kind, file: 'media/' + media[i].file }, hero: heroes[i], waveMode, envelope, title, captions: !!job.captions };
-        const html = buildSceneHtml(input);
-        return { i, html, input, out: path.join(segDir, `seg-${hash(html)}.mp4`) };
+        const input = { scene: { visual: s.visual, html: s.html }, index: i, total: timed.length, duration: s.duration, speech: s.speech, words: s.words, format, media: media[i] && { kind: media[i].kind, file: 'media/' + media[i].file }, hero: heroes[i], waveMode, envelope, title, captions: !!job.captions, beats: s.beats, beatPeriod: beat ? beat.period : 0 };
+        const { html, sfx } = buildScene(input);
+        return { i, html, sfx, input, out: path.join(segDir, `seg-${hash(html)}.mp4`) };
       });
       const todo = plan.filter(p => !fs.existsSync(p.out));
       let done = plan.length - todo.length;
@@ -505,7 +563,7 @@ function register({ ipcMain, app, getWin, loadSettings, providerClient, ffmpeg, 
           if (err.cancelled || !p.input.scene.html) throw err;
           // Serbest tasarım render edilemezse sahne şablonla üretilir
           warnings.push(`Sahne ${p.i + 1}: serbest tasarım render edilemedi, şablon kullanıldı.`);
-          const html = buildSceneHtml({ ...p.input, scene: { visual: p.input.scene.visual } });
+          const html = buildScene({ ...p.input, scene: { visual: p.input.scene.visual } }).html;
           await renderScene(e, renderDir, html, p.out, 2);
         }
         done++;
@@ -522,12 +580,40 @@ function register({ ipcMain, app, getWin, loadSettings, providerClient, ffmpeg, 
         return Buffer.concat([pcm, Buffer.alloc(bytes - pcm.length)]);
       });
       const pcm = Buffer.concat(blocks);
+      // Ses efektleri: sahne geçişinde whoosh (görüntüdeki whip ile), vurgu anlarında pop
+      if (job.sfx !== false) {
+        const events = [];
+        timed.forEach((s, i) => {
+          if (i > 0) events.push({ t: s.start - .1, kind: 'whoosh', gain: .42 });
+          for (const e of plan[i].sfx || []) events.push({ t: s.start + e.t, kind: e.kind, gain: .12 }); // vurgu: whoosh'tan belirgin şekilde kısık
+        });
+        for (const e of events) {
+          const clip = await sfxPcm(e.kind); if (!clip) continue;
+          const at = Math.max(0, Math.round(e.t * SAMPLE_RATE)) * 2;
+          for (let k = 0; k < clip.length && at + k + 1 < pcm.length; k += 2) {
+            const v = pcm.readInt16LE(at + k) + clip.readInt16LE(k) * e.gain;
+            pcm.writeInt16LE(Math.max(-32768, Math.min(32767, Math.round(v))), at + k);
+          }
+        }
+      }
       fs.writeFileSync(narration, Buffer.concat([wavHeader(pcm.length), pcm]));
+      // Müzik altlığı: seçilen başlangıçtan döngü, giriş/çıkış geçişi, anlatım altında kısılır
+      let soundtrack = narration;
+      if (musicUnit) {
+        send({ phase: 'assemble', pct: 100, message: 'Müzik karıştırılıyor…' });
+        const total = pcm.length / 2 / SAMPLE_RATE, level = Math.max(.05, Math.min(1, +job.music.level || .3));
+        soundtrack = path.join(tmp, 'soundtrack.wav');
+        const r = await run(ffmpeg, ['-y', '-i', narration, '-stream_loop', '-1', '-i', musicUnit, '-filter_complex',
+          `[1:a]aresample=${SAMPLE_RATE},aformat=channel_layouts=stereo,atrim=0:${total.toFixed(3)},asetpts=PTS-STARTPTS,volume=${level.toFixed(2)},afade=t=in:d=1.2,afade=t=out:st=${Math.max(0, total - 2.5).toFixed(3)}:d=2.5[m];[0:a]aformat=channel_layouts=stereo,asplit=2[v][sc];[m][sc]sidechaincompress=threshold=0.02:ratio=4:attack=15:release=450:makeup=1[md];[v][md]amix=inputs=2:duration=first:normalize=0,alimiter=limit=0.95[out]`,
+          '-map', '[out]', '-c:a', 'pcm_s16le', '-ar', String(SAMPLE_RATE), soundtrack]);
+        check();
+        if (r.code !== 0) { warnings.push('Müzik karıştırılamadı; müziksiz üretildi.'); soundtrack = narration; }
+      }
       const list = path.join(tmp, 'segments.ffconcat');
       fs.writeFileSync(list, 'ffconcat version 1.0\n' + plan.map(p => `file '${p.out.replace(/\\/g, '/').replace(/'/g, "'\\''")}'`).join('\n') + '\n', 'utf8');
       const outDir = job.outDir && fs.existsSync(job.outDir) ? job.outDir : app.getPath('downloads');
       const outFile = uniquePath(path.join(outDir, `${sanitizeName(title).slice(0, 80)} - ${format === 'podcast' ? 'Podcast' : 'Reels'}.mp4`));
-      const mux = await run(ffmpeg, ['-y', '-f', 'concat', '-safe', '0', '-i', list, '-i', narration, '-map', '0:v:0', '-map', '1:a:0', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k', '-ar', String(SAMPLE_RATE), '-shortest', '-movflags', '+faststart', outFile + '.part.mp4']);
+      const mux = await run(ffmpeg, ['-y', '-f', 'concat', '-safe', '0', '-i', list, '-i', soundtrack, '-map', '0:v:0', '-map', '1:a:0', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k', '-ar', String(SAMPLE_RATE), '-shortest', '-movflags', '+faststart', outFile + '.part.mp4']);
       check();
       if (mux.code !== 0) throw Error('Video birleştirilemedi: ' + tail(mux.stderr));
       fs.renameSync(outFile + '.part.mp4', outFile);
@@ -540,7 +626,7 @@ function register({ ipcMain, app, getWin, loadSettings, providerClient, ffmpeg, 
       for (const f of fs.readdirSync(renderDir)) if (/\.html$/.test(f)) fs.rmSync(path.join(renderDir, f), { force: true });
       const total = timed.reduce((n, s) => n + s.duration, 0);
       return {
-        ok: true, outFile, duration: total, warnings, rendered: todo.length, credits: credits.size,
+        ok: true, outFile, duration: total, warnings, rendered: todo.length, credits: credits.size, bpm: beat ? beat.bpm : null,
         scenes: timed.map(s => ({ id: s.id, start: s.start, end: +(s.start + s.duration).toFixed(4), speech: s.speech })),
         cues: VoiceScript.cuesFromTimings(timed)
       };

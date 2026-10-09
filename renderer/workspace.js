@@ -15,10 +15,7 @@
       hint: 'Anlatım tarzını ve süreyi seç. Önce sahne planını gözden geçir; ardından seslendirme ve videoyu oluştur.' },
     { view: 'broll', id: 'viewBroll', prefix: 'br', label: 'Anlattığını göster', title: 'Konuşmana görüntüler eşlik etsin.',
       source: ['brDrop', 'brFileCard', 'brOptions'], output: ['brProgress', 'brResults', 'brResultCard', 'brError'],
-      hint: 'Önerilen stok görüntüleri gözden geçir. Seçtiklerin videonun üzerine yerleşir; özgün ses devam eder.', result: 'brResultCard', setFile: path => brSetFile(path), busy: () => brRunning },
-    { view: 'voice', id: 'viewVoice', label: 'Metni anlat', title: 'Metni duygulu bir anlatıma ve videoya dönüştür.',
-      source: ['vvKeyWarn', 'vvSourceGroup', 'vvOptions'], output: ['vvProgress', 'vvReview', 'vvResult', 'vvError'],
-      hint: 'Senaryo önce burada görünür: metni ve duygu etiketlerini düzelt, sahne görsellerini seç. Onayladığında seslendirilir ve video üretilir.' }
+      hint: 'Önerilen stok görüntüleri gözden geçir. Seçtiklerin videonun üzerine yerleşir; özgün ses devam eder.', result: 'brResultCard', setFile: path => brSetFile(path), busy: () => brRunning }
   ];
   const states = [];
   function card(title, desc) {

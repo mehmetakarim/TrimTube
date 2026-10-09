@@ -84,7 +84,7 @@ function templateParts(v, ctx) {
   // Başlık kelimeleri: her biri söylendiği an (bulunamazsa hızlı kademeli giriş)
   // Başlık hemen kademeli girer (kanca boş kalmasın); her kelime söylendiği
   // an vurgu rengiyle kısa bir sıçrama yapar.
-  const headline = (text, cls, start = .1, step = .07) => {
+  const headline = (text, cls, start = .1, step = ctx.step || .07) => {
     const tokens = String(text || '').split(/\s+/).filter(Boolean);
     let from = 0;
     const html = tokens.map((w, k) => `<span class="w ${cls}-w" id="${cls}${k}">${esc(w)}</span>`).join(' ');
@@ -290,8 +290,10 @@ function baseCss(W, H, accent, second) {
 .flash{position:absolute;inset:0;background:radial-gradient(circle at 50% 45%,#fff,${accent}55 60%,transparent);opacity:0;mix-blend-mode:screen}
 .free{position:absolute;inset:0;overflow:hidden}
 .hero{position:absolute;border-radius:44px;overflow:hidden;box-shadow:0 40px 110px rgba(0,0,0,.55),0 0 0 1.5px rgba(255,255,255,.1)}
-.hero-media{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
-.hero-studio .hero-media{object-fit:contain;inset:5%;width:90%;height:90%}
+.hero-media{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
+.hero-photo{background:#0b0d18}
+.hero-fill{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;filter:blur(30px) brightness(.5) saturate(1.2);transform:scale(1.25)}
+.hero-studio .hero-media{inset:4%;width:92%;height:92%}
 .hero-cutout{overflow:visible;box-shadow:none;border-radius:0}
 .hero-cutout .hero-media{object-fit:contain;filter:drop-shadow(0 46px 60px rgba(0,0,0,.65))}
 .hero-glow{position:absolute;inset:10%;border-radius:50%;background:radial-gradient(circle,${accent}66,transparent 65%);filter:blur(30px)}
@@ -316,11 +318,13 @@ for(var k=0;k<env.length;k++){(function(k){tl.set(bars,{scaleY:function(i){var v
  *  media {kind, file}, waveMode 'none'|'wave'|'audiogram', envelope, title,
  *  captions (kinetik altyazıyı videoya işle)
  */
-function buildSceneHtml(o) {
+function buildScene(o) {
   const { scene, index = 0, total = 1, format = 'reels', media = null, waveMode = 'none', envelope = null, title = '', captions = false } = o;
   const hero = o.hero && o.hero.file && waveMode !== 'audiogram' && !scene.html ? o.hero : null;
   const duration = snap(o.duration);
   const D = duration, exitAt = Math.max(.3, D - .26);
+  const beatPeriod = +o.beatPeriod || 0;
+  const sceneBeats = Array.isArray(o.beats) ? o.beats.filter(b => Number.isFinite(b) && b >= 0 && b < D) : [];
   const words = Array.isArray(o.words) ? o.words.filter(w => w && Number.isFinite(w.start)) : [];
   const speech = Math.max(.5, Math.min(duration, o.speech || (words.length ? words[words.length - 1].end : duration - .4)));
   const W = format === 'podcast' ? 1920 : 1080, H = format === 'podcast' ? 1080 : 1920, land = W > H;
@@ -337,7 +341,7 @@ function buildSceneHtml(o) {
   } else if (scene.html) {
     content = `<div class="free">${scene.html}</div>`;
   } else {
-    const t = templateParts(scene.visual || {}, { land, words, speech, find, accent, index });
+    const t = templateParts(scene.visual || {}, { land, words, speech, find, accent, index, step: beatPeriod ? Math.max(.06, Math.min(.2, beatPeriod / 2)) : 0 });
     content = t.html; anim = t.lines; hits = t.hits; ghost = t.ghost;
   }
   const capLayer = captions && !audiogram ? captionLayer(words, land, accent) : { html: '', lines: [] };
@@ -347,18 +351,25 @@ function buildSceneHtml(o) {
   const heroLines = [];
   if (hero) {
     const mode = hero.cutout ? 'cutout' : hero.edge ? 'studio' : 'photo';
+    const src = esc(hero.file);
     const inner = hero.kind === 'video'
-      ? `<video class="hero-media" id="heroMedia" src="${esc(hero.file)}" muted playsinline data-start="0" data-duration="${D}"></video>`
-      : `<img class="hero-media" id="heroMedia" src="${esc(hero.file)}" alt="">`;
-    const aspect = Math.min(2.2, Math.max(.62, (hero.w || 16) / (hero.h || 9)));
-    let box;
-    if (land) { const w = 845, h = Math.min(800, Math.max(420, w / aspect)); box = `left:5%;width:${w}px;top:${Math.round((H - h) / 2 - 20)}px;height:${Math.round(h)}px`; }
-    else { const w = 930, h = Math.min(820, Math.max(400, w / aspect)); box = `left:75px;width:${w}px;top:110px;height:${Math.round(h)}px`; heroBottom = 110 + Math.round(h); }
+      ? `<video class="hero-media" id="heroMedia" src="${src}" muted playsinline data-start="0" data-duration="${D}"></video>`
+      : `${mode === 'photo' ? `<img class="hero-fill" src="${src}" alt="">` : ''}<img class="hero-media" id="heroMedia" src="${src}" alt="">`;
+    // Standart 16:9 kart: görsel hiç kırpılmaz (contain); boş kenarları aynı
+    // görselin bulanık kopyası doldurur. Şeffaf kesim kendi oranında, kartsız.
+    let w, h;
+    if (mode === 'cutout') {
+      const aspect = Math.min(2.2, Math.max(.62, (hero.w || 16) / (hero.h || 9)));
+      w = land ? 845 : 930; h = Math.min(land ? 800 : 820, Math.max(400, w / aspect));
+    } else { w = land ? 880 : 960; h = Math.round(w * 9 / 16); }
+    const box = land
+      ? `left:5%;width:${w}px;top:${Math.round((H - h) / 2 - 20)}px;height:${Math.round(h)}px`
+      : `left:${Math.round((W - w) / 2)}px;width:${w}px;top:120px;height:${Math.round(h)}px`;
+    if (!land) heroBottom = 120 + Math.round(h);
     heroHtml = `<div class="hero hero-${mode}" id="hero" style="${box}${mode === 'studio' ? `;background:${hero.edge}` : ''}">${mode === 'cutout' ? '<div class="hero-glow"></div>' : ''}${inner}${mode === 'cutout' ? '' : '<i class="hero-gloss" id="heroGloss"></i>'}</div>`;
     heroLines.push(`tl.fromTo('#hero',{y:90,scale:.84,opacity:0,filter:'blur(18px)'},{y:0,scale:1,opacity:1,filter:'blur(0px)',duration:.7,ease:'back.out(1.4)'},.04);`);
-    heroLines.push(`tl.to('#hero',{y:${land ? -14 : -18},rotation:${mode === 'cutout' ? 1.2 : .4},duration:${num(Math.max(1, D - .8))},ease:'sine.inOut'},.75);`);
-    if (mode === 'photo') heroLines.push(`tl.fromTo('#heroMedia',{scale:1.14,xPercent:-2},{scale:1.02,xPercent:2,duration:${D},ease:'none'},0);`);
-    else heroLines.push(`tl.fromTo('#heroMedia',{scale:1},{scale:1.05,duration:${D},ease:'sine.inOut'},0);`);
+    heroLines.push(`tl.to('#hero',{y:${land ? -14 : -18},scale:1.035,rotation:${mode === 'cutout' ? 1.2 : .3},duration:${num(Math.max(1, D - .8))},ease:'sine.inOut'},.75);`);
+    if (mode === 'photo' && hero.kind !== 'video') heroLines.push(`tl.fromTo('.hero-fill',{scale:1.25},{scale:1.4,duration:${D},ease:'none'},0);`);
     if (mode === 'cutout') heroLines.push(`tl.fromTo('.hero-glow',{opacity:.4,scale:.9},{opacity:.9,scale:1.1,duration:${num(Math.max(1, D / 2))},ease:'sine.inOut',yoyo:true,repeat:1},0);`);
     else for (let k = 0; k < Math.max(1, Math.floor(D / 4)); k++) heroLines.push(`tl.fromTo('#heroGloss',{xPercent:-160},{xPercent:260,duration:1.1,ease:'power2.inOut',immediateRender:false},${num(.9 + k * 4)});`);
   }
@@ -378,11 +389,12 @@ function buildSceneHtml(o) {
     `tl.fromTo('.b3',{x:0,y:0},{x:160,y:-120,duration:${D},ease:'sine.inOut'},0);`,
     `tl.fromTo('.grid',{x:0,y:0},{x:-46,y:-46,duration:${D},ease:'none'},0);`,
     ...Array.from({ length: 16 }, (_, k) => `tl.fromTo('#d${k}',{y:0,x:0},{y:-${Math.round(120 + random() * 260)},x:${Math.round(random() * 80 - 40)},duration:${D},ease:'none'},0);`),
-    ...Array.from({ length: Math.max(1, Math.floor(D / 3.2)) }, (_, k) => `tl.fromTo('.sweep',{x:0},{x:${land ? 3400 : 2300},duration:1.6,ease:'power1.inOut',immediateRender:false},${num(.8 + k * 3.2)});`),
+    ...(sceneBeats.length ? sceneBeats.filter((b, k) => k % 8 === 1 && b < D - 1) : Array.from({ length: Math.max(1, Math.floor(D / 3.2)) }, (_, k) => .8 + k * 3.2)).map(t0 => `tl.fromTo('.sweep',{x:0},{x:${land ? 3400 : 2300},duration:1.6,ease:'power1.inOut',immediateRender:false},${num(t0)});`),
     `tl.fromTo('#cm0',{x:0,y:0,opacity:0},{x:${land ? 3000 : 2000},y:${land ? 900 : 700},opacity:1,duration:1.9,ease:'power2.inOut'},.15);`,
     D > 3 ? `tl.fromTo('#cm1',{x:0,y:0,opacity:0},{x:${land ? 3000 : 2000},y:${land ? -600 : -500},opacity:1,duration:2.1,ease:'power2.inOut'},${num(Math.min(D - 2, D * .55))});` : '',
     media?.file ? `tl.fromTo('#bgmedia',{scale:1.14,x:-30},{scale:1.02,x:30,duration:${D},ease:'none'},0);` : '',
-    envelope?.length ? `(function(){var e=${JSON.stringify(envelope)};for(var k=0;k<e.length;k+=2)tl.to('.halo',{opacity:.55+e[k]*.45,duration:.12},k/15);})();` : '',
+    ...sceneBeats.map((b, k) => `tl.fromTo('.halo',{opacity:1,scale:1.06},{opacity:.62,scale:1,duration:${num(Math.min(.42, beatPeriod * .85))},ease:'power2.out',immediateRender:false},${num(b)});` + (k % 4 === 0 && b > .4 && b < D - .5 ? `tl.fromTo('.flash',{opacity:.07},{opacity:0,duration:.3,immediateRender:false},${num(b)});` : '')),
+    envelope?.length && !sceneBeats.length ? `(function(){var e=${JSON.stringify(envelope)};for(var k=0;k<e.length;k+=2)tl.to('.halo',{opacity:.55+e[k]*.45,duration:.12},k/15);})();` : '',
     ghost && !hero ? `tl.fromTo('.ghost',{xPercent:-46,opacity:0},{xPercent:-54,opacity:1,duration:${D},ease:'none'},0);` : '',
     // Kamera: sürekli itiş + vurgu anlarında kısa sarsıntı
     `tl.fromTo('.camera',{scale:1,y:0,rotation:${land ? -.4 : -.6}},{scale:1.08,y:${land ? -14 : -24},rotation:${land ? .4 : .6},duration:${D},ease:'sine.inOut'},0);`,
@@ -398,7 +410,10 @@ function buildSceneHtml(o) {
     D > 1.2 ? `tl.to('.stage',{x:${land ? -260 : -190},filter:'blur(16px)',opacity:0,duration:.26,ease:'power2.in'},${num(exitAt)});tl.to('.captions',{opacity:0,duration:.2},${num(exitAt)});` : '',
     `tl.set({}, {}, ${D});`
   ].filter(Boolean);
-  return `<!doctype html>
+  // Ses efekti anları (sahne içi sn): konuşmayla senkron vurgular, seyreltilmiş
+  const sfx = [];
+  for (const t of [...hits].sort((a, b) => a - b)) if (t > .35 && t < D - .5 && (!sfx.length || t - sfx[sfx.length - 1].t >= .7) && sfx.length < 4) sfx.push({ t: num(t), kind: 'pop' });
+  const html = `<!doctype html>
 <html lang="tr"><head><meta charset="utf-8"><title>Sahne ${index + 1}</title>
 <style>${baseCss(W, H, accent, second)}</style></head>
 <body>
@@ -415,6 +430,9 @@ window.__timelines = window.__timelines || {}; window.__timelines["root"] = tl;
 </script>
 </body></html>
 `;
+  return { html, sfx };
+}
+function buildSceneHtml(o) { return buildScene(o).html;
 }
 
-module.exports = { FPS, ACCENTS, buildSceneHtml, envelopeFromPcm, snap, frames, esc, parseNumber, makeFinder, captionLayer };
+module.exports = { FPS, ACCENTS, buildScene, buildSceneHtml, envelopeFromPcm, snap, frames, esc, parseNumber, makeFinder, captionLayer };
