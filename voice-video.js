@@ -703,10 +703,18 @@ function register({ ipcMain, app, getWin, loadSettings, providerClient, ffmpeg, 
       source, title: String(opts.title || ''), format: opts.format === 'podcast' ? 'podcast' : 'reels',
       length: opts.length, provider: ['eleven', 'ema'].includes(opts.provider) ? opts.provider : 'gemini', fromUrl: !!opts.fromUrl, theme, designNote: String(opts.designNote || '').slice(0, 600)
     });
+    // Senaryo akışla alınır ve Gemini 3'te düşünce özetleri de akıtılır (includeThoughts; senaryoya
+    // katılmaz). Aksi halde model düşünürken tek bayt göndermiyor; podcast'te bu 60 sn'yi aşıyor ve
+    // bazı ağ cihazları boşta kalan bağlantıyı kesiyor (ECONNRESET). Ölçüm: ilk bayt ~2 sn, en uzun
+    // ara <3 sn. Podcast'te düşünme "medium": aynı uzunluk, daha kısa süre (uzun: 82 sn vs 115 sn).
+    const podcast = opts.format === 'podcast';
+    const attemptMs = podcast ? { short: 120000, long: 240000 }[opts.length] || 180000 : 75000;
     const result = await providerClient.generate({
       key: (settings.geminiKey || '').trim(), chain: settings.geminiModelChain,
-      setAbort: ctrl => { scriptAbort = ctrl; }, isCancelled: () => scriptCancelled,
-      body: model => ({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { responseMimeType: 'application/json', ...(model.startsWith('gemini-2.') ? { temperature: 0.8 } : {}) } })
+      setAbort: ctrl => { scriptAbort = ctrl; }, isCancelled: () => scriptCancelled, attemptMs, timeoutMs: attemptMs * 2 + 30000,
+      stream: true, onText: (chars, thoughts) => send({ phase: 'script', chars, thoughts }),
+      body: model => ({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { responseMimeType: 'application/json',
+        ...(model.startsWith('gemini-2.') ? { temperature: 0.8 } : {}), ...(/^gemini-3/.test(model) ? { thinkingConfig: { includeThoughts: true, ...(podcast ? { thinkingLevel: 'medium' } : {}) } } : {}) } })
     });
     if (result.cancelled || scriptCancelled) return { cancelled: true };
     if (result.error) return { error: result.error };

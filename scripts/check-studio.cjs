@@ -401,6 +401,13 @@ app.whenReady().then(async () => {
   await run(`$('vvThemeClose').click(); $('vvDesignNote').value='Sakin ve ferah olsun, rakamları vurgula'; $('vvDesignNote').dispatchEvent(new Event('input')); $('vvDesignNote').dispatchEvent(new Event('change'))`);
   await run(`$('vvText').value='Bu bir deneme kaynağıdır. '.repeat(4); $('vvText').dispatchEvent(new Event('input')); $('vvScriptBtn').click()`); await delay(400);
   await check('Script appears for review before any voice generation', `$('vvScenes').children.length===2 && !$('vvReview').classList.contains('hidden') && !$('vvProduceBtn').disabled`);
+  await run(`document.querySelector('[data-vv-format="podcast"]').click()`); await delay(100);
+  await check('Switching format after writing the script warns and offers to rewrite it for the new format', `!$('vvFormatWarn').classList.contains('hidden') && $('vvFormatWarnText').textContent.includes('Reels/Shorts için yazıldı') && $('vvFormatRedo').textContent.includes('Podcast için yeniden hazırla')`);
+  const producedBefore = calls.filter(c => c.channel === 'vv-produce').length;
+  await run(`window.__confirm = window.confirm; window.__asked = ''; window.confirm = m => { window.__asked = m; return false; }; $('vvProduceBtn').click()`); await delay(200);
+  await check('Producing with a mismatched script asks first and declining sends nothing', `${calls.filter(c => c.channel === 'vv-produce').length === producedBefore} && window.__asked.includes('Podcast biçiminde üretilsin mi')`);
+  await run(`window.confirm = window.__confirm; document.querySelector('[data-vv-format="reels"]').click()`); await delay(100);
+  await check('Returning to the script format clears the warning', `$('vvFormatWarn').classList.contains('hidden')`);
   await check('Script request carries the chosen theme and the design note', `${(()=>{const d=calls.filter(c=>c.channel==='vv-script').at(-1)?.data;return d?.themeId==='custom-qa1'&&d.designNote.includes('rakamları')&&!('design' in d);})()} && $('vvThemeModal').classList.contains('hidden')`);
   await run(`var card=document.querySelectorAll('#vvScenes .vv-scene')[1]; card.querySelector('.vv-visual').open=true; var sel=[...card.querySelectorAll('.vv-direction select')]; sel[0].value='giant'; sel[0].dispatchEvent(new Event('change')); sel[2].value='cut'; sel[2].dispatchEvent(new Event('change'))`);
   await check('Scene director controls offer variants for the scene type', `(()=>{const card=document.querySelectorAll('#vvScenes .vv-scene')[1];const opts=[...card.querySelector('.vv-direction select').options].map(o=>o.value);return opts.includes('ring')&&opts.includes('giant')&&opts.includes('bar')&&!!card.querySelector('.vv-direction legend');})()`);

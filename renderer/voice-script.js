@@ -210,7 +210,7 @@ KRİTİK: Yalnızca KAYNAK'taki gerçek bilgileri kullan. Kaynakta olmayan özel
 
 BİÇİM: ${reels
     ? `Reels/Shorts. Çok hızlı, yüksek enerjili, vurucu ve kısa. Toplam anlatım ${minS}-${maxS} saniyede okunacak uzunlukta (yaklaşık ${words(minS)}-${words(maxS)} kelime). İlk cümle izleyiciyi yakalayan çarpıcı bir kanca olsun. Detaya boğulma; konunun en can alıcı tek fikrini ver. Net bir eylem çağrısıyla bitir (ör. "Sen ne düşünüyorsun, yorumlara yaz!"). Uzun duraksamalardan kaçın. 5-8 sahne.`
-    : `Podcast. Samimi, derinlemesine, sohbet havasında tek anlatıcı. Toplam anlatım ${minS}-${maxS} saniyede okunacak uzunlukta (yaklaşık ${words(minS)}-${words(maxS)} kelime). Enerjik bir girişle başla, konuyu detaylı incele, artıları ve eksileri tartış, toparlayıcı bir kapanış ve dinleyiciye bir soruyla bitir. Her sahne 15-30 saniyelik anlatım olsun.`}
+    : `Podcast. Samimi, derinlemesine, sohbet havasında tek anlatıcı. Toplam anlatım ${minS}-${maxS} saniyede okunacak uzunlukta (yaklaşık ${words(minS)}-${words(maxS)} kelime). Enerjik bir girişle başla, konuyu detaylı incele, artıları ve eksileri tartış, toparlayıcı bir kapanış ve dinleyiciye bir soruyla bitir. Her sahne 15-30 saniyelik anlatım olsun (${Math.round(minS / 22)}-${Math.round(maxS / 15)} sahne). UZUNLUK ZORUNLU: anlatım EN AZ ${words(minS)} kelime olmalı; kısa kalma. Kaynak kısaysa yeni bilgi uydurma; aynı bilgileri örneklerle, kullanım senaryolarıyla, kimin için uygun olduğuyla ve artı/eksi tartışmasıyla derinleştir.`}
 Kaynakta geçmeyen bir marka, program veya topluluk adı kullanma; kendini bir program adıyla tanıtma.
 
 ${provider === 'ema' ? EMA_RULES : `SESLENDİRME ETİKETLERİ (yalnız bunlar; köşeli ayraç içinde ve İngilizce):

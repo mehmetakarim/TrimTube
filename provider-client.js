@@ -43,6 +43,39 @@ function createProviderClient({ fetchImpl = (...args) => fetch(...args), onAttem
       return { ok: res.ok, status: res.status, body, retryAfter: res.headers?.get('retry-after') };
     } finally { clearTimeout(timer); options.signal?.removeEventListener('abort', relay); }
   }
+  // Akışlı (SSE) istek: yanıt parça parça gelir, bağlantı uzun üretimde boş kalmaz (bazı ağ
+  // cihazları 60 sn boşta kalan bağlantıyı keser). Düşünce parçaları atlanır, metin birleştirilir.
+  async function streamRequest(url, options, ms, onText) {
+    const ctrl = new AbortController();
+    const relay = () => ctrl.abort();
+    if (options.signal?.aborted) ctrl.abort();
+    options.signal?.addEventListener('abort', relay, { once: true });
+    const timer = setTimeout(() => ctrl.abort(), ms);
+    try {
+      const res = await fetchImpl(url, { ...options, signal: ctrl.signal });
+      if (!res.ok) return { ok: false, status: res.status, body: await res.text() };
+      const reader = res.body.getReader(), decoder = new TextDecoder();
+      let buffer = '', text = '', finishReason = '', blocked = false, thoughts = 0;
+      const take = line => {
+        if (!line.startsWith('data:')) return;
+        let d; try { d = JSON.parse(line.slice(5)); } catch { return; }
+        if (d.promptFeedback?.blockReason) blocked = true;
+        const c = d.candidates?.[0];
+        for (const p of c?.content?.parts || []) { if (p.thought) thoughts++; else if (p.text) text += p.text; }
+        if (c?.finishReason) finishReason = c.finishReason;
+        onText?.(text.length, thoughts);
+      };
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let i;
+        while ((i = buffer.indexOf('\n')) >= 0) { take(buffer.slice(0, i).trim()); buffer = buffer.slice(i + 1); }
+      }
+      take(buffer.trim());
+      return { ok: true, status: res.status, text, finishReason, blocked };
+    } finally { clearTimeout(timer); options.signal?.removeEventListener('abort', relay); }
+  }
   async function listModels(key, { signal, refresh = false } = {}) {
     if (!key) throw Error('Gemini API anahtarı boş.');
     const id = fingerprint(key), cached = cache.get(id);
@@ -63,10 +96,11 @@ function createProviderClient({ fetchImpl = (...args) => fetch(...args), onAttem
     }
     throw Error('Gemini model listesi tamamlanamadı.');
   }
-  async function generate({ key, chain, kind = 'text', body, setAbort = () => {}, isCancelled = () => false }) {
+  // Uzun çıktılar (ör. podcast senaryosu) çağrı başına daha uzun süre isteyebilir; varsayılanlar diğer işler için aynı kalır
+  async function generate({ key, chain, kind = 'text', body, setAbort = () => {}, isCancelled = () => false, attemptMs: perAttempt = attemptMs, timeoutMs: total = timeoutMs, stream = false, onText = null }) {
     if (!key) return { error: 'Gemini API anahtarı girilmemiş. Ayarlar → Bağlantılar bölümünden ekleyin.' };
     const ctrl = new AbortController(); setAbort(ctrl);
-    const timer = setTimeout(() => ctrl.abort(), timeoutMs); const attempts = [];
+    const timer = setTimeout(() => ctrl.abort(), total); const attempts = [];
     try {
       if (isCancelled()) return { cancelled: true };
       let models = parseChain(chain);
@@ -81,10 +115,13 @@ function createProviderClient({ fetchImpl = (...args) => fetch(...args), onAttem
         if (isCancelled() || ctrl.signal.aborted) break;
         let result;
         try {
-          result = await request(`${BASE}/models/${model}:generateContent`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key }, signal: ctrl.signal, body: JSON.stringify(typeof body === 'function' ? body(model) : body) });
+          const init = { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key }, signal: ctrl.signal, body: JSON.stringify(typeof body === 'function' ? body(model) : body) };
+          result = stream && kind !== 'tts'
+            ? await streamRequest(`${BASE}/models/${model}:streamGenerateContent?alt=sse`, init, perAttempt, onText)
+            : await request(`${BASE}/models/${model}:generateContent`, init, perAttempt);
         } catch (err) {
           if (isCancelled() || ctrl.signal.aborted) break;
-          if (err.name !== 'AbortError') return { error: 'Gemini bağlantısı kurulamadı. İnternet bağlantısını veya ağ erişimini kontrol edin.', attempts };
+          if (err.name !== 'AbortError') return { error: /ECONNRESET/.test(String(err.cause?.code || err.message)) ? 'Gemini bağlantısı yanıt beklenirken kesildi (ağ cihazı veya güvenlik yazılımı uzun süren bağlantıyı kapatmış olabilir). Tekrar deneyin.' : 'Gemini bağlantısı kurulamadı. İnternet bağlantısını veya ağ erişimini kontrol edin.', attempts };
           const item = { kind, model, status: 0, ok: false, error: 'Model yanıtı zaman aşımına uğradı.' }; attempts.push(item); onAttempt(item); continue;
         }
         const item = { kind, model, status: result.status, ok: result.ok };
@@ -94,6 +131,12 @@ function createProviderClient({ fetchImpl = (...args) => fetch(...args), onAttem
           if (!failure.retry) return { error: failure.error, attempts };
           item.error = failure.error;
           continue;
+        }
+        if (stream && kind !== 'tts') {
+          if (result.blocked || /SAFETY|PROHIBITED_CONTENT/.test(result.finishReason)) return { error: 'İçerik sağlayıcının güvenlik filtresi nedeniyle üretilemedi.', attempts };
+          const text = result.text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+          try { if (text) return { data: JSON.parse(text), model, attempts }; } catch {}
+          return { error: result.finishReason === 'MAX_TOKENS' ? 'Model yanıtı uzunluk sınırına takıldı; daha kısa bir biçim seçin.' : 'Model yanıt verdi ancak beklenen içerik biçimi alınamadı. Metni veya modeli kontrol edin.', model, attempts };
         }
         let data;
         try { data = JSON.parse(result.body); } catch { return { error: 'Gemini yanıtı çözümlenemedi.', attempts }; }

@@ -57,6 +57,35 @@ async function run() {
     let calls=0;const client=createProviderClient({attemptMs:10,fetchImpl:async(url,opts)=>{if(++calls===2)return success();return new Promise((_,reject)=>opts.signal.addEventListener('abort',()=>reject(Object.assign(Error('aborted'),{name:'AbortError'}))));}});
     const r=await client.generate({key:'a',chain:'gemini-a,gemini-b',body:{}});assert.ok(r.data.ok);assert.equal(calls,2);
   });
+  const sse = events => new Response(events.map(e => 'data: ' + JSON.stringify(e) + '\r\n\r\n').join(''), { status: 200 });
+  await test('Streamed generation joins answer text, skips thought summaries and reports progress', async () => {
+    const seen = [], urls = [];
+    const client = createProviderClient({ fetchImpl: async url => { urls.push(url); return sse([
+      { candidates: [{ content: { parts: [{ thought: true, text: 'Planlıyorum…' }] } }] },
+      { candidates: [{ content: { parts: [{ text: '{"scenes":[' }] } }] },
+      { candidates: [{ content: { parts: [{ text: '1,2]}' }] }, finishReason: 'STOP' }] }]); } });
+    const r = await client.generate({ key: 'a', chain: 'gemini-3.8-flash', body: {}, stream: true, onText: (chars, thoughts) => seen.push([chars, thoughts]) });
+    assert.deepEqual(r.data, { scenes: [1, 2] });
+    assert.ok(urls[0].includes(':streamGenerateContent?alt=sse'));
+    assert.deepEqual(seen.at(-1), [16, 1]); assert.equal(seen[0][0], 0, 'thinking is reported before any answer text');
+  });
+  await test('Streamed generation reports safety blocks and truncated answers without retrying', async () => {
+    for (const [events, want] of [[[{ promptFeedback: { blockReason: 'SAFETY' } }], 'güvenlik'], [[{ candidates: [{ content: { parts: [{ text: '{"scenes":[' }] }, finishReason: 'MAX_TOKENS' }] }], 'uzunluk sınırına']]) {
+      let calls = 0; const client = createProviderClient({ fetchImpl: async () => { calls++; return sse(events); } });
+      const r = await client.generate({ key: 'a', chain: 'gemini-a,gemini-b', body: {}, stream: true });
+      assert.ok(r.error.includes(want), r.error); assert.equal(calls, 1);
+    }
+  });
+  await test('Per-call time budget overrides the default model timeout', async () => {
+    const client = createProviderClient({ attemptMs: 10, fetchImpl: async (url, opts) => new Promise((resolve, reject) => {
+      const t = setTimeout(() => resolve(success()), 60); opts.signal.addEventListener('abort', () => { clearTimeout(t); reject(Object.assign(Error('aborted'), { name: 'AbortError' })); }); }) });
+    assert.ok((await client.generate({ key: 'a', chain: 'gemini-a', body: {} })).error, 'default 10 ms budget times out');
+    assert.ok((await client.generate({ key: 'a', chain: 'gemini-a', body: {}, attemptMs: 500, timeoutMs: 1000 })).data.ok, 'longer per-call budget completes');
+  });
+  await test('A connection reset mid-wait explains itself instead of blaming the internet connection', async () => {
+    const client = createProviderClient({ fetchImpl: async () => { throw Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNRESET' } }); } });
+    assert.ok((await client.generate({ key: 'a', chain: 'gemini-a', body: {} })).error.includes('yanıt beklenirken kesildi'));
+  });
   console.log(JSON.stringify({checks},null,2));
 }
 run().catch(error=>{console.error(error);process.exitCode=1;});

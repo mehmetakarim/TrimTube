@@ -51,7 +51,7 @@
     try {
       const d = JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null');
       if (!d?.script?.scenes?.length || !/^[a-z0-9-]{6,48}$/.test(d.projectId || '')) return;
-      state.script = { title: String(d.script.title || ''), scenes: d.script.scenes.map(s => V.normalizeScene(s)) };
+      state.script = { title: String(d.script.title || ''), scenes: d.script.scenes.map(s => V.normalizeScene(s)), ...(['reels', 'podcast'].includes(d.script.format) ? { format: d.script.format, length: ['short', 'medium', 'long'].includes(d.script.length) ? d.script.length : 'medium' } : {}) };
       state.projectId = d.projectId; state.sourceText = d.sourceText || ''; state.sourceTitle = d.sourceTitle || ''; state.fromUrl = !!d.fromUrl;
       state.pageImages = (Array.isArray(d.pageImages) ? d.pageImages : []).filter(p => p && /^https?:\/\//i.test(p.url)).slice(0, 24);
     } catch {}
@@ -209,6 +209,13 @@
     refresh();
   }
   window.api.onVvProgress(p => {
+    if (state.running === 'script' && p.phase === 'script') {
+      // Akışla gelen senaryo: yazılan karakter sayısı (podcast için yaklaşık 6-12 bin)
+      const goal = state.format === 'podcast' ? { short: 5000, medium: 8000, long: 11000 }[state.length] : 5000;
+      if (!p.chars) setProgress(`Gemini senaryoyu planlıyor…${p.thoughts ? ` (${p.thoughts}. adım)` : ''}`, Math.min(40, 25 + p.thoughts));
+      else setProgress(`Senaryo yazılıyor (Gemini)… ${p.chars.toLocaleString('tr-TR')} karakter`, Math.min(95, 40 + 55 * p.chars / goal));
+      return;
+    }
     if (state.running !== 'produce') return;
     const base = { tts: 0, align: 25, media: 32, engine: 40, render: 45, assemble: 97 }[p.phase] ?? 0;
     const span = { tts: 25, align: 7, media: 8, engine: 5, render: 52, assemble: 3 }[p.phase] ?? 0;
@@ -223,6 +230,15 @@
     return missing;
   }
   const productionKey = () => JSON.stringify([state.script, state.format, state.wave, state.tts, $('vvVoice').value, state.theme, state.media, state.captions, state.format === 'reels' && state.safeArea, state.sfx, state.music]);
+  // Senaryo hangi biçim (ve podcast uzunluğu) için yazıldı? Seçim sonradan değişirse uyarılır
+  const FORMAT_NAMES = { reels: 'Reels/Shorts', podcast: 'Podcast' }, LENGTH_NAMES = { short: 'kısa', medium: 'orta', long: 'uzun' };
+  function scriptMismatch() {
+    const s = state.script;
+    if (!s?.format) return null;
+    if (s.format !== state.format) return `Bu senaryo ${FORMAT_NAMES[s.format]} için yazıldı; seçili biçim ${FORMAT_NAMES[state.format]}.`;
+    if (s.format === 'podcast' && s.length !== state.length) return `Bu senaryo ${LENGTH_NAMES[s.length]} podcast için yazıldı; seçili uzunluk ${LENGTH_NAMES[state.length]}.`;
+    return null;
+  }
   function refresh() {
     const missing = keysMissing();
     $('vvKeyWarn').classList.toggle('hidden', !missing.length);
@@ -234,6 +250,11 @@
     $('vvScriptBtn').classList.toggle('btn-primary', !state.script); $('vvScriptBtn').classList.toggle('btn-ghost', !!state.script);
     const hasScript = !!state.script?.scenes?.length;
     $('vvReview').classList.toggle('hidden', !hasScript);
+    const mismatch = hasScript ? scriptMismatch() : null;
+    $('vvFormatWarn').classList.toggle('hidden', !mismatch);
+    $('vvFormatWarnText').textContent = mismatch || '';
+    $('vvFormatRedo').textContent = `Metni ${FORMAT_NAMES[state.format]} için yeniden hazırla`;
+    $('vvFormatRedo').disabled = busy || $('vvScriptBtn').disabled;
     $('vvScriptEmpty').classList.toggle('hidden', hasScript);
     $('vvStage').classList.toggle('has-video', !!state.result);
     const step = state.result ? 3 : hasScript ? 2 : 1;
@@ -253,6 +274,7 @@
             : 'Önce metin hazırlanır; onayladığında seslendirilir ve video üretilir.';
   }
   $('vvText').addEventListener('input', refresh);
+  $('vvFormatRedo').addEventListener('click', () => $('vvScriptBtn').click());
   $('vvUrl').addEventListener('input', refresh);
   $('vvGoSettings').addEventListener('click', () => switchView('settings'));
 
@@ -496,11 +518,11 @@
         if (page.error) { showError(page.error); return; }
         source = page.text; title = page.title; fromUrl = true; images = page.images || [];
       }
-      setProgress('Senaryo yazılıyor (Gemini)…', fromUrl ? 45 : 25);
+      setProgress(state.format === 'podcast' ? 'Senaryo yazılıyor (Gemini)… podcast senaryosu 1-2 dakika sürebilir' : 'Senaryo yazılıyor (Gemini)…', fromUrl ? 30 : 25);
       const r = await window.api.vvScript({ source, title, format: state.format, length: state.length, provider: state.tts, themeId: state.themeId, designNote: state.designNote, fromUrl, images });
       if (r.cancelled) return;
       if (r.error) { showError(r.error); return; }
-      state.script = r.script; state.sourceText = source; state.sourceTitle = title; state.fromUrl = fromUrl; state.pageImages = images;
+      state.script = { ...r.script, format: state.format, length: state.length }; state.sourceText = source; state.sourceTitle = title; state.fromUrl = fromUrl; state.pageImages = images;
       state.projectId = `vv-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
       state.result = null; state.producedKey = null; $('vvPreview').removeAttribute('src');
       renderScenes(); saveDraft();
@@ -513,6 +535,9 @@
     .map((seg, i) => i === 0 && /^[A-Za-z]:$/.test(seg) ? seg : encodeURIComponent(seg)).join('/').replace(/^\/+/, '');
   $('vvProduceBtn').addEventListener('click', async () => {
     if (state.running || !state.script) return;
+    const mismatch = scriptMismatch();
+    if (mismatch && !confirm(`${mismatch}
+Video bu senaryoyla ${FORMAT_NAMES[state.format]} biçiminde üretilsin mi? (Uygun metin için önce "Metni yeniden hazırla".)`)) return;
     const empty = state.script.scenes.findIndex(s => !V.plainText(s.narration));
     if (empty >= 0) { showError(`Sahne ${empty + 1} için seslendirilecek metin yok.`); return; }
     showError(''); setRunning('produce'); setProgress('Başlatılıyor…', 1);

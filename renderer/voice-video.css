@@ -238,3 +238,7 @@
 .vv-media-preview.cut img { object-fit: contain; }
 .vv-cut-row { margin-top: 4px; flex-wrap: wrap; }
 .vv-theme-tools { display: flex; gap: 6px; }
+
+/* Senaryo başka bir biçim için yazılmışsa uyarı */
+.vv-format-warn { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 12px; border: 1px solid #f5a524; border-radius: 10px; background: rgba(245, 165, 36, .12); font-size: 12.5px; color: var(--text); }
+.vv-format-warn span { flex: 1 1 220px; }

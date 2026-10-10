@@ -1,5 +1,15 @@
 # TrimTube Geliştirme Günlüğü
 
+## 11 Ekim 2026 — Podcast senaryosu bağlantı kesilmesi + biçim uyuşmazlığı (yayımlanmadı)
+
+Saha: podcast seçiliyken "Metni hazırla" Gemini hatasına düşüyor, Reels'te sorun yok; Reels metniyle podcast üretmek de anlamsız video çıkarıyor.
+- **Teşhis (gerçek API, kullanıcının makinesi):** sağlayıcı istemcisi model başına 40 sn veriyordu → podcast 3.8 ve 3.7'de zaman aşımı. Süre uzatılınca bu kez tam 60. sn'de `ECONNRESET`: ağ yolunda bir cihaz/yazılım 60 sn boyunca bayt akmayan bağlantıyı kesiyor. Akışlı (SSE) istek de yetmedi: Gemini 3 varsayılan düşünmede ilk baytı (başlık dahil) düşünme bitene kadar göndermiyor (>60 sn).
+- **Çözüm:** `generate({stream:true})` (`:streamGenerateContent?alt=sse`) + `thinkingConfig.includeThoughts` — model düşünce özetlerini akıtır (senaryoya katılmaz), ilk bayt ~2 sn, en uzun ara <3 sn; high düşünme bile 115 sn'de tamam. Podcast'te `thinkingLevel: medium` (aynı uzunluk, daha kısa). Çağrı başına süre (`attemptMs`/`timeoutMs`): podcast kısa 120 / orta 180 / uzun 240 sn, Reels 75 sn. ECONNRESET artık "yanıt beklenirken kesildi" diye açıklanır. Arayüz "Gemini senaryoyu planlıyor… / N karakter" gösterir.
+- Podcast anlatımı hedefin altında kalıyordu (orta ~2,5 dk) → istemde "UZUNLUK ZORUNLU: en az N kelime" + sahne sayısı aralığı; kaynak kısaysa uydurmadan derinleştirme. Canlı ölçüm (aynı 4,3 bin karakterlik sayfa): Reels ~47 sn, kısa ~81 sn, orta ~179 sn, uzun ~305 sn anlatım (uzun hedefin biraz altında).
+- **Biçim uyuşmazlığı:** senaryo yazıldığı biçim/uzunluğu taşır (taslakta da); seçim değişince uyarı + "Metni X için yeniden hazırla"; uyuşmazken üretim onay ister.
+- **TUZAK (ölçüm betiği):** ilk bozuk ölçüm süreci (varsayılan userData) arkada açık kalınca sonraki Electron denemelerinin bir kısmı sessizce başlamadı; ayrıca URL + JSON yolu argümanlarıyla Electron başlamadan çıkıyordu → argümanlar dosyadan okundu.
+- Testler: sağlayıcı +4 (akış birleştirme/düşünce atlama, güvenlik/MAX_TOKENS, çağrı başına süre, ECONNRESET mesajı), 156 arayüz.
+
 ## v1.25.0 — 10 Ekim 2026, yayımlandı
 
 Release: https://github.com/mehmetakarim/TrimTube/releases/tag/v1.25.0 — etiket commit `86eebdf`, Actions `38005829701` (4 regresyon + 3 derleme, 10 dosya, latest). Kurulumlar: Windows 331 MB (v1.24.0: 292), macOS dmg 343 (298), Linux deb 356 (311) — EMA ~+40–45 MB.
