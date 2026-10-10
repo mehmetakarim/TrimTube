@@ -1,6 +1,11 @@
 # TrimTube Geliştirme Günlüğü
 
-## 10 Ekim 2026 — EMA Lightning: PyTorch'suz yerel Türkçe seslendirme (yayımlanmadı)
+## v1.25.0 — 10 Ekim 2026, yayımlandı
+
+Release: https://github.com/mehmetakarim/TrimTube/releases/tag/v1.25.0 — etiket commit `86eebdf`, Actions `38005829701` (4 regresyon + 3 derleme, 10 dosya, latest). Kurulumlar: Windows 331 MB (v1.24.0: 292), macOS dmg 343 (298), Linux deb 356 (311) — EMA ~+40–45 MB.
+- **TUZAK (paketleme):** platform bölümlerine (`win/mac/linux`) yazılan `files` listesi ana listeye EKLENMEZ; varsayılan "**/*" ile ikinci dosya kümesi açar → Linux/macOS'ta aynı dosya iki kez kopyalanıp `EEXIST`, Windows'ta tüm dışlamalar boşa düşüp kurulum 565 MB. Desenlerdeki `${platform}` makrosu da derleme makinesine göre açılıyor. Çözüm: dışlamalar yalnız ana listede; hedef dışı ONNX Runtime ikilileri `scripts/after-pack.js` (afterPack, `electronPlatformName`/`arch`) ile silinir, model/çalışma zamanı yoksa derleme düşer. **Ders:** yerel `--dir` denemesinde `resources/app` içeriğine de bak. İlk deneme (Actions `38004676326`) yayımlanmadan taslağı ve etiketi silindi.
+
+## 10 Ekim 2026 — EMA Lightning: PyTorch'suz yerel Türkçe seslendirme
 
 Kullanıcı kararı "PyTorch kurulumla gelsin" idi; ölçüm sonrası (PyTorch Windows'ta kurulunca 546 MB, ayrıca gömülü Python gerekir → kurulum ~450–500 MB) ONNX yolu önerildi ve seçildi.
 - **ONNX:** model üç grafiğe çevrildi (`ema_text` 4,8 MB, `ema_sound` 18,1 MB, `ema_decoder` 12,0 MB); PyTorch farkı h 7e-7, latent 1,7e-4, ses 7e-7. **TUZAK:** opset 17 eski dışa aktarıcıda `expm1` yok → `exp(x)-1`. Araç: `tools/ema/export_onnx.py` (Hugging Face resmi ağırlıkları, değiştirilmeden).
@@ -10,7 +15,7 @@ Kullanıcı kararı "PyTorch kurulumla gelsin" idi; ölçüm sonrası (PyTorch W
 - **Paket:** platform başına yalnız kendi ORT ikilisi (Windows 29 MB, DirectML'siz çalıştığı doğrulandı; mac'te yalnız `libonnxruntime.1.dylib` — eklenti onu bağlıyor; Linux'ta CUDA indirmesi `.npmrc` `onnxruntime-node-install=skip` ile kapalı) + `resources/ema` 35 MB → kurulum ~+64 MB. Modeller git'te yok: `ema-models-1` ön sürüm release eki (latest değil), `scripts/fetch-ema.js` SHA-256 ile indirir; `fetch:*` ve regresyon entegrasyonu çağırır. Paketlenmiş Windows uygulamasından ses üretildi.
 - Testler: 25 anlatımlı video (+EMA birim; uçtan uca: API çağrısı yok, Whisper uyarısı yok, etiket değişikliği önbelleği bozmaz), 153 arayüz.
 
-## 10 Ekim 2026 — Prompttan tema: gerçek Gemini testi (yayımlanmadı)
+## 10 Ekim 2026 — Prompttan tema: gerçek Gemini testi
 
 Kullanıcının kapak tarifi (analog kolaj, #F9B233) gerçek Gemini 3.8 Flash ile 8 kez denendi (uygulamanın `vv-theme-from-prompt` yolu; anahtar şifreli ayarların kopyasından çözüldü, gerçek ayar dosyasına yazılmadı). Süre 8–18 sn.
 - İlk turda tarife sadık (kâğıt zemin, kömür yazı, bant çerçeve, yırtık kâğıt/ok/halftone) ama: geçiş hep `cut` (whoosh yok, sert), örnek görsel eklenince ana renk görselden örneklenen #F5AF00'a kaydı, etiket tarifteki değişken içerik türünden ("KARŞILAŞTIRMA") alındı.

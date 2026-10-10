@@ -1,11 +1,11 @@
 # TrimTube geliştirme planı
 
-## 10 Ekim 2026 — EMA Lightning yerel seslendirme (yayımlanmadı)
+## 10 Ekim 2026 — v1.25.0: EMA Lightning yerel seslendirme (yayımlandı)
 
 - ONNX'e çevrilmiş model + WASM normalleştirici, onnxruntime-node; Python/PyTorch yok. Modeller `ema-models-1` release ekinden derlemede indirilir.
 - Sırada: EMA'yı diğer ekranlara eklemek, v1.25.0.
 
-## 10 Ekim 2026 — Prompttan tema iyileştirmesi (yayımlanmadı)
+## 10 Ekim 2026 — Prompttan tema iyileştirmesi (v1.25.0)
 
 - Gerçek Gemini testleri: marka hex'i sabitlenir, geçiş/enerji anlamları istemde, değişken alanlar temaya yazılmaz; açık temalarda gri leke düzeltmesi.
 - Sırada: EMA Lightning (paketleme kararı), v1.24.1/v1.25.0.

@@ -134,7 +134,7 @@ Saha geri bildirimi: 3 dk'lık klip ~350MB çıkabiliyor (donanım kodlayıcı b
 - [x] Reels/Shorts/TikTok **güvenli alan** (varsayılan açık, önizleme kılavuzu), görsel + içeriğin birlikte dikey ortalanması, taşma koruması, boş kare kalmaması (yapı ilk saniyede, vurgu konuşmayla) — v1.23.0
 - [x] **Arka plan kaldırma**: sahne görselinde tek tıkla (yerel ISNet modeli, ilk kullanımda indirilir), anında önizleme; ürün kartsız ve gölgeli yerleşir — v1.24.0
 - [x] Tema **dışa/içe aktarma** (.trimtube-theme, logolar gömülü) — yeniden kurulumda temalar korunur — v1.24.0
-- [x] **EMA Lightning** yerel, ücretsiz Türkçe TTS — Anlatımlı Video'da "Yerel (EMA)"; PyTorch'suz (ONNX + WebAssembly normalleştirici), kurulumla gelir (~+64 MB) — geliştirme dalında
+- [x] **EMA Lightning** yerel, ücretsiz Türkçe TTS — Anlatımlı Video'da "Yerel (EMA)"; PyTorch'suz (ONNX + WebAssembly normalleştirici), kurulumla gelir (~+40–45 MB) — v1.25.0
 - [ ] EMA'yı diğer ekranlara (Hikâye Kurgusu vb.) genel seslendirme seçeneği olarak eklemek
 
 ### Bilinçli olarak kapsam dışı
