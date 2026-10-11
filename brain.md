@@ -1,6 +1,10 @@
 # TrimTube Geliştirme Günlüğü
 
-## 11 Ekim 2026 — Podcast senaryosu bağlantı kesilmesi + biçim uyuşmazlığı (yayımlanmadı)
+## v1.25.1 — 11 Ekim 2026, yayımlandı
+
+Release: https://github.com/mehmetakarim/TrimTube/releases/tag/v1.25.1 — etiket commit `e882d47`, Actions `38096722771` (4 regresyon + 3 derleme, 10 dosya, latest).
+
+## 11 Ekim 2026 — Podcast senaryosu bağlantı kesilmesi + biçim uyuşmazlığı
 
 Saha: podcast seçiliyken "Metni hazırla" Gemini hatasına düşüyor, Reels'te sorun yok; Reels metniyle podcast üretmek de anlamsız video çıkarıyor.
 - **Teşhis (gerçek API, kullanıcının makinesi):** sağlayıcı istemcisi model başına 40 sn veriyordu → podcast 3.8 ve 3.7'de zaman aşımı. Süre uzatılınca bu kez tam 60. sn'de `ECONNRESET`: ağ yolunda bir cihaz/yazılım 60 sn boyunca bayt akmayan bağlantıyı kesiyor. Akışlı (SSE) istek de yetmedi: Gemini 3 varsayılan düşünmede ilk baytı (başlık dahil) düşünme bitene kadar göndermiyor (>60 sn).
